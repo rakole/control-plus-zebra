@@ -5,33 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-05-23)
 
 **Core value:** Agent Workbench must truthfully classify local coding-agent runs from normalized evidence, not harness-specific assumptions.
-**Current focus:** Phase 1 - Architecture Contracts and Fixture Proof
+**Current focus:** Phase 2 - Secure Desktop Shell and View-Model Bridge
 
 ## Current Position
 
-Phase: 1 of 8 (Architecture Contracts and Fixture Proof)
-Plan: 01-02 complete; 2 plans remaining in current phase
-Status: In progress; Wave 3 ready to execute
-Last activity: 2026-05-23 - Executed 01-02 fake adapter, registry, and smoke proof
+Phase: 2 of 8 (Secure Desktop Shell and View-Model Bridge)
+Plan: Phase 1 complete; Phase 2 planning/execution not started
+Status: Phase 1 complete; ready to begin Phase 2
+Last activity: 2026-05-23 - Completed all 4 Phase 1 plans with full verification passing
 
-Progress: [█████-----] 50%
+Progress: [█---------] 13%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
+- Total plans completed: 4
 - Average duration: 3 min
-- Total execution time: 6 min
+- Total execution time: 13 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1. Architecture Contracts and Fixture Proof | 2/4 | 6 min | 3 min |
+| 1. Architecture Contracts and Fixture Proof | 4/4 | 13 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01, 01-02
-- Trend: Wave 2 proof complete; contract/golden and boundary plans remain
+- Last 5 plans: 01-01, 01-02, 01-03, 01-04
+- Trend: Phase 1 complete; shared contracts, fake adapter proof, regression tests, and guardrails are all green
 
 *Updated after each plan completion*
 
@@ -57,11 +57,13 @@ Recent decisions affecting current work:
 - Phase 1 execution: Bundled adapters register only through composition-root registry surfaces, not shared model or diagnostics modules.
 - Phase 1 execution: Malformed fake fixtures become diagnostics and empty normalized slices instead of inferred success or silent coercion.
 - Phase 1 execution: The fake proof fixture stays intentionally non-Gemini-shaped while still covering messages, tool calls, shell evidence, artifacts, and file mutations.
+- Phase 1 execution: Future adapters reuse a shared Vitest contract harness plus stable golden artifacts instead of bespoke assertion stacks.
+- Phase 1 execution: Boundary enforcement allows adapter imports only through the bundled registry composition root and blocks shared `Gemini*` leakage or conclusion-field drift.
 
 ### Pending Todos
 
-- Execute `01-03` reusable contract/golden/truth-rule tests.
-- Execute `01-04` lint, import-boundary, and shared naming guardrails.
+- Plan and execute Phase 2 secure desktop shell, preload bridge, and IPC-safe view-model surface.
+- Gather the real Gemini fixture corpus before Phase 4 adapter implementation begins.
 
 ### Blockers/Concerns
 
@@ -81,5 +83,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-23
-Stopped at: 01-02 complete; Wave 3 ready
-Resume file: .planning/phases/01-architecture-contracts-and-fixture-proof/01-03-PLAN.md
+Stopped at: Phase 1 complete; Phase 2 not started
+Resume file: .planning/ROADMAP.md

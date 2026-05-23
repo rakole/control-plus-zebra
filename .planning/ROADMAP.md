@@ -12,7 +12,7 @@ Agent Workbench starts by proving the harness-neutral contract with a fake adapt
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Architecture Contracts and Fixture Proof** - Prove harness neutrality with shared contracts, fake adapter, and boundary tests.
+- [x] **Phase 1: Architecture Contracts and Fixture Proof** - Prove harness neutrality with shared contracts, fake adapter, and boundary tests.
 - [ ] **Phase 2: Secure Desktop Shell and View-Model Bridge** - Create the Electron/Vite/React shell with safe IPC and local-only security defaults.
 - [ ] **Phase 3: Source Registry, Scanner, Cache, and Data Sources UI** - Let users configure sources and run shared ingestion through a safe cache pipeline.
 - [ ] **Phase 4: Gemini CLI Adapter End-to-End** - Parse Gemini fixtures into the same normalized flow as the fake adapter.
@@ -42,8 +42,8 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 - [x] 01-02: Implement adapter contract, registry, and fake adapter fixture.
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 01-03: Add contract and golden normalization tests for adapter outputs.
-- [ ] 01-04: Add import-boundary enforcement for core, renderer, and adapters.
+- [x] 01-03: Add contract and golden normalization tests for adapter outputs.
+- [x] 01-04: Add import-boundary enforcement for core, renderer, and adapters.
 
 Cross-cutting constraints:
 - Shared surfaces stay harness-neutral: no shared `Gemini*` types, imports, or behavior branches leak outside adapter-private code.
@@ -189,7 +189,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Architecture Contracts and Fixture Proof | 2/4 | In progress | - |
+| 1. Architecture Contracts and Fixture Proof | 4/4 | Complete | 2026-05-23 |
 | 2. Secure Desktop Shell and View-Model Bridge | 0/4 | Not started | - |
 | 3. Source Registry, Scanner, Cache, and Data Sources UI | 0/4 | Not started | - |
 | 4. Gemini CLI Adapter End-to-End | 0/4 | Not started | - |
