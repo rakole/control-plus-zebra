@@ -37,10 +37,17 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 4 plans
 
 Plans:
+**Wave 1**
 - [ ] 01-01: Define normalized model, capabilities, diagnostics, IDs, and confidence contracts.
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 01-02: Implement adapter contract, registry, and fake adapter fixture.
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 01-03: Add contract and golden normalization tests for adapter outputs.
 - [ ] 01-04: Add import-boundary enforcement for core, renderer, and adapters.
+
+Cross-cutting constraints:
+- Shared surfaces stay harness-neutral: no shared `Gemini*` types, imports, or behavior branches leak outside adapter-private code.
+- Adapters emit evidence and diagnostics only; verification and run-audit conclusions remain shared-core responsibilities.
 
 ### Phase 2: Secure Desktop Shell and View-Model Bridge
 **Goal:** User can open a local Electron desktop app shell that communicates through a narrow typed preload bridge and cannot access unsafe Electron, filesystem, or shell APIs from the renderer.
@@ -182,7 +189,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Architecture Contracts and Fixture Proof | 0/4 | Not started | - |
+| 1. Architecture Contracts and Fixture Proof | 0/4 | Planned | - |
 | 2. Secure Desktop Shell and View-Model Bridge | 0/4 | Not started | - |
 | 3. Source Registry, Scanner, Cache, and Data Sources UI | 0/4 | Not started | - |
 | 4. Gemini CLI Adapter End-to-End | 0/4 | Not started | - |
