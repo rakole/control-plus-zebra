@@ -21,6 +21,7 @@ const sharedRoots = [
   path.join(repoRoot, "src", "renderer")
 ];
 const adapterContractRoot = path.join(repoRoot, "src", "main", "core", "adapter-contract");
+const sharedEntityRoot = path.join(repoRoot, "src", "main", "core", "model");
 
 describe("shared naming boundaries", () => {
   it("keeps shared core and renderer free of Gemini-specific symbols and provider branches", async () => {
@@ -57,7 +58,7 @@ describe("shared naming boundaries", () => {
   });
 
   it("keeps adapter-facing shared contracts free of verification and audit conclusion fields", async () => {
-    const sources = await loadTypeScriptSources([adapterContractRoot]);
+    const sources = await loadTypeScriptSources([adapterContractRoot, sharedEntityRoot]);
 
     expect(findConclusionFieldViolations(sources)).toEqual([]);
   });

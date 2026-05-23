@@ -1,3 +1,6 @@
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { geminiCliAdapter } from "../../../src/main/adapters/gemini-cli/index.js";
@@ -5,8 +8,10 @@ import { geminiCliAdapter } from "../../../src/main/adapters/gemini-cli/index.js
 import { collectAsync, exerciseAdapter } from "../../contract/run-adapter-contract.js";
 
 import {
+  cleanupTempGeminiFixtureRoot,
   collectGeminiArtifacts,
   createGeminiAdapterContext,
+  createTempGeminiFixtureRoot,
   geminiFixtureRoot,
   requireGeminiSource
 } from "./test-helpers.js";
@@ -110,5 +115,58 @@ describe("gemini-cli normalization", () => {
     expect(normalized.shellCommands[0]).toMatchObject({
       command: "npm run test -- tests/main/core/scanner-cache.test.ts"
     });
+  });
+
+  it("omits blank tool output summaries so cache persistence accepts live Gemini sessions", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const chatPath = path.join(
+        rootPath,
+        "alpha-project",
+        "chats",
+        "session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+      );
+      const sourceText = await readFile(chatPath, "utf8");
+
+      await writeFile(
+        chatPath,
+        sourceText.replace('"resultDisplay":"Read contract types"', '"resultDisplay":""'),
+        "utf8"
+      );
+
+      const alphaSource = await requireGeminiSource(rootPath, "alpha-project");
+      const artifacts = await collectGeminiArtifacts(alphaSource);
+      const rawEvents = (
+        await Promise.all(
+          artifacts.map((artifact) =>
+            collectAsync(
+              geminiCliAdapter.parseArtifact(
+                artifact,
+                createGeminiAdapterContext(alphaSource.rootPath)
+              )
+            )
+          )
+        )
+      ).flat();
+      const normalized = await geminiCliAdapter.normalize(
+        {
+          source: alphaSource,
+          artifacts,
+          rawEvents
+        },
+        createGeminiAdapterContext(alphaSource.rootPath)
+      );
+      const toolCall = normalized.toolCalls.find(
+        (candidate) => candidate.nativeId === "read_file_1700000000000_0"
+      );
+
+      expect(toolCall).toMatchObject({
+        toolName: "read_file"
+      });
+      expect(toolCall?.outputSummary).toBeUndefined();
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
   });
 });

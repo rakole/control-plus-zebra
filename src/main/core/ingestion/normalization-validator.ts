@@ -184,6 +184,45 @@ function validateRelationships(result: AdapterNormalizationResult) {
         )
       );
     }
+
+    if (shellCommand.toolCallId && !toolCallIds.has(shellCommand.toolCallId)) {
+      diagnostics.push(
+        buildDiagnostic(
+          result.adapterId,
+          "normalization.shell-command-missing-tool-call",
+          "A normalized shell command referenced a missing tool call.",
+          "error",
+          "shell-command",
+          HIGH_CONFIDENCE,
+          {
+            sourceId: result.sourceId,
+            nativeId: shellCommand.id,
+            relatedEntityIds: [shellCommand.id, shellCommand.toolCallId]
+          }
+        )
+      );
+    }
+
+    if (
+      shellCommand.artifactIds &&
+      !shellCommand.artifactIds.every((artifactId) => outputArtifactIds.has(artifactId))
+    ) {
+      diagnostics.push(
+        buildDiagnostic(
+          result.adapterId,
+          "normalization.shell-command-missing-output-artifact",
+          "A normalized shell command referenced a missing output artifact.",
+          "error",
+          "shell-command",
+          HIGH_CONFIDENCE,
+          {
+            sourceId: result.sourceId,
+            nativeId: shellCommand.id,
+            relatedEntityIds: [shellCommand.id, ...(shellCommand.artifactIds ?? [])]
+          }
+        )
+      );
+    }
   }
 
   for (const artifact of result.outputArtifacts) {
@@ -320,4 +359,3 @@ function validateRelationships(result: AdapterNormalizationResult) {
 
   return diagnostics;
 }
-

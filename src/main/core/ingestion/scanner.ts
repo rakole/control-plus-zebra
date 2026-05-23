@@ -12,6 +12,7 @@ import { createCacheKey } from "../cache/cache-keys.js";
 import { buildDiagnostic } from "../diagnostics/diagnostic.js";
 import { HIGH_CONFIDENCE } from "../model/confidence.js";
 import { createSourceId } from "../model/identifiers.js";
+import type { Diagnostic } from "../diagnostics/diagnostic.js";
 import { createSafeFilesystem, type SafeFilesystem } from "../security/safe-filesystem.js";
 import type { RawArtifactIndex } from "./raw-artifact-index.js";
 import { createRawArtifactIndexEntries, fingerprintEntries, RAW_ARTIFACT_SCHEMA_VERSION } from "./raw-artifact-index.js";
@@ -20,6 +21,10 @@ import { mergeNormalizedResults } from "./session-merger.js";
 import type { AdapterRegistry } from "../registry/adapter-registry.js";
 import type { SourceRecord, SourceRegistry } from "../registry/source-registry.js";
 import type { WatchOrchestrator } from "../watcher/watch-orchestrator.js";
+import { parseShellCommandEvidence } from "../shell/shell-command-parser.js";
+import type { LoadedArtifactDiagnostics } from "../shell/types.js";
+import { deriveVerificationForSession } from "../verification/verification-classifier.js";
+import { deriveRunAuditForSession } from "../audit/run-audit-engine.js";
 
 export interface ScannerOptions {
   adapterRegistry: AdapterRegistry;
@@ -187,15 +192,248 @@ export class Scanner {
       diagnostics: source.diagnostics
     });
 
-    const discoveredSources = await collectAsync(
-      adapter.discoverSources(configuredRoot, validationContext)
-    );
+    try {
+      const discoveredSources = await collectAsync(
+        adapter.discoverSources(configuredRoot, validationContext)
+      );
 
-    if (discoveredSources.length === 0) {
-      const missingSourceDiagnostic = buildDiagnostic(
+      if (discoveredSources.length === 0) {
+        const missingSourceDiagnostic = buildDiagnostic(
+          adapter.descriptor.id,
+          "scanner.source.missing",
+          "The adapter did not discover any sources for the configured root.",
+          "error",
+          "source",
+          HIGH_CONFIDENCE,
+          {
+            sourceId: source.sourceId,
+            nativeId: source.rootPath
+          }
+        );
+        const nextSource = await this.#sourceRegistry.saveScanSummary(source.sourceId, {
+          status: "scan-failed",
+          diagnostics: [missingSourceDiagnostic]
+        });
+
+        await this.#sourceRegistry.saveCacheSummary(source.sourceId, {
+          status: "unknown",
+          diagnostics: [missingSourceDiagnostic]
+        });
+
+        return {
+          source: nextSource
+        };
+      }
+
+      const normalizedResults = [];
+      let scanDiagnostics = [...source.validation.diagnostics];
+      let totalArtifacts = 0;
+      let totalSessions = 0;
+      let cacheRecord: NormalizedCacheRecord | undefined;
+
+      for (const discoveredSource of discoveredSources) {
+        const discoveryContext = this.createContext({
+          allowedRootPaths: [discoveredSource.rootPath]
+        });
+        const artifacts = await collectAsync(
+          adapter.discoverArtifacts(discoveredSource, discoveryContext)
+        );
+        totalArtifacts += artifacts.length;
+        const artifactPaths = artifacts.flatMap((artifact) => (artifact.path ? [artifact.path] : []));
+        const parseContext = this.createContext({
+          allowedArtifactPaths: artifactPaths,
+          allowedRootPaths: [discoveredSource.rootPath]
+        });
+        const artifactsWithMetadata: RawArtifactRef[] = await Promise.all(
+          artifacts.map(async (artifact) => {
+            if (!artifact.path) {
+              return artifact;
+            }
+
+            const fileStat = await parseContext.safeFilesystem.statPath(artifact.path);
+
+            return applySafeArtifactMetadata(artifact, fileStat);
+          })
+        );
+        const rawEvents = await collectRawEvents(adapter, artifactsWithMetadata, parseContext);
+        const normalized = await adapter.normalize(
+          {
+            source: discoveredSource,
+            artifacts: artifactsWithMetadata,
+            rawEvents
+          },
+          parseContext
+        );
+        const validation = validateNormalizedResult(normalized);
+
+        if (!validation.ok) {
+          scanDiagnostics = [...scanDiagnostics, ...validation.diagnostics];
+          continue;
+        }
+
+        const watchRecord = await this.#watchOrchestrator.planForSource(
+          adapter,
+          discoveredSource,
+          parseContext
+        );
+
+        await this.#sourceRegistry.saveWatchSummary(source.sourceId, {
+          status: watchRecord.status,
+          ...(watchRecord.reason ? { reason: watchRecord.reason } : {}),
+          strategy: watchRecord.strategy
+        });
+
+        const shellDerivation = await deriveShellSessions({
+          adapter,
+          context: parseContext,
+          normalized
+        });
+        const normalizedWithDerivedDiagnostics = {
+          ...normalized,
+          diagnostics: dedupeDiagnostics([
+            ...normalized.diagnostics,
+            ...shellDerivation.diagnostics
+          ])
+        };
+        const indexDiagnosticsHash = createDiagnosticsHash(normalizedWithDerivedDiagnostics.diagnostics);
+        const indexEntries = createRawArtifactIndexEntries({
+          adapterVersion: adapter.descriptor.adapterVersion,
+          artifacts: artifactsWithMetadata,
+          diagnosticsHash: indexDiagnosticsHash,
+          parserVersion: adapter.descriptor.parserVersion ?? adapter.descriptor.adapterVersion,
+          schemaVersion: RAW_ARTIFACT_SCHEMA_VERSION
+        });
+
+        await this.#rawArtifactIndex.replaceSourceEntries(source.sourceId, indexEntries);
+
+        const artifactFingerprint = fingerprintEntries(indexEntries);
+        const cacheKey = createCacheKey({
+          adapterId: normalized.adapterId,
+          sourceId: normalized.sourceId,
+          adapterVersion: adapter.descriptor.adapterVersion,
+          parserVersion: adapter.descriptor.parserVersion ?? adapter.descriptor.adapterVersion,
+          schemaVersion: NORMALIZATION_SCHEMA_VERSION,
+          diagnosticsHash: indexDiagnosticsHash,
+          artifacts: indexEntries
+        });
+        const now = new Date().toISOString();
+
+      const derivedSessions = shellDerivation.sessions.map((sessionDerivation) => {
+        const session = normalizedWithDerivedDiagnostics.sessions.find(
+          (candidate) => candidate.id === sessionDerivation.sessionId
+        );
+
+        if (!session) {
+          throw new Error(`Expected derived shell session '${sessionDerivation.sessionId}' to exist.`);
+        }
+
+        const sessionCapabilities = normalizedWithDerivedDiagnostics.capabilities.sessions.find(
+          (candidate) => candidate.sessionId === session.id
+        );
+
+        const sessionEvents = normalizedWithDerivedDiagnostics.events.filter(
+          (event) => event.sessionId === session.id
+        );
+        const sessionMessages = normalizedWithDerivedDiagnostics.messages.filter(
+          (message) => message.sessionId === session.id
+        );
+        const sessionToolCalls = normalizedWithDerivedDiagnostics.toolCalls.filter(
+          (toolCall) => toolCall.sessionId === session.id
+        );
+        const sessionDiagnostics = getSessionDiagnostics(
+          normalizedWithDerivedDiagnostics.diagnostics,
+          session,
+          sessionDerivation
+        );
+        const verification = deriveVerificationForSession({
+          adapterCapabilities: normalizedWithDerivedDiagnostics.capabilities.adapter,
+          parsedShellCommands: sessionDerivation.shellCommands,
+          session,
+          sessionMessages,
+          ...(sessionCapabilities ? { sessionCapabilities } : {}),
+          sourceCapabilities: normalizedWithDerivedDiagnostics.capabilities.source
+        });
+
+        return {
+          ...sessionDerivation,
+          verification,
+          audit: deriveRunAuditForSession({
+            adapterCapabilities: normalizedWithDerivedDiagnostics.capabilities.adapter,
+            diagnostics: sessionDiagnostics,
+            parsedShellCommands: sessionDerivation.shellCommands,
+            session,
+            sessionEvents,
+            sessionFileMutations: normalizedWithDerivedDiagnostics.fileMutations.filter(
+              (fileMutation) => fileMutation.sessionId === session.id
+            ),
+            sessionMessages,
+            sessionToolCalls,
+            verification,
+            ...(sessionCapabilities ? { sessionCapabilities } : {}),
+            sourceCapabilities: normalizedWithDerivedDiagnostics.capabilities.source
+          })
+        };
+      });
+
+      cacheRecord = {
+        cacheKey,
+        adapterId: normalizedWithDerivedDiagnostics.adapterId,
+        sourceId: normalizedWithDerivedDiagnostics.sourceId,
+        artifactFingerprint,
+        createdAt: now,
+        updatedAt: now,
+        normalized: normalizedWithDerivedDiagnostics,
+        derived: {
+          sessions: derivedSessions
+        }
+      };
+
+        await this.#cacheStore.writeRecord(cacheRecord);
+        normalizedResults.push(normalizedWithDerivedDiagnostics);
+        scanDiagnostics = [...scanDiagnostics, ...normalizedWithDerivedDiagnostics.diagnostics];
+        totalSessions += normalizedWithDerivedDiagnostics.sessions.length;
+      }
+
+      const merged = mergeNormalizedResults(normalizedResults);
+      const nextScanStatus =
+        normalizedResults.length === 0
+          ? "scan-failed"
+          : scanDiagnostics.some((diagnostic) => diagnostic.severity === "error") ||
+              scanDiagnostics.length > source.validation.diagnostics.length
+            ? "scanned-with-diagnostics"
+            : "cached";
+      const nextCacheStatus =
+        normalizedResults.length === 0
+          ? "unknown"
+          : "cached";
+      const nextSource = await this.#sourceRegistry.saveScanSummary(source.sourceId, {
+        status: nextScanStatus,
+        diagnostics: scanDiagnostics,
+        artifactCount: totalArtifacts,
+        sessionCount: totalSessions
+      });
+
+      await this.#sourceRegistry.saveCacheSummary(source.sourceId, {
+        status: nextCacheStatus,
+        diagnostics: scanDiagnostics,
+        ...(cacheRecord ? { cacheKey: cacheRecord.cacheKey } : {})
+      });
+
+      return {
+        ...(cacheRecord ? { cachedRecord: cacheRecord } : {}),
+        source: merged
+          ? await this.#sourceRegistry
+              .getSource(source.sourceId)
+              .then((record) => record ?? nextSource)
+          : nextSource
+      };
+    } catch (error) {
+      const executionFailedDiagnostic = buildDiagnostic(
         adapter.descriptor.id,
-        "scanner.source.missing",
-        "The adapter did not discover any sources for the configured root.",
+        "scanner.scan.execution-failed",
+        error instanceof Error
+          ? error.message
+          : "The scan failed before cache persistence could complete.",
         "error",
         "source",
         HIGH_CONFIDENCE,
@@ -204,145 +442,19 @@ export class Scanner {
           nativeId: source.rootPath
         }
       );
-      const nextSource = await this.#sourceRegistry.saveScanSummary(source.sourceId, {
-        status: "scan-failed",
-        diagnostics: [missingSourceDiagnostic]
-      });
+      const failureDiagnostics = [...source.validation.diagnostics, executionFailedDiagnostic];
 
+      await this.#sourceRegistry.saveScanSummary(source.sourceId, {
+        status: "scan-failed",
+        diagnostics: failureDiagnostics
+      });
       await this.#sourceRegistry.saveCacheSummary(source.sourceId, {
         status: "unknown",
-        diagnostics: [missingSourceDiagnostic]
+        diagnostics: failureDiagnostics
       });
 
-      return {
-        source: nextSource
-      };
+      throw error;
     }
-
-    const normalizedResults = [];
-    let scanDiagnostics = [...source.validation.diagnostics];
-    let totalArtifacts = 0;
-    let totalSessions = 0;
-    let cacheRecord: NormalizedCacheRecord | undefined;
-
-    for (const discoveredSource of discoveredSources) {
-      const discoveryContext = this.createContext({
-        allowedRootPaths: [discoveredSource.rootPath]
-      });
-      const artifacts = await collectAsync(adapter.discoverArtifacts(discoveredSource, discoveryContext));
-      totalArtifacts += artifacts.length;
-      const artifactPaths = artifacts.flatMap((artifact) => (artifact.path ? [artifact.path] : []));
-      const parseContext = this.createContext({
-        allowedArtifactPaths: artifactPaths,
-        allowedRootPaths: [discoveredSource.rootPath]
-      });
-      const artifactsWithMetadata: RawArtifactRef[] = await Promise.all(
-        artifacts.map(async (artifact) => {
-          if (!artifact.path) {
-            return artifact;
-          }
-
-          const fileStat = await parseContext.safeFilesystem.statPath(artifact.path);
-
-          return applySafeArtifactMetadata(artifact, fileStat);
-        })
-      );
-      const rawEvents = await collectRawEvents(adapter, artifactsWithMetadata, parseContext);
-      const normalized = await adapter.normalize(
-        {
-          source: discoveredSource,
-          artifacts: artifactsWithMetadata,
-          rawEvents
-        },
-        parseContext
-      );
-      const validation = validateNormalizedResult(normalized);
-
-      if (!validation.ok) {
-        scanDiagnostics = [...scanDiagnostics, ...validation.diagnostics];
-        continue;
-      }
-
-      const watchRecord = await this.#watchOrchestrator.planForSource(
-        adapter,
-        discoveredSource,
-        parseContext
-      );
-
-      await this.#sourceRegistry.saveWatchSummary(source.sourceId, {
-        status: watchRecord.status,
-        ...(watchRecord.reason ? { reason: watchRecord.reason } : {}),
-        strategy: watchRecord.strategy
-      });
-
-      const indexDiagnosticsHash = createDiagnosticsHash(normalized.diagnostics);
-      const indexEntries = createRawArtifactIndexEntries({
-        adapterVersion: adapter.descriptor.adapterVersion,
-        artifacts: artifactsWithMetadata,
-        diagnosticsHash: indexDiagnosticsHash,
-        parserVersion: adapter.descriptor.parserVersion ?? adapter.descriptor.adapterVersion,
-        schemaVersion: RAW_ARTIFACT_SCHEMA_VERSION
-      });
-
-      await this.#rawArtifactIndex.replaceSourceEntries(source.sourceId, indexEntries);
-
-      const artifactFingerprint = fingerprintEntries(indexEntries);
-      const cacheKey = createCacheKey({
-        adapterId: normalized.adapterId,
-        sourceId: normalized.sourceId,
-        adapterVersion: adapter.descriptor.adapterVersion,
-        parserVersion: adapter.descriptor.parserVersion ?? adapter.descriptor.adapterVersion,
-        schemaVersion: NORMALIZATION_SCHEMA_VERSION,
-        diagnosticsHash: indexDiagnosticsHash,
-        artifacts: indexEntries
-      });
-      const now = new Date().toISOString();
-
-      cacheRecord = {
-        cacheKey,
-        adapterId: normalized.adapterId,
-        sourceId: normalized.sourceId,
-        artifactFingerprint,
-        createdAt: now,
-        updatedAt: now,
-        normalized
-      };
-
-      await this.#cacheStore.writeRecord(cacheRecord);
-      normalizedResults.push(normalized);
-      scanDiagnostics = [...scanDiagnostics, ...normalized.diagnostics];
-      totalSessions += normalized.sessions.length;
-    }
-
-    const merged = mergeNormalizedResults(normalizedResults);
-    const nextScanStatus =
-      normalizedResults.length === 0
-        ? "scan-failed"
-        : scanDiagnostics.some((diagnostic) => diagnostic.severity === "error") ||
-            scanDiagnostics.length > source.validation.diagnostics.length
-          ? "scanned-with-diagnostics"
-          : "cached";
-    const nextCacheStatus =
-      normalizedResults.length === 0
-        ? "unknown"
-        : "cached";
-    const nextSource = await this.#sourceRegistry.saveScanSummary(source.sourceId, {
-      status: nextScanStatus,
-      diagnostics: scanDiagnostics,
-      artifactCount: totalArtifacts,
-      sessionCount: totalSessions
-    });
-
-    await this.#sourceRegistry.saveCacheSummary(source.sourceId, {
-      status: nextCacheStatus,
-      diagnostics: scanDiagnostics,
-      ...(cacheRecord ? { cacheKey: cacheRecord.cacheKey } : {})
-    });
-
-    return {
-      ...(cacheRecord ? { cachedRecord: cacheRecord } : {}),
-      source: merged ? await this.#sourceRegistry.getSource(source.sourceId).then((record) => record ?? nextSource) : nextSource
-    };
   }
 
   private createContext(input: {
@@ -443,4 +555,190 @@ function createDiagnosticsHash(diagnostics: Array<{ code: string; message: strin
     .join("|");
 
   return createHash("sha256").update(stable).digest("hex");
+}
+
+async function deriveShellSessions(args: {
+  adapter: SessionSourceAdapter;
+  context: RuntimeAdapterContext;
+  normalized: Awaited<ReturnType<SessionSourceAdapter["normalize"]>>;
+}): Promise<LoadedArtifactDiagnostics & { sessions: NonNullable<NormalizedCacheRecord["derived"]>["sessions"] }> {
+  const diagnostics: Diagnostic[] = [];
+  const outputArtifactsById = new Map(
+    args.normalized.outputArtifacts.map((artifact) => [artifact.id, artifact] as const)
+  );
+
+  const sessions = [];
+
+  for (const session of args.normalized.sessions) {
+    const shellCommands = args.normalized.shellCommands
+      .filter((shellCommand) => shellCommand.sessionId === session.id)
+      .sort((left, right) => {
+        const leftTime = left.startedAt ?? left.endedAt ?? "";
+        const rightTime = right.startedAt ?? right.endedAt ?? "";
+        return leftTime.localeCompare(rightTime);
+      });
+    const parsedShellCommands = [];
+
+    for (const shellCommand of shellCommands) {
+      const artifactLoad = await loadShellArtifacts({
+        adapter: args.adapter,
+        context: args.context,
+        outputArtifactsById,
+        shellCommand
+      });
+      const relatedDiagnostics = dedupeDiagnostics([
+        ...artifactLoad.diagnostics,
+        ...getRelatedDiagnostics(args.normalized.diagnostics, shellCommand)
+      ]);
+
+      diagnostics.push(...artifactLoad.diagnostics);
+      parsedShellCommands.push(
+        parseShellCommandEvidence({
+          shellCommand,
+          artifacts: artifactLoad.loadedArtifacts,
+          relatedDiagnostics
+        })
+      );
+    }
+
+    sessions.push({
+      sessionId: session.id,
+      shellCommands: parsedShellCommands
+    });
+  }
+
+  return {
+    diagnostics,
+    loadedArtifacts: [],
+    sessions
+  };
+}
+
+async function loadShellArtifacts(args: {
+  adapter: SessionSourceAdapter;
+  context: RuntimeAdapterContext;
+  outputArtifactsById: Map<string, Awaited<ReturnType<SessionSourceAdapter["normalize"]>>["outputArtifacts"][number]>;
+  shellCommand: Awaited<ReturnType<SessionSourceAdapter["normalize"]>>["shellCommands"][number];
+}): Promise<LoadedArtifactDiagnostics> {
+  if (!args.adapter.loadOutputArtifact || !args.shellCommand.artifactIds?.length) {
+    return {
+      diagnostics: [],
+      loadedArtifacts: []
+    };
+  }
+
+  const diagnostics: Diagnostic[] = [];
+  const loadedArtifacts = [];
+
+  for (const artifactId of args.shellCommand.artifactIds) {
+    const artifact = args.outputArtifactsById.get(artifactId);
+
+    if (!artifact) {
+      diagnostics.push(
+        buildDiagnostic(
+          args.shellCommand.adapterId,
+          "shell.output-artifact.missing",
+          "Shared shell parsing could not find a referenced output artifact.",
+          "warning",
+          "shell-command",
+          HIGH_CONFIDENCE,
+          {
+            sourceId: args.shellCommand.sourceId,
+            nativeId: args.shellCommand.nativeId,
+            relatedEntityIds: [
+              args.shellCommand.id,
+              artifactId,
+              ...(args.shellCommand.toolCallId ? [args.shellCommand.toolCallId] : [])
+            ]
+          }
+        )
+      );
+      continue;
+    }
+
+    try {
+      const loaded = await args.adapter.loadOutputArtifact(artifact, args.context);
+
+      loadedArtifacts.push({
+        artifactId,
+        ...(loaded.mediaType ? { mediaType: loaded.mediaType } : {}),
+        ...(loaded.text !== undefined ? { text: loaded.text } : {})
+      });
+    } catch (error) {
+      diagnostics.push(
+        buildDiagnostic(
+          args.shellCommand.adapterId,
+          "shell.output-artifact.unreadable",
+          error instanceof Error
+            ? error.message
+            : "Shared shell parsing could not read the output artifact text.",
+          "warning",
+          "shell-command",
+          HIGH_CONFIDENCE,
+          {
+            sourceId: args.shellCommand.sourceId,
+            nativeId: args.shellCommand.nativeId,
+            relatedEntityIds: [
+              args.shellCommand.id,
+              artifactId,
+              ...(args.shellCommand.toolCallId ? [args.shellCommand.toolCallId] : [])
+            ]
+          }
+        )
+      );
+    }
+  }
+
+  return {
+    diagnostics,
+    loadedArtifacts
+  };
+}
+
+function getRelatedDiagnostics(
+  diagnostics: Diagnostic[],
+  shellCommand: Awaited<ReturnType<SessionSourceAdapter["normalize"]>>["shellCommands"][number]
+): Diagnostic[] {
+  const relatedIds = new Set([
+    shellCommand.id,
+    ...(shellCommand.toolCallId ? [shellCommand.toolCallId] : []),
+    ...(shellCommand.artifactIds ?? [])
+  ]);
+
+  return diagnostics.filter((diagnostic) =>
+    diagnostic.relatedEntityIds?.some((relatedId) => relatedIds.has(relatedId)) === true
+  );
+}
+
+function getSessionDiagnostics(
+  diagnostics: Diagnostic[],
+  session: Awaited<ReturnType<SessionSourceAdapter["normalize"]>>["sessions"][number],
+  sessionDerivation: NonNullable<NormalizedCacheRecord["derived"]>["sessions"][number]
+): Diagnostic[] {
+  const relatedIds = new Set([
+    session.id,
+    ...sessionDerivation.shellCommands.flatMap((shellCommand) => [
+      shellCommand.shellCommandId,
+      ...(shellCommand.toolCallId ? [shellCommand.toolCallId] : []),
+      ...(shellCommand.artifactIds ?? []),
+      ...(shellCommand.diagnosticIds ?? [])
+    ])
+  ]);
+
+  return diagnostics.filter(
+    (diagnostic) =>
+      relatedIds.has(diagnostic.id) ||
+      diagnostic.relatedEntityIds?.some((relatedId) => relatedIds.has(relatedId)) === true ||
+      session.diagnosticIds?.includes(diagnostic.id) === true
+  );
+}
+
+function dedupeDiagnostics<T extends { id: string }>(diagnostics: T[]): T[] {
+  const seen = new Map<string, T>();
+
+  for (const diagnostic of diagnostics) {
+    seen.set(diagnostic.id, diagnostic);
+  }
+
+  return [...seen.values()];
 }

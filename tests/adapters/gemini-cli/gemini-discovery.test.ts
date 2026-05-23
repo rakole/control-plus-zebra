@@ -57,6 +57,7 @@ describe("gemini-cli discovery", () => {
     expect(sources.map((source) => source.displayName)).toEqual([
       "alpha-project",
       "beta-project",
+      "delta-project",
       "gamma-project"
     ]);
     expect(sources.every((source) => source.adapterId === "gemini-cli")).toBe(true);

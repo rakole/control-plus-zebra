@@ -332,10 +332,10 @@ export async function normalizeGeminiCliEvents(
             ? { endedAt: toolCallRecord.timestamp ?? record.record.timestamp }
             : {}),
           ...(toolCallRecord.args
-            ? { inputSummary: summarizeArgs(toolCallRecord.args) }
+            ? withOptionalSummary("inputSummary", summarizeArgs(toolCallRecord.args))
             : {}),
           ...(toolCallRecord.resultDisplay !== undefined
-            ? { outputSummary: summarizeUnknown(toolCallRecord.resultDisplay) }
+            ? withOptionalSummary("outputSummary", summarizeUnknown(toolCallRecord.resultDisplay))
             : {}),
           eventId: toolCallEventId,
           ...(outputArtifactIds.length > 0 ? { artifactIds: outputArtifactIds } : {}),
@@ -363,8 +363,10 @@ export async function normalizeGeminiCliEvents(
         const shellCommand = buildShellCommandForToolCall({
           adapterId,
           eventId: toolCallEventId,
+          outputArtifactIds,
           sessionId,
           sourceId,
+          toolCallId,
           toolCallRecord
         });
 
@@ -408,6 +410,53 @@ export async function normalizeGeminiCliEvents(
             )
           );
         }
+      }
+    }
+
+    if (timeline.length === 0 && session.logEntries.length > 0) {
+      for (const logEntry of sortLogEntries(session.logEntries)) {
+        const role = toMessageRole(logEntry.type);
+        const messageEventId = createSessionEventId({
+          adapterId,
+          sourceId,
+          nativeId: `${sessionNativeId}:log-message:${logEntry.messageId}`
+        });
+        const messageId = createSessionMessageId({
+          adapterId,
+          sourceId,
+          nativeId: `${sessionNativeId}:log-message:${logEntry.messageId}`
+        });
+
+        messages.push({
+          kind: "session-message",
+          id: messageId,
+          adapterId,
+          sourceId,
+          sessionId,
+          nativeId: `logs:${logEntry.messageId}`,
+          role,
+          content: logEntry.message,
+          ordinal: messages.filter((message) => message.sessionId === sessionId).length + 1,
+          timestamp: logEntry.timestamp,
+          eventId: messageEventId,
+          confidence: HIGH_CONFIDENCE
+        });
+
+        events.push({
+          kind: "session-event",
+          id: messageEventId,
+          adapterId,
+          sourceId,
+          sessionId,
+          nativeId: `logs:${logEntry.messageId}`,
+          eventKind: "message",
+          timestamp: logEntry.timestamp,
+          ordinal,
+          summary: `${role} message`,
+          messageId,
+          confidence: HIGH_CONFIDENCE
+        });
+        ordinal += 1;
       }
     }
 
@@ -609,6 +658,20 @@ function buildTimeline(session: SessionAccumulator) {
   });
 }
 
+function sortLogEntries(entries: SessionAccumulator["logEntries"]) {
+  return [...entries].sort((left, right) => {
+    if (left.timestamp !== right.timestamp) {
+      return left.timestamp.localeCompare(right.timestamp);
+    }
+
+    if (left.messageId !== right.messageId) {
+      return left.messageId - right.messageId;
+    }
+
+    return (left.index ?? 0) - (right.index ?? 0);
+  });
+}
+
 function deriveLifecycle(timeline: SessionAccumulator["transcriptRecords"]): {
   conflictMessage?: string;
   endedAt?: string;
@@ -740,17 +803,26 @@ function summarizeUnknown(value: unknown): string {
   }
 
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value) ?? "";
   } catch {
     return String(value);
   }
 }
 
+function withOptionalSummary<TKey extends "inputSummary" | "outputSummary">(
+  key: TKey,
+  summary: string
+): Partial<Record<TKey, string>> {
+  return summary.trim().length > 0 ? ({ [key]: summary } as Partial<Record<TKey, string>>) : {};
+}
+
 function buildShellCommandForToolCall(args: {
   adapterId: string;
   eventId: string;
+  outputArtifactIds: string[];
   sessionId: string;
   sourceId: string;
+  toolCallId: string;
   toolCallRecord: GeminiToolCallRecord;
 }): ShellCommandEvidence | null {
   if (args.toolCallRecord.name !== "run_shell_command") {
@@ -781,9 +853,14 @@ function buildShellCommandForToolCall(args: {
     ...(args.toolCallRecord.timestamp ? { startedAt: args.toolCallRecord.timestamp } : {}),
     ...(args.toolCallRecord.timestamp ? { endedAt: args.toolCallRecord.timestamp } : {}),
     ...(args.toolCallRecord.resultDisplay !== undefined
-      ? { outputSummary: summarizeUnknown(args.toolCallRecord.resultDisplay) }
+      ? withOptionalSummary("outputSummary", summarizeUnknown(args.toolCallRecord.resultDisplay))
       : {}),
     eventId: args.eventId,
+    toolCallId: args.toolCallId,
+    ...(args.outputArtifactIds.length > 0 ? { artifactIds: args.outputArtifactIds } : {}),
+    ...(args.toolCallRecord.status
+      ? { rawToolStatus: mapToolCallStatus(args.toolCallRecord.status) }
+      : {}),
     confidence: HIGH_CONFIDENCE
   };
 }

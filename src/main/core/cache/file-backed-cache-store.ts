@@ -5,6 +5,9 @@ import { z } from "zod";
 
 import type { AdapterNormalizationResult } from "../adapter-contract/types.js";
 import type { AdapterId, SourceId } from "../model/identifiers.js";
+import type { RunAuditResult } from "../audit/types.js";
+import type { ParsedShellCommand } from "../shell/types.js";
+import type { VerificationResult } from "../verification/types.js";
 
 const confidenceSchema = z
   .object({
@@ -187,7 +190,10 @@ const normalizedSchema = z
         startedAt: z.string().min(1).optional(),
         endedAt: z.string().min(1).optional(),
         outputSummary: z.string().min(1).optional(),
-        eventId: z.string().min(1).optional()
+        eventId: z.string().min(1).optional(),
+        toolCallId: z.string().min(1).optional(),
+        artifactIds: z.array(z.string().min(1)).optional(),
+        rawToolStatus: z.enum(["started", "succeeded", "failed", "cancelled", "unknown"]).optional()
       })
     ),
     outputArtifacts: z.array(
@@ -218,6 +224,102 @@ const normalizedSchema = z
   })
   .strict();
 
+const parsedShellCommandSchema = z
+  .object({
+    shellCommandId: z.string().min(1),
+    command: z.string().min(1),
+    cwd: z.string().min(1).optional(),
+    intent: z.enum(["test", "build", "typecheck", "lint", "install", "git", "other", "unknown"]),
+    result: z.enum(["passed", "failed", "unknown"]),
+    outputSource: z.enum(["stdout", "stderr", "combined", "unknown"]),
+    outputTextSource: z.enum(["artifact", "summary", "artifact+summary", "missing"]),
+    exitCode: z.number().int().optional(),
+    exitCodeSource: z.enum(["evidence", "artifact", "summary", "artifact+summary", "unknown"]),
+    rawToolStatus: z.enum(["started", "succeeded", "failed", "cancelled", "unknown"]).optional(),
+    toolCallId: z.string().min(1).optional(),
+    artifactIds: z.array(z.string().min(1)).optional(),
+    failureMarkers: z.array(z.string().min(1)),
+    confidence: confidenceSchema,
+    diagnosticIds: z.array(z.string().min(1)).optional()
+  })
+  .strict();
+
+const derivedSessionSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    shellCommands: z.array(parsedShellCommandSchema),
+    verification: z
+      .object({
+        status: z.enum(["passed", "failed", "not-run", "unknown", "unsupported"]),
+        confidence: confidenceSchema,
+        commandIds: z.array(z.string().min(1)),
+        intentResults: z.array(
+          z
+            .object({
+              intent: z.enum(["test", "build", "typecheck", "lint"]),
+              latestCommandId: z.string().min(1),
+              latestStatus: z.enum(["passed", "failed", "unknown"]),
+              commandIds: z.array(z.string().min(1)),
+              confidence: confidenceSchema,
+              diagnosticIds: z.array(z.string().min(1)).optional()
+            })
+            .strict()
+        ),
+        reasonCodes: z.array(
+          z.enum([
+            "capability-unknown",
+            "capability-unsupported",
+            "no-qualifying-commands",
+            "output-missing",
+            "parser-warning"
+          ])
+        ),
+        diagnosticIds: z.array(z.string().min(1)).optional()
+      })
+      .strict()
+      .optional(),
+    audit: z
+      .object({
+        status: z.enum([
+          "active",
+          "cancelled",
+          "verification-failed",
+          "incomplete",
+          "needs-review",
+          "clean",
+          "unknown"
+        ]),
+        attentionReasons: z.array(
+          z.enum([
+            "failed-verification",
+            "no-verification",
+            "pending-tool-calls",
+            "post-claim-activity",
+            "dirty-after-claim",
+            "missing-sidecar",
+            "parser-warning",
+            "capability-missing",
+            "claim-uncertain"
+          ])
+        ),
+        confidence: confidenceSchema,
+        completionClaim: z.enum(["claimed", "not-claimed", "unknown"]),
+        supportingCommandIds: z.array(z.string().min(1)),
+        supportingToolCallIds: z.array(z.string().min(1)),
+        supportingMessageIds: z.array(z.string().min(1)),
+        diagnosticIds: z.array(z.string().min(1)).optional()
+      })
+      .strict()
+      .optional()
+  })
+  .strict();
+
+const derivedSchema = z
+  .object({
+    sessions: z.array(derivedSessionSchema)
+  })
+  .strict();
+
 const recordSchema = z
   .object({
     cacheKey: z.string().min(1),
@@ -226,7 +328,8 @@ const recordSchema = z
     artifactFingerprint: z.string().min(1),
     createdAt: z.string().min(1),
     updatedAt: z.string().min(1),
-    normalized: normalizedSchema
+    normalized: normalizedSchema,
+    derived: derivedSchema.optional()
   })
   .strict();
 
@@ -245,6 +348,18 @@ export interface NormalizedCacheRecord {
   createdAt: string;
   updatedAt: string;
   normalized: AdapterNormalizationResult;
+  derived?: DerivedCacheRecord;
+}
+
+export interface DerivedSessionCacheRecord {
+  sessionId: string;
+  shellCommands: ParsedShellCommand[];
+  verification?: VerificationResult;
+  audit?: RunAuditResult;
+}
+
+export interface DerivedCacheRecord {
+  sessions: DerivedSessionCacheRecord[];
 }
 
 export class FileBackedCacheStore {

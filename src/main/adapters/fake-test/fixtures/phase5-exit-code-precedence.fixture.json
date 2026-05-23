@@ -1,0 +1,88 @@
+{
+  "source": {
+    "id": "fixture-source-05-exit",
+    "displayName": "Phase 5 Exit Code Fixture",
+    "rootPath": "/tmp/fake-harness/phase5-exit"
+  },
+  "project": {
+    "id": "project-05-exit",
+    "name": "control-plus-zebra",
+    "rootPath": "/workspace/control-plus-zebra"
+  },
+  "session": {
+    "id": "session-05-exit",
+    "title": "Exit code precedence regression",
+    "startedAt": "2026-05-24T09:00:00.000Z",
+    "endedAt": "2026-05-24T09:00:05.000Z",
+    "lifecycleState": "completed"
+  },
+  "capabilities": {
+    "sessionDiscovery": { "status": "supported" },
+    "liveSessionObservation": { "status": "unsupported", "reason": "Fixture data is static." },
+    "eventStreaming": { "status": "unsupported", "reason": "Fixture playback is file-based." },
+    "messageCapture": { "status": "supported" },
+    "toolCallCapture": { "status": "supported" },
+    "shellCommandCapture": { "status": "supported" },
+    "outputArtifactCapture": { "status": "supported" },
+    "fileMutationCapture": { "status": "supported" },
+    "sourceValidation": { "status": "supported" },
+    "watchPlans": { "status": "unsupported", "reason": "Phase 5 fixtures do not watch." },
+    "gitContextCapture": { "status": "unsupported", "reason": "Fixture does not include git evidence." },
+    "githubContextCapture": { "status": "unsupported", "reason": "Fixture does not include GitHub evidence." },
+    "verificationSignals": { "status": "unknown", "reason": "Derived later from shared shell evidence." }
+  },
+  "diagnostics": [],
+  "artifacts": [],
+  "events": [
+    {
+      "id": "evt-01",
+      "kind": "lifecycle",
+      "timestamp": "2026-05-24T09:00:00.000Z",
+      "state": "active",
+      "summary": "Session started"
+    },
+    {
+      "id": "evt-02",
+      "kind": "message",
+      "timestamp": "2026-05-24T09:00:01.000Z",
+      "role": "user",
+      "text": "Run typecheck and report the result."
+    },
+    {
+      "id": "evt-03",
+      "kind": "tool-call",
+      "timestamp": "2026-05-24T09:00:02.000Z",
+      "toolName": "run_shell_command",
+      "status": "succeeded",
+      "inputSummary": "npm run typecheck",
+      "outputSummary": "Typecheck passed",
+      "artifactIds": [],
+      "fileMutations": []
+    },
+    {
+      "id": "evt-04",
+      "kind": "shell-command",
+      "timestamp": "2026-05-24T09:00:03.000Z",
+      "command": "npm run typecheck",
+      "outputSource": "combined",
+      "exitCode": 1,
+      "outputSummary": "Typecheck passed",
+      "toolCallId": "evt-03",
+      "rawToolStatus": "succeeded"
+    },
+    {
+      "id": "evt-05",
+      "kind": "message",
+      "timestamp": "2026-05-24T09:00:04.000Z",
+      "role": "assistant",
+      "text": "Typecheck failed with exit code 1 even though the shell tool reported success."
+    },
+    {
+      "id": "evt-06",
+      "kind": "lifecycle",
+      "timestamp": "2026-05-24T09:00:05.000Z",
+      "state": "completed",
+      "summary": "Session completed"
+    }
+  ]
+}

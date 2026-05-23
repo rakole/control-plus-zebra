@@ -346,6 +346,22 @@ function assertNormalizedRelationships(result: AdapterNormalizationResult) {
     if (shellCommand.eventId !== undefined) {
       expect(eventIds.has(shellCommand.eventId)).toBe(true);
     }
+
+    if (shellCommand.toolCallId !== undefined) {
+      expect(toolCallIds.has(shellCommand.toolCallId)).toBe(true);
+    }
+
+    if (shellCommand.artifactIds) {
+      expect(shellCommand.artifactIds.every((artifactId) => outputArtifactIds.has(artifactId))).toBe(
+        true
+      );
+    }
+
+    if (shellCommand.rawToolStatus !== undefined) {
+      expect(["started", "succeeded", "failed", "cancelled", "unknown"]).toContain(
+        shellCommand.rawToolStatus
+      );
+    }
   }
 
   for (const artifact of result.outputArtifacts) {

@@ -1,0 +1,9 @@
+[
+  {
+    "sessionId": "55555555-5555-4555-8555-555555555555",
+    "messageId": 0,
+    "type": "user",
+    "message": "Run the focused audit test and stop if it fails.",
+    "timestamp": "2026-05-23T12:00:01.000Z"
+  }
+]
