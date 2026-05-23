@@ -1,0 +1,1 @@
+Contract types and capability envelopes reviewed successfully.

@@ -1,0 +1,9 @@
+[
+  {
+    "sessionId": "33333333-3333-4333-8333-333333333333",
+    "messageId": 0,
+    "type": "user",
+    "message": "List the project files and keep the session active.",
+    "timestamp": "2026-05-23T10:00:01.000Z"
+  }
+]

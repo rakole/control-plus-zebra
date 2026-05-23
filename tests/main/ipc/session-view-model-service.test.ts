@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -18,6 +18,7 @@ const forbiddenKeys = new Set([
 const fakeFixturePath = path.resolve(
   "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json"
 );
+const geminiFixtureRoot = path.resolve("src/main/adapters/gemini-cli/fixtures/sample-root");
 
 describe("session view model service", () => {
   const tempDirs: string[] = [];
@@ -74,6 +75,49 @@ describe("session view model service", () => {
 
     await expect(service.listSessions()).resolves.toEqual([]);
     await expect(service.getSessionById({ sessionId: "missing-session" })).resolves.toBeNull();
+  });
+
+  it("renders Gemini-backed sessions through the existing sanitized session service", async () => {
+    const runtime = await createTempRuntime(tempDirs);
+    const geminiRoot = path.join(runtime.appDataDir, "gemini-root");
+
+    await cp(geminiFixtureRoot, geminiRoot, { recursive: true });
+
+    const source = await runtime.sourceRegistry.createSource({
+      adapterId: "gemini-cli",
+      displayName: "Gemini Fixture Root",
+      rootPath: geminiRoot
+    });
+    const validated = await runtime.scanner.validateSource(source.sourceId);
+
+    await runtime.scanner.scanSource(validated.source.sourceId);
+
+    const service = createSessionViewModelService({ runtime });
+    const sessions = await service.listSessions();
+    const geminiSession = sessions.find((session) => session.adapterId === "gemini-cli");
+
+    expect(geminiSession).toBeDefined();
+    expect(geminiSession?.adapterDisplayName).toBe("Gemini CLI");
+    expect(geminiSession?.evidenceSummary.toolCalls).toBeGreaterThan(0);
+    expect(findForbiddenKeys(geminiSession)).toEqual([]);
+
+    if (!geminiSession) {
+      throw new Error("Expected a Gemini-backed session summary.");
+    }
+
+    const preview = await service.getSessionById({ sessionId: geminiSession.sessionId });
+
+    expect(preview).toEqual(
+      expect.objectContaining({
+        adapterDisplayName: "Gemini CLI",
+        evidenceSummary: expect.objectContaining({
+          messages: expect.any(Number),
+          toolCalls: expect.any(Number),
+          diagnostics: expect.any(Number)
+        })
+      })
+    );
+    expect(findForbiddenKeys(preview)).toEqual([]);
   });
 });
 

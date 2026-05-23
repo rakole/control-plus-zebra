@@ -1,0 +1,816 @@
+{
+  "adapterId": "gemini-cli",
+  "sourceId": "source:alpha-project",
+  "capabilities": {
+    "adapter": {
+      "adapterId": "gemini-cli",
+      "capabilities": {
+        "sessionDiscovery": {
+          "status": "supported"
+        },
+        "liveSessionObservation": {
+          "status": "unsupported",
+          "reason": "The Phase 4 adapter scans local Gemini artifacts but does not stream live sessions."
+        },
+        "eventStreaming": {
+          "status": "unsupported",
+          "reason": "Gemini CLI evidence is parsed from persisted artifacts rather than a live event stream."
+        },
+        "messageCapture": {
+          "status": "supported"
+        },
+        "toolCallCapture": {
+          "status": "supported"
+        },
+        "shellCommandCapture": {
+          "status": "supported"
+        },
+        "outputArtifactCapture": {
+          "status": "supported"
+        },
+        "fileMutationCapture": {
+          "status": "supported"
+        },
+        "sourceValidation": {
+          "status": "supported"
+        },
+        "watchPlans": {
+          "status": "unsupported",
+          "reason": "Phase 4 does not model adapter-owned watch plans yet."
+        },
+        "gitContextCapture": {
+          "status": "unsupported",
+          "reason": "Phase 4 does not infer git context from Gemini CLI evidence."
+        },
+        "githubContextCapture": {
+          "status": "unsupported",
+          "reason": "Phase 4 does not infer GitHub context from Gemini CLI evidence."
+        },
+        "verificationSignals": {
+          "status": "unknown",
+          "reason": "The adapter captures evidence only; shared core derives verification later."
+        }
+      }
+    },
+    "source": {
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "capabilities": {
+        "sessionDiscovery": {
+          "status": "supported"
+        },
+        "liveSessionObservation": {
+          "status": "unsupported",
+          "reason": "The Phase 4 adapter scans local Gemini artifacts but does not stream live sessions."
+        },
+        "eventStreaming": {
+          "status": "unsupported",
+          "reason": "Gemini CLI evidence is parsed from persisted artifacts rather than a live event stream."
+        },
+        "messageCapture": {
+          "status": "supported"
+        },
+        "toolCallCapture": {
+          "status": "supported"
+        },
+        "shellCommandCapture": {
+          "status": "supported"
+        },
+        "outputArtifactCapture": {
+          "status": "supported"
+        },
+        "fileMutationCapture": {
+          "status": "supported"
+        },
+        "sourceValidation": {
+          "status": "supported"
+        },
+        "watchPlans": {
+          "status": "unsupported",
+          "reason": "Phase 4 does not model adapter-owned watch plans yet."
+        },
+        "gitContextCapture": {
+          "status": "unsupported",
+          "reason": "Phase 4 does not infer git context from Gemini CLI evidence."
+        },
+        "githubContextCapture": {
+          "status": "unsupported",
+          "reason": "Phase 4 does not infer GitHub context from Gemini CLI evidence."
+        },
+        "verificationSignals": {
+          "status": "unknown",
+          "reason": "The adapter captures evidence only; shared core derives verification later."
+        }
+      }
+    },
+    "sessions": [
+      {
+        "adapterId": "gemini-cli",
+        "sourceId": "source:alpha-project",
+        "sessionId": "session:11111111-1111-4111-8111-111111111111",
+        "capabilities": {
+          "sessionDiscovery": {
+            "status": "supported"
+          },
+          "liveSessionObservation": {
+            "status": "unsupported",
+            "reason": "The Phase 4 adapter scans local Gemini artifacts but does not stream live sessions."
+          },
+          "eventStreaming": {
+            "status": "unsupported",
+            "reason": "Gemini CLI evidence is parsed from persisted artifacts rather than a live event stream."
+          },
+          "messageCapture": {
+            "status": "supported"
+          },
+          "toolCallCapture": {
+            "status": "supported"
+          },
+          "shellCommandCapture": {
+            "status": "supported"
+          },
+          "outputArtifactCapture": {
+            "status": "supported"
+          },
+          "fileMutationCapture": {
+            "status": "supported"
+          },
+          "sourceValidation": {
+            "status": "supported"
+          },
+          "watchPlans": {
+            "status": "unsupported",
+            "reason": "Phase 4 does not model adapter-owned watch plans yet."
+          },
+          "gitContextCapture": {
+            "status": "unsupported",
+            "reason": "Phase 4 does not infer git context from Gemini CLI evidence."
+          },
+          "githubContextCapture": {
+            "status": "unsupported",
+            "reason": "Phase 4 does not infer GitHub context from Gemini CLI evidence."
+          },
+          "verificationSignals": {
+            "status": "unknown",
+            "reason": "The adapter captures evidence only; shared core derives verification later."
+          }
+        }
+      },
+      {
+        "adapterId": "gemini-cli",
+        "sourceId": "source:alpha-project",
+        "sessionId": "session:22222222-2222-4222-8222-222222222222",
+        "capabilities": {
+          "sessionDiscovery": {
+            "status": "supported"
+          },
+          "liveSessionObservation": {
+            "status": "unsupported",
+            "reason": "The Phase 4 adapter scans local Gemini artifacts but does not stream live sessions."
+          },
+          "eventStreaming": {
+            "status": "unsupported",
+            "reason": "Gemini CLI evidence is parsed from persisted artifacts rather than a live event stream."
+          },
+          "messageCapture": {
+            "status": "supported"
+          },
+          "toolCallCapture": {
+            "status": "supported"
+          },
+          "shellCommandCapture": {
+            "status": "supported"
+          },
+          "outputArtifactCapture": {
+            "status": "supported"
+          },
+          "fileMutationCapture": {
+            "status": "supported"
+          },
+          "sourceValidation": {
+            "status": "supported"
+          },
+          "watchPlans": {
+            "status": "unsupported",
+            "reason": "Phase 4 does not model adapter-owned watch plans yet."
+          },
+          "gitContextCapture": {
+            "status": "unsupported",
+            "reason": "Phase 4 does not infer git context from Gemini CLI evidence."
+          },
+          "githubContextCapture": {
+            "status": "unsupported",
+            "reason": "Phase 4 does not infer GitHub context from Gemini CLI evidence."
+          },
+          "verificationSignals": {
+            "status": "unknown",
+            "reason": "The adapter captures evidence only; shared core derives verification later."
+          }
+        }
+      }
+    ]
+  },
+  "projects": [
+    {
+      "kind": "project",
+      "id": "project:alpha-project",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "nativeId": "alpha-project",
+      "name": "alpha-project",
+      "rootPath": "/workspaces/alpha-project",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "sessions": [
+    {
+      "kind": "session",
+      "id": "session:11111111-1111-4111-8111-111111111111",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "nativeId": "11111111-1111-4111-8111-111111111111",
+      "projectId": "project:alpha-project",
+      "title": "Please refactor the shared contract layer.",
+      "startedAt": "2026-05-23T09:11:30.497Z",
+      "endedAt": "2026-05-23T09:13:11.343Z",
+      "lifecycleState": "completed",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session",
+      "id": "session:22222222-2222-4222-8222-222222222222",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "nativeId": "22222222-2222-4222-8222-222222222222",
+      "projectId": "project:alpha-project",
+      "title": "Can you summarize the last scan?",
+      "startedAt": "2026-05-23T09:20:00.000Z",
+      "endedAt": "2026-05-23T09:21:12.352Z",
+      "lifecycleState": "cancelled",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "events": [
+    {
+      "kind": "session-event",
+      "id": "session-event:11111111-1111-4111-8111-111111111111:lifecycle",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "11111111-1111-4111-8111-111111111111:lifecycle",
+      "eventKind": "lifecycle",
+      "timestamp": "2026-05-23T09:13:11.343Z",
+      "ordinal": 1,
+      "summary": "Completed",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:11111111-1111-4111-8111-111111111111:header-metadata",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "11111111-1111-4111-8111-111111111111:header-metadata",
+      "eventKind": "metadata",
+      "timestamp": "2026-05-23T09:11:30.497Z",
+      "ordinal": 2,
+      "summary": "Project hash project-hash-alpha",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl:message:2",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl:message:2",
+      "eventKind": "message",
+      "timestamp": "2026-05-23T09:12:30.745Z",
+      "ordinal": 3,
+      "summary": "system message",
+      "messageId": "session-message:info-111:2",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl:message:4",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl:message:4",
+      "eventKind": "message",
+      "timestamp": "2026-05-23T09:12:36.249Z",
+      "ordinal": 4,
+      "summary": "user message",
+      "messageId": "session-message:user-111:4",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:read_file_1700000000000_0:7",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "read_file_1700000000000_0:7",
+      "eventKind": "tool-call",
+      "timestamp": "2026-05-23T09:12:40.197Z",
+      "ordinal": 5,
+      "summary": "read_file succeeded",
+      "toolCallId": "tool-call:read_file_1700000000000_0",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:run_shell_command_1700000001000_1:7",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "run_shell_command_1700000001000_1:7",
+      "eventKind": "tool-call",
+      "timestamp": "2026-05-23T09:12:40.497Z",
+      "ordinal": 6,
+      "summary": "run_shell_command succeeded",
+      "toolCallId": "tool-call:run_shell_command_1700000001000_1",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:shell:run_shell_command_1700000001000_1",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "shell:run_shell_command_1700000001000_1",
+      "eventKind": "shell-command",
+      "timestamp": "2026-05-23T09:12:40.497Z",
+      "ordinal": 7,
+      "summary": "npm run typecheck",
+      "shellCommandId": "shell-command:run_shell_command_1700000001000_1",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:replace_1700000002000_2:7",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "replace_1700000002000_2:7",
+      "eventKind": "tool-call",
+      "timestamp": "2026-05-23T09:12:40.697Z",
+      "ordinal": 8,
+      "summary": "replace succeeded",
+      "toolCallId": "tool-call:replace_1700000002000_2",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl:message:8",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl:message:8",
+      "eventKind": "message",
+      "timestamp": "2026-05-23T09:13:11.343Z",
+      "ordinal": 9,
+      "summary": "assistant message",
+      "messageId": "session-message:assistant-final-111:8",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/read_file_read_file_1700000000000_0_a1b2c3.txt",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/read_file_read_file_1700000000000_0_a1b2c3.txt",
+      "eventKind": "output-artifact",
+      "ordinal": 10,
+      "summary": "tool-outputs/session-11111111-1111-4111-8111-111111111111/read_file_read_file_1700000000000_0_a1b2c3.txt",
+      "outputArtifactId": "output-artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/read_file_read_file_1700000000000_0_a1b2c3.txt",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/replace_replace_1700000002000_2_a4b5c6.json",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/replace_replace_1700000002000_2_a4b5c6.json",
+      "eventKind": "output-artifact",
+      "ordinal": 11,
+      "summary": "tool-outputs/session-11111111-1111-4111-8111-111111111111/replace_replace_1700000002000_2_a4b5c6.json",
+      "outputArtifactId": "output-artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/replace_replace_1700000002000_2_a4b5c6.json",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/run_shell_command_1700000001000_1.txt",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/run_shell_command_1700000001000_1.txt",
+      "eventKind": "output-artifact",
+      "ordinal": 12,
+      "summary": "tool-outputs/session-11111111-1111-4111-8111-111111111111/run_shell_command_1700000001000_1.txt",
+      "outputArtifactId": "output-artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/run_shell_command_1700000001000_1.txt",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:22222222-2222-4222-8222-222222222222:lifecycle",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:22222222-2222-4222-8222-222222222222",
+      "nativeId": "22222222-2222-4222-8222-222222222222:lifecycle",
+      "eventKind": "lifecycle",
+      "timestamp": "2026-05-23T09:21:12.352Z",
+      "ordinal": 1,
+      "summary": "Cancelled",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:22222222-2222-4222-8222-222222222222:header-metadata",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:22222222-2222-4222-8222-222222222222",
+      "nativeId": "22222222-2222-4222-8222-222222222222:header-metadata",
+      "eventKind": "metadata",
+      "timestamp": "2026-05-23T09:20:00.000Z",
+      "ordinal": 2,
+      "summary": "Project hash project-hash-alpha",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:chats/session-2026-05-23T09-20-22222222-2222-4222-8222-222222222222.jsonl:message:2",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:22222222-2222-4222-8222-222222222222",
+      "nativeId": "chats/session-2026-05-23T09-20-22222222-2222-4222-8222-222222222222.jsonl:message:2",
+      "eventKind": "message",
+      "timestamp": "2026-05-23T09:21:00.000Z",
+      "ordinal": 3,
+      "summary": "user message",
+      "messageId": "session-message:user-222:2",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:update_topic_1700000003000_0:3",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:22222222-2222-4222-8222-222222222222",
+      "nativeId": "update_topic_1700000003000_0:3",
+      "eventKind": "tool-call",
+      "timestamp": "2026-05-23T09:21:10.100Z",
+      "ordinal": 4,
+      "summary": "update_topic succeeded",
+      "toolCallId": "tool-call:update_topic_1700000003000_0",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:chats/session-2026-05-23T09-20-22222222-2222-4222-8222-222222222222.jsonl:message:4",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:22222222-2222-4222-8222-222222222222",
+      "nativeId": "chats/session-2026-05-23T09-20-22222222-2222-4222-8222-222222222222.jsonl:message:4",
+      "eventKind": "message",
+      "timestamp": "2026-05-23T09:21:12.352Z",
+      "ordinal": 5,
+      "summary": "system message",
+      "messageId": "session-message:cancel-222:4",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:artifact:tool-outputs/session-22222222-2222-4222-8222-222222222222/update_topic_update_topic_1700000003000_0_a7b8c9.txt",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:22222222-2222-4222-8222-222222222222",
+      "nativeId": "artifact:tool-outputs/session-22222222-2222-4222-8222-222222222222/update_topic_update_topic_1700000003000_0_a7b8c9.txt",
+      "eventKind": "output-artifact",
+      "ordinal": 6,
+      "summary": "tool-outputs/session-22222222-2222-4222-8222-222222222222/update_topic_update_topic_1700000003000_0_a7b8c9.txt",
+      "outputArtifactId": "output-artifact:tool-outputs/session-22222222-2222-4222-8222-222222222222/update_topic_update_topic_1700000003000_0_a7b8c9.txt",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "messages": [
+    {
+      "kind": "session-message",
+      "id": "session-message:info-111:2",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "info-111:2",
+      "role": "system",
+      "content": "Gemini CLI update available.",
+      "ordinal": 1,
+      "timestamp": "2026-05-23T09:12:30.745Z",
+      "eventId": "session-event:chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl:message:2",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-message",
+      "id": "session-message:user-111:4",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "user-111:4",
+      "role": "user",
+      "content": "Please refactor the shared contract layer.",
+      "ordinal": 2,
+      "timestamp": "2026-05-23T09:12:36.249Z",
+      "eventId": "session-event:chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl:message:4",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-message",
+      "id": "session-message:assistant-final-111:8",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "assistant-final-111:8",
+      "role": "assistant",
+      "content": "I have completed the refactoring of the shared contract layer and validated the result with typecheck.",
+      "ordinal": 3,
+      "timestamp": "2026-05-23T09:13:11.343Z",
+      "eventId": "session-event:chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl:message:8",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-message",
+      "id": "session-message:user-222:2",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:22222222-2222-4222-8222-222222222222",
+      "nativeId": "user-222:2",
+      "role": "user",
+      "content": "Can you summarize the last scan?",
+      "ordinal": 1,
+      "timestamp": "2026-05-23T09:21:00.000Z",
+      "eventId": "session-event:chats/session-2026-05-23T09-20-22222222-2222-4222-8222-222222222222.jsonl:message:2",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-message",
+      "id": "session-message:cancel-222:4",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:22222222-2222-4222-8222-222222222222",
+      "nativeId": "cancel-222:4",
+      "role": "system",
+      "content": "Request cancelled.",
+      "ordinal": 2,
+      "timestamp": "2026-05-23T09:21:12.352Z",
+      "eventId": "session-event:chats/session-2026-05-23T09-20-22222222-2222-4222-8222-222222222222.jsonl:message:4",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "toolCalls": [
+    {
+      "kind": "tool-call",
+      "id": "tool-call:read_file_1700000000000_0",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "read_file_1700000000000_0",
+      "toolName": "read_file",
+      "status": "succeeded",
+      "startedAt": "2026-05-23T09:12:40.197Z",
+      "endedAt": "2026-05-23T09:12:40.197Z",
+      "inputSummary": "file_path=src/main/core/adapter-contract/types.ts",
+      "outputSummary": "Read contract types",
+      "eventId": "session-event:read_file_1700000000000_0:7",
+      "artifactIds": [
+        "output-artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/read_file_read_file_1700000000000_0_a1b2c3.txt"
+      ],
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "tool-call",
+      "id": "tool-call:run_shell_command_1700000001000_1",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "run_shell_command_1700000001000_1",
+      "toolName": "run_shell_command",
+      "status": "succeeded",
+      "startedAt": "2026-05-23T09:12:40.497Z",
+      "endedAt": "2026-05-23T09:12:40.497Z",
+      "inputSummary": "command=npm run typecheck, cwd=/workspaces/alpha-project",
+      "outputSummary": "Typecheck passed",
+      "eventId": "session-event:run_shell_command_1700000001000_1:7",
+      "artifactIds": [
+        "output-artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/run_shell_command_1700000001000_1.txt"
+      ],
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "tool-call",
+      "id": "tool-call:replace_1700000002000_2",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "replace_1700000002000_2",
+      "toolName": "replace",
+      "status": "succeeded",
+      "startedAt": "2026-05-23T09:12:40.697Z",
+      "endedAt": "2026-05-23T09:12:40.697Z",
+      "inputSummary": "file_path=src/main/core/adapter-contract/types.ts, new_string=new, old_string=old",
+      "outputSummary": "Updated contract types",
+      "eventId": "session-event:replace_1700000002000_2:7",
+      "artifactIds": [
+        "output-artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/replace_replace_1700000002000_2_a4b5c6.json"
+      ],
+      "fileMutationIds": [
+        "file-mutation:replace_1700000002000_2:src/main/core/adapter-contract/types.ts"
+      ],
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "tool-call",
+      "id": "tool-call:update_topic_1700000003000_0",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:22222222-2222-4222-8222-222222222222",
+      "nativeId": "update_topic_1700000003000_0",
+      "toolName": "update_topic",
+      "status": "succeeded",
+      "startedAt": "2026-05-23T09:21:10.100Z",
+      "endedAt": "2026-05-23T09:21:10.100Z",
+      "inputSummary": "summary=Summarizing the last scan., title=Session summary",
+      "outputSummary": "Topic updated",
+      "eventId": "session-event:update_topic_1700000003000_0:3",
+      "artifactIds": [
+        "output-artifact:tool-outputs/session-22222222-2222-4222-8222-222222222222/update_topic_update_topic_1700000003000_0_a7b8c9.txt"
+      ],
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "shellCommands": [
+    {
+      "kind": "shell-command",
+      "id": "shell-command:run_shell_command_1700000001000_1",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "run_shell_command_1700000001000_1",
+      "command": "npm run typecheck",
+      "outputSource": "combined",
+      "cwd": "/workspaces/alpha-project",
+      "startedAt": "2026-05-23T09:12:40.497Z",
+      "endedAt": "2026-05-23T09:12:40.497Z",
+      "outputSummary": "Typecheck passed",
+      "eventId": "session-event:run_shell_command_1700000001000_1:7",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "outputArtifacts": [
+    {
+      "kind": "output-artifact",
+      "id": "output-artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/read_file_read_file_1700000000000_0_a1b2c3.txt",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "tool-outputs/session-11111111-1111-4111-8111-111111111111/read_file_read_file_1700000000000_0_a1b2c3.txt",
+      "artifactKind": "text",
+      "path": "tool-outputs/session-11111111-1111-4111-8111-111111111111/read_file_read_file_1700000000000_0_a1b2c3.txt",
+      "mediaType": "text/plain",
+      "byteLength": 63,
+      "eventId": "session-event:artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/read_file_read_file_1700000000000_0_a1b2c3.txt",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "output-artifact",
+      "id": "output-artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/replace_replace_1700000002000_2_a4b5c6.json",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "tool-outputs/session-11111111-1111-4111-8111-111111111111/replace_replace_1700000002000_2_a4b5c6.json",
+      "artifactKind": "json",
+      "path": "tool-outputs/session-11111111-1111-4111-8111-111111111111/replace_replace_1700000002000_2_a4b5c6.json",
+      "mediaType": "application/json",
+      "byteLength": 85,
+      "eventId": "session-event:artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/replace_replace_1700000002000_2_a4b5c6.json",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "output-artifact",
+      "id": "output-artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/run_shell_command_1700000001000_1.txt",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "tool-outputs/session-11111111-1111-4111-8111-111111111111/run_shell_command_1700000001000_1.txt",
+      "artifactKind": "text",
+      "path": "tool-outputs/session-11111111-1111-4111-8111-111111111111/run_shell_command_1700000001000_1.txt",
+      "mediaType": "text/plain",
+      "byteLength": 39,
+      "eventId": "session-event:artifact:tool-outputs/session-11111111-1111-4111-8111-111111111111/run_shell_command_1700000001000_1.txt",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "output-artifact",
+      "id": "output-artifact:tool-outputs/session-22222222-2222-4222-8222-222222222222/update_topic_update_topic_1700000003000_0_a7b8c9.txt",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:22222222-2222-4222-8222-222222222222",
+      "nativeId": "tool-outputs/session-22222222-2222-4222-8222-222222222222/update_topic_update_topic_1700000003000_0_a7b8c9.txt",
+      "artifactKind": "text",
+      "path": "tool-outputs/session-22222222-2222-4222-8222-222222222222/update_topic_update_topic_1700000003000_0_a7b8c9.txt",
+      "mediaType": "text/plain",
+      "byteLength": 44,
+      "eventId": "session-event:artifact:tool-outputs/session-22222222-2222-4222-8222-222222222222/update_topic_update_topic_1700000003000_0_a7b8c9.txt",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "fileMutations": [
+    {
+      "kind": "file-mutation",
+      "id": "file-mutation:replace_1700000002000_2:src/main/core/adapter-contract/types.ts",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:alpha-project",
+      "sessionId": "session:11111111-1111-4111-8111-111111111111",
+      "nativeId": "replace_1700000002000_2:src/main/core/adapter-contract/types.ts",
+      "path": "src/main/core/adapter-contract/types.ts",
+      "mutationKind": "updated",
+      "eventId": "session-event:replace_1700000002000_2:7",
+      "toolCallId": "tool-call:replace_1700000002000_2",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "diagnostics": []
+}
