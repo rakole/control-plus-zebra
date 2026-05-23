@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 type SourceKind =
   | { type: "adapter"; adapterId: string }
   | { type: "core" }
+  | { type: "main" }
   | { type: "renderer" }
   | { type: "other" };
 
@@ -40,6 +41,10 @@ const fixtureLogicalPaths = new Map<string, string>([
   [
     path.join(boundaryFixturesRoot, "illegal-renderer-import.ts"),
     "src/renderer/illegal-import-fixture.ts"
+  ],
+  [
+    path.join(boundaryFixturesRoot, "illegal-renderer-main-import.ts"),
+    "src/renderer/illegal-main-import-fixture.ts"
   ],
   [
     path.join(boundaryFixturesRoot, "illegal-adapter-import.ts"),
@@ -82,6 +87,19 @@ describe("import boundaries", () => {
         sourceLogicalPath: "src/renderer/illegal-import-fixture.ts",
         targetLogicalPath: "src/main/adapters/fake-test/descriptor.ts",
         reason: "Renderer code must not import adapter-private modules."
+      })
+    ]);
+  });
+
+  it("rejects a renderer file importing main-process internals", async () => {
+    const fixturePath = path.join(boundaryFixturesRoot, "illegal-renderer-main-import.ts");
+    const violations = await findBoundaryViolations([fixturePath]);
+
+    expect(violations).toEqual([
+      expect.objectContaining({
+        sourceLogicalPath: "src/renderer/illegal-main-import-fixture.ts",
+        targetLogicalPath: "src/main/core/adapter-contract/index.ts",
+        reason: "Renderer code must not import main-process internals."
       })
     ]);
   });
@@ -146,6 +164,21 @@ async function findBoundaryViolations(files: string[]): Promise<BoundaryViolatio
           targetFile,
           targetLogicalPath,
           reason: "Renderer code must not import adapter-private modules."
+        });
+        continue;
+      }
+
+      if (
+        sourceKind.type === "renderer" &&
+        (targetKind.type === "core" || targetKind.type === "main")
+      ) {
+        violations.push({
+          sourceFile: file,
+          sourceLogicalPath,
+          specifier: imported,
+          targetFile,
+          targetLogicalPath,
+          reason: "Renderer code must not import main-process internals."
         });
         continue;
       }
@@ -236,7 +269,7 @@ async function collectTypeScriptFiles(root: string): Promise<string[]> {
           return collectTypeScriptFiles(resolved);
         }
 
-        return resolved.endsWith(".ts") ? [resolved] : [];
+        return resolved.endsWith(".ts") || resolved.endsWith(".tsx") ? [resolved] : [];
       })
     );
 
@@ -277,6 +310,10 @@ function classifySourcePath(file: string): SourceKind {
     if (adapterId) {
       return { type: "adapter", adapterId };
     }
+  }
+
+  if (normalized.startsWith("src/main/")) {
+    return { type: "main" };
   }
 
   return { type: "other" };
