@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Phase 2 context gathered
-last_updated: "2026-05-23T13:05:08.465Z"
-last_activity: 2026-05-23 - Completed all 4 Phase 1 plans with full verification passing
+status: in_progress
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-05-23T13:55:49Z"
+last_activity: 2026-05-23 - Completed Phase 2 Plan 01 secure desktop shell scaffold
 progress:
   total_phases: 8
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 13
+  total_plans: 8
+  completed_plans: 5
+  percent: 16
 ---
 
 # Project State
@@ -26,30 +26,31 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 ## Current Position
 
 Phase: 2 of 8 (Secure Desktop Shell and View-Model Bridge)
-Plan: Phase 1 complete; Phase 2 planning/execution not started
-Status: Phase 1 complete; ready to begin Phase 2
-Last activity: 2026-05-23 - Completed all 4 Phase 1 plans with full verification passing
+Plan: 02-01 complete; next plan is 02-02 typed preload API and IPC handler conventions
+Status: Phase 2 in progress
+Last activity: 2026-05-23 - Completed Phase 2 Plan 01 secure desktop shell scaffold
 
-Progress: [█---------] 13%
+Progress: [██--------] 16%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 4
-- Average duration: 3 min
-- Total execution time: 13 min
+- Total plans completed: 5
+- Average duration: 6 min
+- Total execution time: 29 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1. Architecture Contracts and Fixture Proof | 4/4 | 13 min | 3 min |
+| 2. Secure Desktop Shell and View-Model Bridge | 1/4 | 16 min | 16 min |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01, 01-02, 01-03, 01-04
-- Trend: Phase 1 complete; shared contracts, fake adapter proof, regression tests, and guardrails are all green
+- Last 5 plans: 01-01, 01-02, 01-03, 01-04, 02-01
+- Trend: Phase 2 shell scaffold is underway; Electron/Vite/React packaging and security defaults are green
 
 *Updated after each plan completion*
 
@@ -77,10 +78,14 @@ Recent decisions affecting current work:
 - Phase 1 execution: The fake proof fixture stays intentionally non-Gemini-shaped while still covering messages, tool calls, shell evidence, artifacts, and file mutations.
 - Phase 1 execution: Future adapters reuse a shared Vitest contract harness plus stable golden artifacts instead of bespoke assertion stacks.
 - Phase 1 execution: Boundary enforcement allows adapter imports only through the bundled registry composition root and blocks shared `Gemini*` leakage or conclusion-field drift.
+- Phase 2 planning: Execute in three waves: scaffold the Electron/Vite/React shell first, then preload/IPC and security hardening in parallel, then the Sessions-first renderer route.
+- Phase 2 planning: Keep renderer data access through `window.agentWorkbench` and sanitized fake-backed DTOs only; no renderer-local session mocks or adapter-private imports.
+- Phase 2 planning: Lock security proof in Phase 2 with BrowserWindow defaults, local-only CSP, forbidden renderer API scans, and main/adapter import-boundary tests.
+- Phase 2 execution: Electron Forge/Vite/React scaffold packages successfully with a secure BrowserWindow, empty typed preload bridge, and Sessions-routed renderer shell.
 
 ### Pending Todos
 
-- Plan and execute Phase 2 secure desktop shell, preload bridge, and IPC-safe view-model surface.
+- Execute remaining Phase 2 preload bridge, security guardrails, and Sessions-first fake-backed renderer route from plans 02-02 through 02-04.
 - Gather the real Gemini fixture corpus before Phase 4 adapter implementation begins.
 
 ### Blockers/Concerns
@@ -100,6 +105,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-23T13:05:08.459Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-secure-desktop-shell-and-view-model-bridge/02-CONTEXT.md
+Last session: 2026-05-23T13:55:49Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: .planning/phases/02-secure-desktop-shell-and-view-model-bridge/02-02-PLAN.md
