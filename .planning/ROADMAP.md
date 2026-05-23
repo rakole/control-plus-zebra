@@ -79,7 +79,7 @@ Plans:
   3. Raw artifact index and cache keys include adapter ID, source ID, artifact identity, version, schema, and diagnostic inputs.
   4. Malformed normalized fragments are rejected or diagnosed before they reach the store.
   5. Shared watcher orchestration consumes adapter watch plans and adapters cannot create their own watchers.
-**Plans:** 9 plans
+**Plans:** 11 plans
 
 Plans:
 **Wave 1**
@@ -90,14 +90,18 @@ Plans:
 - [ ] 03-03: Implement scanner, raw artifact index, normalization validation, and session merge path.
 - [ ] 03-04: Implement watcher plan contract and shared orchestrator boundary.
 **Wave 4** *(blocked on Wave 3 scanner completion)*
-- [ ] 03-05: Implement file-backed normalized cache with adapter/source-aware keys and source summaries.
-**Wave 5** *(blocked on Wave 4 cache completion)*
-- [ ] 03-06: Route existing session view models through the source/scanner/cache path.
-- [ ] 03-07: Add Data Sources main view models plus IPC/preload contracts.
-**Wave 6** *(blocked on Wave 5 Data Sources contract completion)*
-- [ ] 03-08: Build Harnesses and Data Sources renderer route around shared source state.
-**Wave 7** *(blocked on Wave 6 renderer completion)*
-- [ ] 03-09: Extend Data Sources renderer, preload, and IPC guardrails.
+- [ ] 03-05: Implement file-backed normalized cache keys and store foundation.
+**Wave 5** *(blocked on Wave 4 cache foundation completion)*
+- [ ] 03-06: Integrate scanner cache writes with source scan/cache summaries.
+**Wave 6** *(blocked on Wave 5 cache summary integration)*
+- [ ] 03-07: Route existing session view models through the source/scanner/cache path.
+- [ ] 03-08: Add Data Sources view-model and DTO service layer.
+**Wave 7** *(blocked on Wave 6 Data Sources service completion)*
+- [ ] 03-09: Wire Data Sources IPC, preload, and Electron main integration.
+**Wave 8** *(blocked on Wave 7 IPC/preload completion)*
+- [ ] 03-10: Build Harnesses and Data Sources renderer route around shared source state.
+**Wave 9** *(blocked on Wave 8 renderer completion)*
+- [ ] 03-11: Extend Data Sources renderer, preload, and IPC guardrails.
 
 ### Phase 4: Gemini CLI Adapter End-to-End
 **Goal:** User can point Agent Workbench at Gemini CLI fixture data and see parsed Gemini sessions flow through the same normalized pipeline as the fake adapter, with parser uncertainty surfaced as diagnostics.
@@ -203,7 +207,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 |-------|----------------|--------|-----------|
 | 1. Architecture Contracts and Fixture Proof | 4/4 | Complete | 2026-05-23 |
 | 2. Secure Desktop Shell and View-Model Bridge | 4/4 | Complete | 2026-05-23 |
-| 3. Source Registry, Scanner, Cache, and Data Sources UI | 0/9 | Not started | - |
+| 3. Source Registry, Scanner, Cache, and Data Sources UI | 0/11 | Not started | - |
 | 4. Gemini CLI Adapter End-to-End | 0/4 | Not started | - |
 | 5. Shared Shell, Verification, and Run Audit | 0/4 | Not started | - |
 | 6. Harness-Neutral Triage UI | 0/5 | Not started | - |
