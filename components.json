@@ -1,6 +1,5 @@
 {
   "$schema": "https://ui.shadcn.com/schema.json",
-  "preset": "b2Ciqm1BK",
   "style": "radix-mira",
   "rsc": false,
   "tsx": true,

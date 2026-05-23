@@ -5,6 +5,9 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./src/renderer/*"]
+    },
     "strict": true,
     "noEmit": true,
     "forceConsistentCasingInFileNames": true,
