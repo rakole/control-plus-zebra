@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: ready_to_plan
-stopped_at: Phase 5 context gathered
-last_updated: "2026-05-23T18:38:15.318Z"
-last_activity: 2026-05-23 - Phase 4 Gemini CLI adapter execution completed and Phase 5 is ready for planning
+status: planned
+stopped_at: Phase 5 plans ready for execution
+last_updated: "2026-05-24T00:35:00.000Z"
+last_activity: 2026-05-24 - Phase 5 plans, validation strategy, and pattern map created
 progress:
   total_phases: 8
   completed_phases: 4
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 ## Current Position
 
 Phase: 5 of 8 (Shared Shell, Verification, and Run Audit)
-Plan: awaiting Phase 5 planning
-Status: ready_to_plan
-Last activity: 2026-05-23 - Phase 4 Gemini CLI adapter execution completed and Phase 5 is ready for planning
+Plan: 05-01 through 05-04 ready for execution
+Status: planned
+Last activity: 2026-05-24 - Phase 5 plans, validation strategy, and pattern map created
 
 Progress: [█████-----] 50%
 
@@ -103,11 +103,14 @@ Recent decisions affecting current work:
 - Phase 4 execution: Gemini parsing preserves adapter-private raw events and emits diagnostics for malformed rows, malformed sidecars, duplicate/intermediate rows, and missing joins while continuing over later valid evidence.
 - Phase 4 execution: Gemini normalization maps evidence into shared projects, sessions, messages, tool calls, shell commands, output artifacts, file mutations, and diagnostics only, with lifecycle derived from chronology and sidecar bodies loaded lazily.
 - Phase 4 execution: Representative Gemini fixtures plus contract, golden, truth-rule, boundary, lint, typecheck, and full-suite checks now prove the first real adapter without shared Gemini-specific branches.
+- Phase 5 planning: Execute in four waves - 05-01 shared shell parsing foundation, 05-02 verification classifier, 05-03 run-audit engine, and 05-04 fixture/regression hardening.
+- Phase 5 planning: Derive shell, verification, and audit truth during `Scanner.scanSource()` and persist it in a sibling derived cache payload while adapters remain evidence-only.
+- Phase 5 planning: Keep current IPC/session preview surfaces sanitized; public run-audit presentation remains Phase 6 work even after internal cache records gain derived truth.
 
 ### Pending Todos
 
-- Plan and execute Phase 5 shared shell parsing, verification semantics, and run-audit classification work.
-- Extend the Phase 5 fixture corpus to prove shell exit-code precedence, verification gaps, cancellation, and dirty-git truth rules.
+- Execute Phase 5 plans `05-01` through `05-04` for shell parsing, verification classification, run-audit derivation, and truth-rule regression coverage.
+- Finish the planned fixture expansion in `05-04` to prove exit-code precedence, verification gaps, cancellation precedence, incomplete post-claim activity, and clean gating.
 
 ### Blockers/Concerns
 
@@ -126,6 +129,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-23T18:38:15.309Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-shared-shell-verification-and-run-audit/05-CONTEXT.md
+Last session: 2026-05-24T00:35:00.000Z
+Stopped at: Phase 5 plans ready for execution
+Resume file: .planning/phases/05-shared-shell-verification-and-run-audit/05-01-PLAN.md
