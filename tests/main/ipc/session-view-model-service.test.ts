@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
 
 import { createSessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
+import { createWorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
 
 const forbiddenKeys = new Set([
   "rawEvents",
@@ -10,9 +15,20 @@ const forbiddenKeys = new Set([
   "attentionReasons"
 ]);
 
+const fakeFixturePath = path.resolve(
+  "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json"
+);
+
 describe("session view model service", () => {
-  it("maps fake adapter output into sanitized session summaries", async () => {
-    const service = createSessionViewModelService();
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((directory) => rm(directory, { force: true, recursive: true })));
+  });
+
+  it("maps scanned source cache data into sanitized session summaries", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const service = createSessionViewModelService({ runtime });
     const sessions = await service.listSessions();
 
     expect(sessions.length).toBeGreaterThan(0);
@@ -23,12 +39,13 @@ describe("session view model service", () => {
   });
 
   it("returns sanitized previews without raw files or audit conclusions", async () => {
-    const service = createSessionViewModelService();
+    const runtime = await createScannedRuntime(tempDirs);
+    const service = createSessionViewModelService({ runtime });
     const [summary] = await service.listSessions();
 
     expect(summary).toBeDefined();
     if (!summary) {
-      throw new Error("Expected fake fixture to produce a session summary.");
+      throw new Error("Expected scanned fake source to produce a session summary.");
     }
 
     const preview = await service.getSessionById({ sessionId: summary.sessionId });
@@ -50,7 +67,38 @@ describe("session view model service", () => {
     expect(findForbiddenKeys(preview)).toEqual([]);
     expect(JSON.stringify(preview)).not.toContain("artifacts/implementation-note.txt");
   });
+
+  it("returns an honest empty state when no configured or scanned sources exist", async () => {
+    const runtime = await createTempRuntime(tempDirs);
+    const service = createSessionViewModelService({ runtime });
+
+    await expect(service.listSessions()).resolves.toEqual([]);
+    await expect(service.getSessionById({ sessionId: "missing-session" })).resolves.toBeNull();
+  });
 });
+
+async function createScannedRuntime(tempDirs: string[]) {
+  const runtime = await createTempRuntime(tempDirs);
+  const source = await runtime.sourceRegistry.createSource({
+    adapterId: "fake-test",
+    displayName: "Fixture Source",
+    rootPath: fakeFixturePath
+  });
+  const validated = await runtime.scanner.validateSource(source.sourceId);
+
+  await runtime.scanner.scanSource(validated.source.sourceId);
+  return runtime;
+}
+
+async function createTempRuntime(tempDirs: string[]) {
+  const appDataDir = await mkdtemp(path.join(os.tmpdir(), "awb-session-service-"));
+
+  tempDirs.push(appDataDir);
+  return createWorkbenchRuntime({
+    appDataDir,
+    projectDir: process.cwd()
+  });
+}
 
 function findForbiddenKeys(value: unknown): string[] {
   const matches: string[] = [];

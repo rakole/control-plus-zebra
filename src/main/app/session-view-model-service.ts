@@ -1,29 +1,25 @@
-import path from "node:path";
-
-import type {
-  AdapterNormalizationResult,
-  DiscoveredHarnessSource,
-  RawArtifactRef,
-  RawHarnessEvent
-} from "../core/adapter-contract/index.js";
+import type { HarnessDescriptor } from "../core/adapter-contract/index.js";
+import type { NormalizedCacheRecord } from "../core/cache/file-backed-cache-store.js";
+import { mergeNormalizedResults } from "../core/ingestion/index.js";
 import type { CapabilityState, HarnessCapabilities } from "../core/model/capabilities.js";
 import type { Diagnostic } from "../core/diagnostics/diagnostic.js";
-import { createBundledAdapterRegistry } from "../core/registry/register-bundled-adapters.js";
+import type { Session } from "../core/model/entities.js";
 import {
   ALLOWED_IPC_CHANNELS,
-  type GetSessionByIdRequest,
   type CapabilityBadgeLabel,
+  type GetSessionByIdRequest,
   type SessionPreviewViewModel,
-  sessionPreviewViewModelSchema,
   type SessionSummaryViewModel,
-  sessionSummaryViewModelSchema,
   type ShellStateViewModel,
+  sessionPreviewViewModelSchema,
+  sessionSummaryViewModelSchema,
   shellStateViewModelSchema
 } from "../ipc/index.js";
-
-const fakeFixturePath = path.resolve(
-  "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json"
-);
+import {
+  createWorkbenchRuntime,
+  type WorkbenchRuntime,
+  type WorkbenchRuntimeOptions
+} from "./workbench-runtime.js";
 
 const capabilityKeys = [
   "sessionDiscovery",
@@ -47,41 +43,20 @@ export interface SessionViewModelService {
   getSessionById(request: GetSessionByIdRequest): Promise<SessionPreviewViewModel | null>;
 }
 
-export function createSessionViewModelService(): SessionViewModelService {
-  const registry = createBundledAdapterRegistry();
+export interface SessionViewModelServiceOptions extends WorkbenchRuntimeOptions {
+  runtime?: WorkbenchRuntime;
+}
 
-  async function loadFakeNormalizedData(): Promise<AdapterNormalizationResult> {
-    const adapter = registry.require("fake-test");
-    const context = {
-      projectDir: process.cwd(),
-      platform: process.platform
-    };
-    const validation = await adapter.validateSourceRoot({ rootPath: fakeFixturePath }, context);
+interface LoadedSessionData {
+  descriptors: Map<string, HarnessDescriptor>;
+  records: NormalizedCacheRecord[];
+  sessionsById: Map<string, Session>;
+}
 
-    if (!validation.ok) {
-      throw new Error("Fake session fixture failed source validation.");
-    }
-
-    const [source] = await collectAsync(
-      adapter.discoverSources({ rootPath: fakeFixturePath }, context)
-    );
-
-    if (!source) {
-      throw new Error("Fake session fixture did not produce a source.");
-    }
-
-    const artifacts = await collectAsync(adapter.discoverArtifacts(source, context));
-    const rawEvents = await collectRawEvents(adapter.parseArtifact, artifacts, context);
-
-    return adapter.normalize(
-      {
-        source,
-        artifacts,
-        rawEvents
-      },
-      context
-    );
-  }
+export function createSessionViewModelService(
+  options: SessionViewModelServiceOptions = {}
+): SessionViewModelService {
+  const runtime = options.runtime ?? createWorkbenchRuntime(options);
 
   return {
     getShellState() {
@@ -89,7 +64,7 @@ export function createSessionViewModelService(): SessionViewModelService {
         appName: "Agent Workbench",
         readOnly: true,
         allowedOperations: ALLOWED_IPC_CHANNELS,
-        adapters: registry.listDescriptors().map((descriptor) => ({
+        adapters: runtime.adapterRegistry.listDescriptors().map((descriptor) => ({
           adapterId: descriptor.id,
           displayName: descriptor.displayName
         }))
@@ -97,71 +72,51 @@ export function createSessionViewModelService(): SessionViewModelService {
     },
 
     async listSessions() {
-      const normalized = await loadFakeNormalizedData();
+      const data = await loadSessionData(runtime);
 
-      return normalized.sessions.map((session) =>
-        sessionSummaryViewModelSchema.parse(toSessionSummary(normalized, session.id))
+      return [...data.sessionsById.values()].map((session) =>
+        sessionSummaryViewModelSchema.parse(toSessionSummary(data, session))
       );
     },
 
     async getSessionById(request) {
-      const normalized = await loadFakeNormalizedData();
-      const session = normalized.sessions.find((candidate) => candidate.id === request.sessionId);
+      const data = await loadSessionData(runtime);
+      const session = data.sessionsById.get(request.sessionId);
 
       if (!session) {
         return null;
       }
 
-      return sessionPreviewViewModelSchema.parse(toSessionPreview(normalized, session.id));
+      return sessionPreviewViewModelSchema.parse(toSessionPreview(data, session));
     }
   };
 }
 
-async function collectAsync<T>(iterable: AsyncIterable<T>): Promise<T[]> {
-  const items: T[] = [];
+async function loadSessionData(runtime: WorkbenchRuntime): Promise<LoadedSessionData> {
+  const records = await runtime.cacheStore.listLatestRecords();
+  const merged = mergeNormalizedResults(records.map((record) => record.normalized));
+  const sessions = merged?.sessions ?? [];
 
-  for await (const item of iterable) {
-    items.push(item);
-  }
-
-  return items;
+  return {
+    descriptors: new Map(
+      runtime
+        .adapterRegistry
+        .listDescriptors()
+        .map((descriptor) => [descriptor.id, descriptor] as const)
+    ),
+    records,
+    sessionsById: new Map(sessions.map((session) => [session.id, session] as const))
+  };
 }
 
-async function collectRawEvents(
-  parseArtifact: (
-    artifact: RawArtifactRef,
-    context: { projectDir: string; platform: NodeJS.Platform }
-  ) => AsyncIterable<RawHarnessEvent>,
-  artifacts: RawArtifactRef[],
-  context: { projectDir: string; platform: NodeJS.Platform }
-): Promise<RawHarnessEvent[]> {
-  const rawEvents: RawHarnessEvent[] = [];
-
-  for (const artifact of artifacts) {
-    rawEvents.push(...(await collectAsync(parseArtifact(artifact, context))));
-  }
-
-  return rawEvents;
-}
-
-function toSessionSummary(
-  normalized: AdapterNormalizationResult,
-  sessionId: string
-): SessionSummaryViewModel {
-  const session = normalized.sessions.find((candidate) => candidate.id === sessionId);
-
-  if (!session) {
-    throw new Error("Session summary mapping requires an existing session.");
-  }
-
-  const descriptor = createBundledAdapterRegistry().require(session.adapterId).descriptor;
-  const capabilityEnvelope =
-    normalized.capabilities.sessions.find((candidate) => candidate.sessionId === sessionId) ??
-    normalized.capabilities.source;
+function toSessionSummary(data: LoadedSessionData, session: Session): SessionSummaryViewModel {
+  const descriptor = data.descriptors.get(session.adapterId);
+  const capabilityEnvelope = getCapabilityEnvelope(data.records, session);
+  const diagnostics = getDiagnosticsForSession(data.records, session);
 
   return {
     adapterId: session.adapterId,
-    adapterDisplayName: descriptor.displayName,
+    adapterDisplayName: descriptor?.displayName ?? session.adapterId,
     sourceId: session.sourceId,
     sessionId: session.id,
     nativeSessionId: session.nativeId,
@@ -170,39 +125,99 @@ function toSessionSummary(
     ...(session.startedAt ? { startedAt: session.startedAt } : {}),
     ...(session.endedAt ? { endedAt: session.endedAt } : {}),
     capabilityBadges: capabilityKeys.map((key) =>
-      toCapabilityBadge(key, capabilityEnvelope.capabilities[key])
+      toCapabilityBadge(key, capabilityEnvelope?.capabilities[key] ?? { status: "unknown" })
     ),
-    diagnosticWarningCount: normalized.diagnostics.filter(
-      (diagnostic) => diagnostic.severity === "warning"
-    ).length,
+    diagnosticWarningCount: diagnostics.filter((diagnostic) => diagnostic.severity === "warning")
+      .length,
     evidenceSummary: {
-      messages: normalized.messages.filter((item) => item.sessionId === sessionId).length,
-      toolCalls: normalized.toolCalls.filter((item) => item.sessionId === sessionId).length,
-      shellCommands: normalized.shellCommands.filter((item) => item.sessionId === sessionId)
-        .length,
-      outputArtifacts: normalized.outputArtifacts.filter((item) => item.sessionId === sessionId)
-        .length,
-      fileMutations: normalized.fileMutations.filter((item) => item.sessionId === sessionId)
-        .length,
-      diagnostics: normalized.diagnostics.length
+      messages: countBySession(data.records, session.id, "messages"),
+      toolCalls: countBySession(data.records, session.id, "toolCalls"),
+      shellCommands: countBySession(data.records, session.id, "shellCommands"),
+      outputArtifacts: countBySession(data.records, session.id, "outputArtifacts"),
+      fileMutations: countBySession(data.records, session.id, "fileMutations"),
+      diagnostics: diagnostics.length
     }
   };
 }
 
-function toSessionPreview(
-  normalized: AdapterNormalizationResult,
-  sessionId: string
-): SessionPreviewViewModel {
-  const summary = toSessionSummary(normalized, sessionId);
-  const projectName = normalized.projects.find(
-    (project) => project.id === normalized.sessions.find((session) => session.id === sessionId)?.projectId
-  )?.name;
+function toSessionPreview(data: LoadedSessionData, session: Session): SessionPreviewViewModel {
+  const summary = toSessionSummary(data, session);
+  const projectName = getProjectName(data.records, session);
 
   return {
     ...summary,
     ...(projectName ? { projectName } : {}),
-    diagnostics: normalized.diagnostics.map(toDiagnosticViewModel)
+    diagnostics: getDiagnosticsForSession(data.records, session).map(toDiagnosticViewModel)
   };
+}
+
+function getCapabilityEnvelope(records: NormalizedCacheRecord[], session: Session) {
+  for (const record of records) {
+    const sessionCapability = record.normalized.capabilities.sessions.find(
+      (candidate) => candidate.sessionId === session.id
+    );
+
+    if (sessionCapability) {
+      return sessionCapability;
+    }
+  }
+
+  const sourceRecord = records.find((record) => record.sourceId === session.sourceId);
+
+  if (sourceRecord) {
+    return sourceRecord.normalized.capabilities.source;
+  }
+
+  return records.find((record) => record.adapterId === session.adapterId)?.normalized.capabilities.adapter;
+}
+
+function getDiagnosticsForSession(records: NormalizedCacheRecord[], session: Session): Diagnostic[] {
+  const diagnostics = records
+    .filter((record) => record.sourceId === session.sourceId)
+    .flatMap((record) => record.normalized.diagnostics)
+    .filter((diagnostic) =>
+      diagnostic.sourceId === session.sourceId ||
+      diagnostic.relatedEntityIds?.includes(session.id) === true
+    );
+
+  return dedupeDiagnostics(diagnostics);
+}
+
+function countBySession(
+  records: NormalizedCacheRecord[],
+  sessionId: string,
+  key: "messages" | "toolCalls" | "shellCommands" | "outputArtifacts" | "fileMutations"
+): number {
+  return records.reduce((total, record) => {
+    const collection = record.normalized[key];
+    return total + collection.filter((item) => item.sessionId === sessionId).length;
+  }, 0);
+}
+
+function getProjectName(records: NormalizedCacheRecord[], session: Session): string | undefined {
+  if (!session.projectId) {
+    return undefined;
+  }
+
+  for (const record of records) {
+    const project = record.normalized.projects.find((candidate) => candidate.id === session.projectId);
+
+    if (project) {
+      return project.name;
+    }
+  }
+
+  return undefined;
+}
+
+function dedupeDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {
+  const seen = new Map<string, Diagnostic>();
+
+  for (const diagnostic of diagnostics) {
+    seen.set(diagnostic.id, diagnostic);
+  }
+
+  return [...seen.values()];
 }
 
 function toCapabilityBadge(key: keyof HarnessCapabilities, state: CapabilityState) {

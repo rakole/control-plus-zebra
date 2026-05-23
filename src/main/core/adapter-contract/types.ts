@@ -1,6 +1,7 @@
 import type { Diagnostic } from "../diagnostics/diagnostic.js";
 import type { CapabilityEnvelope, HarnessCapabilities } from "../model/capabilities.js";
 import type { ConfidenceScore } from "../model/confidence.js";
+import type { SafeFilesystem } from "../security/safe-filesystem.js";
 import type {
   AdapterId,
   RawArtifactId,
@@ -42,6 +43,7 @@ export interface SourceRootValidation {
 export interface AdapterContext {
   projectDir: string;
   platform: NodeJS.Platform;
+  safeFilesystem?: SafeFilesystem;
 }
 
 export interface DiscoveredHarnessSource {
@@ -63,6 +65,7 @@ export interface RawArtifactRef {
   artifactType: string;
   mediaType?: string;
   byteLength?: number;
+  inode?: number;
   mtimeMs?: number;
 }
 

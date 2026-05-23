@@ -17,6 +17,7 @@ import type {
   CapabilityState,
   HarnessCapabilities
 } from "../../src/main/core/model/capabilities.js";
+import { createSafeFilesystem } from "../../src/main/core/security/index.js";
 
 const REQUIRED_CAPABILITY_KEYS = [
   "sessionDiscovery",
@@ -86,10 +87,13 @@ export interface RunAdapterContractSuiteOptions<
   ): void;
 }
 
-function createAdapterTestContext(): AdapterContext {
+function createAdapterTestContext(root: SourceRootConfig): AdapterContext {
   return {
     projectDir: process.cwd(),
-    platform: process.platform
+    platform: process.platform,
+    safeFilesystem: createSafeFilesystem({
+      allowedRootPaths: [root.rootPath]
+    })
   };
 }
 
@@ -389,20 +393,23 @@ export async function collectAsync<T>(iterable: AsyncIterable<T>): Promise<T[]> 
 export async function exerciseAdapter<TRawEvent extends RawHarnessEvent>(
   adapter: SessionSourceAdapter<TRawEvent>,
   root: SourceRootConfig | string,
-  context: AdapterContext = createAdapterTestContext()
+  context?: AdapterContext
 ): Promise<ExercisedAdapter<TRawEvent>> {
   const resolvedRoot = toSourceRootConfig(root);
-  const validation = await adapter.validateSourceRoot(resolvedRoot, context);
-  const sources = await collectAsync(adapter.discoverSources(resolvedRoot, context));
+  const runtimeContext = context ?? createAdapterTestContext(resolvedRoot);
+  const validation = await adapter.validateSourceRoot(resolvedRoot, runtimeContext);
+  const sources = await collectAsync(adapter.discoverSources(resolvedRoot, runtimeContext));
   const source = sources[0];
 
   if (!source) {
     throw new Error(`Adapter '${adapter.descriptor.id}' did not discover any sources.`);
   }
 
-  const artifacts = await collectAsync(adapter.discoverArtifacts(source, context));
+  const artifacts = await collectAsync(adapter.discoverArtifacts(source, runtimeContext));
   const rawEvents = (
-    await Promise.all(artifacts.map((artifact) => collectAsync(adapter.parseArtifact(artifact, context))))
+    await Promise.all(
+      artifacts.map((artifact) => collectAsync(adapter.parseArtifact(artifact, runtimeContext)))
+    )
   ).flat();
   const normalized = await adapter.normalize(
     {
@@ -410,11 +417,11 @@ export async function exerciseAdapter<TRawEvent extends RawHarnessEvent>(
       artifacts,
       rawEvents
     },
-    context
+    runtimeContext
   );
 
   return {
-    context,
+    context: runtimeContext,
     root: resolvedRoot,
     validation,
     sources,

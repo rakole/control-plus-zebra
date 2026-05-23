@@ -1,15 +1,15 @@
 import {
   Activity,
   AlertCircle,
+  Database,
   FolderKanban,
   LayoutDashboard
 } from "lucide-react";
-import { NavLink } from "react-router";
+import { NavLink, useLocation } from "react-router";
 import type { ReactNode } from "react";
 
 interface AppShellProps {
   children: ReactNode;
-  routeTitle?: string;
 }
 
 const disabledNavigation = [
@@ -18,7 +18,15 @@ const disabledNavigation = [
   { label: "Diagnostics", icon: AlertCircle }
 ] as const;
 
-export function AppShell({ children, routeTitle = "Sessions" }: AppShellProps) {
+const routeTitles: Record<string, string> = {
+  "/data-sources": "Data Sources",
+  "/sessions": "Sessions"
+};
+
+export function AppShell({ children }: AppShellProps) {
+  const location = useLocation();
+  const routeTitle = routeTitles[location.pathname] ?? "Sessions";
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Workbench navigation">
@@ -40,7 +48,21 @@ export function AppShell({ children, routeTitle = "Sessions" }: AppShellProps) {
               {item.label}
             </span>
           ))}
-          <NavLink className="nav-item nav-item-active" to="/sessions">
+          <NavLink
+            className={({ isActive }) =>
+              isActive ? "nav-item nav-item-active" : "nav-item"
+            }
+            to="/data-sources"
+          >
+            <Database size={18} aria-hidden="true" />
+            Data Sources
+          </NavLink>
+          <NavLink
+            className={({ isActive }) =>
+              isActive ? "nav-item nav-item-active" : "nav-item"
+            }
+            to="/sessions"
+          >
             <Activity size={18} aria-hidden="true" />
             Sessions
           </NavLink>
