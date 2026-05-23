@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 ## Current Position
 
 Phase: 1 of 8 (Architecture Contracts and Fixture Proof)
-Plan: 4 plans defined for current phase
-Status: Planned; ready to execute
-Last activity: 2026-05-23 - Planned Phase 1 into 4 executable plans with research and validation strategy
+Plan: 01-01 complete; 3 plans remaining in current phase
+Status: In progress; Wave 2 ready to execute
+Last activity: 2026-05-23 - Executed 01-01 shared-core workspace, model, diagnostics, and adapter contract foundation
 
-Progress: [----------] 0%
+Progress: [███-------] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: N/A
-- Total execution time: 0 hours
+- Total plans completed: 1
+- Average duration: 1 min
+- Total execution time: 1 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1. Architecture Contracts and Fixture Proof | 0/4 | 0 | N/A |
+| 1. Architecture Contracts and Fixture Proof | 1/4 | 1 min | 1 min |
 
 **Recent Trend:**
-- Last 5 plans: none
-- Trend: N/A
+- Last 5 plans: 01-01
+- Trend: Execution started; Wave 1 proof complete
 
 *Updated after each plan completion*
 
@@ -51,10 +51,15 @@ Recent decisions affecting current work:
 - Phase 1 context: Use one small non-Gemini fake fixture with golden normalized output as the main proof artifact.
 - Phase 1 context: Enforce strict import and naming boundaries with both lint and automated tests from the start.
 - Phase 1 planning: Keep this milestone TypeScript shared-core and proof-only; defer Electron shell, preload, and renderer scaffold work to Phase 2.
+- Phase 1 execution: Use a strict NodeNext TypeScript baseline and remove deprecated compiler switches instead of silencing them.
+- Phase 1 execution: Capability truth states are explicit shared contracts (`supported`, `unsupported`, `unknown`) from the first milestone.
+- Phase 1 execution: Shared adapter contract exposes validation, discovery, parse, and normalize seams while reserving verification and audit conclusions for later shared-core phases.
 
 ### Pending Todos
 
-None yet.
+- Execute `01-02` fake adapter, fixture, and registry wiring.
+- Execute `01-03` reusable contract/golden/truth-rule tests.
+- Execute `01-04` lint, import-boundary, and shared naming guardrails.
 
 ### Blockers/Concerns
 
@@ -74,5 +79,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-23
-Stopped at: Phase 1 planned; ready for execute-phase
-Resume file: .planning/phases/01-architecture-contracts-and-fixture-proof/01-01-PLAN.md
+Stopped at: 01-01 complete; Wave 2 ready
+Resume file: .planning/phases/01-architecture-contracts-and-fixture-proof/01-02-PLAN.md

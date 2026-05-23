@@ -38,7 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 **Wave 1**
-- [ ] 01-01: Define normalized model, capabilities, diagnostics, IDs, and confidence contracts.
+- [x] 01-01: Define normalized model, capabilities, diagnostics, IDs, and confidence contracts.
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 01-02: Implement adapter contract, registry, and fake adapter fixture.
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -189,7 +189,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Architecture Contracts and Fixture Proof | 0/4 | Planned | - |
+| 1. Architecture Contracts and Fixture Proof | 1/4 | In progress | - |
 | 2. Secure Desktop Shell and View-Model Bridge | 0/4 | Not started | - |
 | 3. Source Registry, Scanner, Cache, and Data Sources UI | 0/4 | Not started | - |
 | 4. Gemini CLI Adapter End-to-End | 0/4 | Not started | - |
