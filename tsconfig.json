@@ -1,9 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2024",
-    "lib": ["ES2024"],
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
     "strict": true,
     "noEmit": true,
     "forceConsistentCasingInFileNames": true,
@@ -14,7 +15,7 @@
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
     "moduleDetection": "force",
-    "types": ["node", "vitest/globals"]
+    "types": ["node", "vitest/globals", "vite/client"]
   },
-  "include": ["src/**/*", "tests/**/*", "vitest.config.ts"]
+  "include": ["src/**/*", "tests/**/*", "forge.config.ts", "vite.*.config.ts", "vitest.config.ts"]
 }
