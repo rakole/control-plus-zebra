@@ -1,0 +1,433 @@
+{
+  "adapterId": "fake-test",
+  "sourceId": "source:fixture-source-01",
+  "capabilities": {
+    "adapter": {
+      "adapterId": "fake-test",
+      "capabilities": {
+        "sessionDiscovery": {
+          "status": "supported"
+        },
+        "liveSessionObservation": {
+          "status": "unsupported",
+          "reason": "The Phase 1 fixture is static and has no live session feed."
+        },
+        "eventStreaming": {
+          "status": "unsupported",
+          "reason": "The Phase 1 fixture is parsed from a single JSON artifact."
+        },
+        "messageCapture": {
+          "status": "supported"
+        },
+        "toolCallCapture": {
+          "status": "supported"
+        },
+        "shellCommandCapture": {
+          "status": "supported"
+        },
+        "outputArtifactCapture": {
+          "status": "supported"
+        },
+        "fileMutationCapture": {
+          "status": "supported"
+        },
+        "sourceValidation": {
+          "status": "supported"
+        },
+        "watchPlans": {
+          "status": "unsupported",
+          "reason": "Phase 1 does not model adapter-owned watch plans yet."
+        },
+        "gitContextCapture": {
+          "status": "unsupported",
+          "reason": "The fake fixture does not include git evidence."
+        },
+        "githubContextCapture": {
+          "status": "unsupported",
+          "reason": "The fake fixture does not include GitHub evidence."
+        },
+        "verificationSignals": {
+          "status": "unknown",
+          "reason": "The adapter emits shell evidence only; shared core derives verification later."
+        }
+      }
+    },
+    "source": {
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "capabilities": {
+        "sessionDiscovery": {
+          "status": "supported"
+        },
+        "liveSessionObservation": {
+          "status": "unsupported",
+          "reason": "Fixture data is static."
+        },
+        "eventStreaming": {
+          "status": "unsupported",
+          "reason": "Fixture playback is file-based."
+        },
+        "messageCapture": {
+          "status": "supported"
+        },
+        "toolCallCapture": {
+          "status": "supported"
+        },
+        "shellCommandCapture": {
+          "status": "supported"
+        },
+        "outputArtifactCapture": {
+          "status": "supported"
+        },
+        "fileMutationCapture": {
+          "status": "supported"
+        },
+        "sourceValidation": {
+          "status": "supported"
+        },
+        "watchPlans": {
+          "status": "unsupported",
+          "reason": "Phase 1 does not model watch plans."
+        },
+        "gitContextCapture": {
+          "status": "unsupported",
+          "reason": "Fixture does not include git evidence."
+        },
+        "githubContextCapture": {
+          "status": "unsupported",
+          "reason": "Fixture does not include GitHub evidence."
+        },
+        "verificationSignals": {
+          "status": "unknown",
+          "reason": "Verification is derived later from shared shell evidence."
+        }
+      }
+    },
+    "sessions": [
+      {
+        "adapterId": "fake-test",
+        "sourceId": "source:fixture-source-01",
+        "sessionId": "session:session-01",
+        "capabilities": {
+          "sessionDiscovery": {
+            "status": "supported"
+          },
+          "liveSessionObservation": {
+            "status": "unsupported",
+            "reason": "Fixture data is static."
+          },
+          "eventStreaming": {
+            "status": "unsupported",
+            "reason": "Fixture playback is file-based."
+          },
+          "messageCapture": {
+            "status": "supported"
+          },
+          "toolCallCapture": {
+            "status": "supported"
+          },
+          "shellCommandCapture": {
+            "status": "supported"
+          },
+          "outputArtifactCapture": {
+            "status": "supported"
+          },
+          "fileMutationCapture": {
+            "status": "supported"
+          },
+          "sourceValidation": {
+            "status": "supported"
+          },
+          "watchPlans": {
+            "status": "unsupported",
+            "reason": "Phase 1 does not model watch plans."
+          },
+          "gitContextCapture": {
+            "status": "unsupported",
+            "reason": "Fixture does not include git evidence."
+          },
+          "githubContextCapture": {
+            "status": "unsupported",
+            "reason": "Fixture does not include GitHub evidence."
+          },
+          "verificationSignals": {
+            "status": "unknown",
+            "reason": "Verification is derived later from shared shell evidence."
+          }
+        }
+      }
+    ]
+  },
+  "projects": [
+    {
+      "kind": "project",
+      "id": "project:project-01",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "nativeId": "project-01",
+      "name": "control-plus-zebra",
+      "rootPath": "/workspace/control-plus-zebra",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "sessions": [
+    {
+      "kind": "session",
+      "id": "session:session-01",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "nativeId": "session-01",
+      "projectId": "project:project-01",
+      "title": "Phase 1 architecture proof",
+      "startedAt": "2026-05-23T10:00:00.000Z",
+      "endedAt": "2026-05-23T10:00:06.000Z",
+      "lifecycleState": "completed",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "events": [
+    {
+      "kind": "session-event",
+      "id": "session-event:evt-01",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "evt-01",
+      "eventKind": "lifecycle",
+      "timestamp": "2026-05-23T10:00:00.000Z",
+      "ordinal": 1,
+      "summary": "Session started",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:evt-02",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "evt-02",
+      "eventKind": "message",
+      "timestamp": "2026-05-23T10:00:01.000Z",
+      "ordinal": 2,
+      "summary": "user message",
+      "messageId": "session-message:evt-02",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:evt-03",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "evt-03",
+      "eventKind": "message",
+      "timestamp": "2026-05-23T10:00:02.000Z",
+      "ordinal": 3,
+      "summary": "assistant message",
+      "messageId": "session-message:evt-03",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:evt-04",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "evt-04",
+      "eventKind": "tool-call",
+      "timestamp": "2026-05-23T10:00:03.000Z",
+      "ordinal": 4,
+      "summary": "write_file succeeded",
+      "toolCallId": "tool-call:evt-04",
+      "outputArtifactId": "output-artifact:artifact-01",
+      "fileMutationId": "file-mutation:mutation-01",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:evt-05",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "evt-05",
+      "eventKind": "shell-command",
+      "timestamp": "2026-05-23T10:00:04.000Z",
+      "ordinal": 5,
+      "summary": "npm run typecheck",
+      "shellCommandId": "shell-command:evt-05",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:evt-06",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "evt-06",
+      "eventKind": "output-artifact",
+      "timestamp": "2026-05-23T10:00:05.000Z",
+      "ordinal": 6,
+      "summary": "Implementation note saved for later audit.",
+      "outputArtifactId": "output-artifact:artifact-01",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-event",
+      "id": "session-event:evt-07",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "evt-07",
+      "eventKind": "lifecycle",
+      "timestamp": "2026-05-23T10:00:06.000Z",
+      "ordinal": 7,
+      "summary": "Session completed",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "messages": [
+    {
+      "kind": "session-message",
+      "id": "session-message:evt-02",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "evt-02",
+      "role": "user",
+      "content": "Define the shared contracts and keep them harness-neutral.",
+      "ordinal": 2,
+      "timestamp": "2026-05-23T10:00:01.000Z",
+      "eventId": "session-event:evt-02",
+      "confidence": {
+        "level": "high"
+      }
+    },
+    {
+      "kind": "session-message",
+      "id": "session-message:evt-03",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "evt-03",
+      "role": "assistant",
+      "content": "I will add the shared contracts and prove them with a fake adapter.",
+      "ordinal": 3,
+      "timestamp": "2026-05-23T10:00:02.000Z",
+      "eventId": "session-event:evt-03",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "toolCalls": [
+    {
+      "kind": "tool-call",
+      "id": "tool-call:evt-04",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "evt-04",
+      "toolName": "write_file",
+      "status": "succeeded",
+      "startedAt": "2026-05-23T10:00:03.000Z",
+      "inputSummary": "Created src/main/core/model/entities.ts",
+      "outputSummary": "Shared model scaffold written.",
+      "eventId": "session-event:evt-04",
+      "artifactIds": [
+        "output-artifact:artifact-01"
+      ],
+      "fileMutationIds": [
+        "file-mutation:mutation-01"
+      ],
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "shellCommands": [
+    {
+      "kind": "shell-command",
+      "id": "shell-command:evt-05",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "evt-05",
+      "command": "npm run typecheck",
+      "outputSource": "combined",
+      "exitCode": 0,
+      "startedAt": "2026-05-23T10:00:04.000Z",
+      "outputSummary": "Type checking passed.",
+      "eventId": "session-event:evt-05",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "outputArtifacts": [
+    {
+      "kind": "output-artifact",
+      "id": "output-artifact:artifact-01",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "artifact-01",
+      "artifactKind": "text",
+      "path": "artifacts/implementation-note.txt",
+      "mediaType": "text/plain",
+      "byteLength": 84,
+      "eventId": "session-event:evt-04",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "fileMutations": [
+    {
+      "kind": "file-mutation",
+      "id": "file-mutation:mutation-01",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "sessionId": "session:session-01",
+      "nativeId": "mutation-01",
+      "path": "src/main/core/model/entities.ts",
+      "mutationKind": "created",
+      "eventId": "session-event:evt-04",
+      "toolCallId": "tool-call:evt-04",
+      "confidence": {
+        "level": "high"
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "id": "diagnostic:fake.partial-shell-history:1",
+      "code": "fake.partial-shell-history",
+      "message": "Fixture only captures the final verification command.",
+      "severity": "warning",
+      "scope": "source",
+      "adapterId": "fake-test",
+      "sourceId": "source:fixture-source-01",
+      "confidence": {
+        "level": "medium"
+      }
+    }
+  ]
+}
