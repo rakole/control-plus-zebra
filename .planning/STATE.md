@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-05-23T14:15:47Z"
-last_activity: 2026-05-23 - Completed Phase 2 Plan 03 local-only CSP and renderer security guardrails
+stopped_at: 02-04 manual launch checkpoint blocked by Electron ESM startup error
+last_updated: "2026-05-23T14:27:12Z"
+last_activity: 2026-05-23 - Completed Phase 2 Plan 04 automated Sessions renderer tasks; manual launch blocked
 progress:
   total_phases: 8
   completed_phases: 1
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 ## Current Position
 
 Phase: 2 of 8 (Secure Desktop Shell and View-Model Bridge)
-Plan: 02-03 complete; next plan is 02-04 Sessions-first renderer route
+Plan: 02-04 automated tasks complete; manual launch checkpoint remains blocked
 Status: Phase 2 in progress
-Last activity: 2026-05-23 - Completed Phase 2 Plan 03 local-only CSP and renderer security guardrails
+Last activity: 2026-05-23 - Completed Phase 2 Plan 04 automated Sessions renderer tasks; manual launch blocked
 
 Progress: [██--------] 22%
 
@@ -50,7 +50,7 @@ Progress: [██--------] 22%
 **Recent Trend:**
 
 - Last 5 plans: 01-03, 01-04, 02-01, 02-02, 02-03
-- Trend: Phase 2 shell scaffold now has typed preload methods, validated IPC handlers, fake-backed sanitized session DTOs, and locked renderer security guardrails
+- Trend: Phase 2 shell scaffold now has typed preload methods, validated IPC handlers, fake-backed sanitized session DTOs, locked renderer security guardrails, and committed Sessions-first renderer route automation
 
 *Updated after each plan completion*
 
@@ -85,16 +85,19 @@ Recent decisions affecting current work:
 - Phase 2 execution: Typed IPC/preload bridge exposes only `app:getShellState`, `sessions:list`, and `sessions:getById`, with Zod validation and sanitized fake-backed view models.
 - Phase 2 execution: Renderer CSP is local-only in production, development renderer origins are localhost-only, and BrowserWindow security defaults are source-tested.
 - Phase 2 execution: Renderer code is guarded by boundary tests and ESLint from importing `src/main/**` internals or using filesystem, shell, Electron, process, require, IPC, eval, or Function APIs.
+- Phase 2 execution: Sessions renderer route now loads data through `window.agentWorkbench`, supports read-only reload/selection/keyboard navigation, and renders Unsupported/Unknown capability states explicitly.
+- Phase 2 execution: Manual launch acceptance for 02-04 is not passed; `npm start` reaches bundle launch then Electron throws `require is not defined in ES module scope` from `.vite/build/electron-main.js`.
 
 ### Pending Todos
 
-- Execute remaining Phase 2 Sessions-first fake-backed renderer route in plan 02-04.
+- Resolve or re-run the 02-04 manual local launch checkpoint; do not mark Phase 2 complete until one local Electron window opens to Sessions and passes the read-only UI check.
 - Gather the real Gemini fixture corpus before Phase 4 adapter implementation begins.
 
 ### Blockers/Concerns
 
 - Real Gemini fixture corpus still needs to be gathered during adapter planning.
 - Cache backend starts file-backed; revisit SQLite only if realistic fixture volume proves it necessary.
+- Phase 2 Plan 04 manual launch checkpoint is blocked: `npm start` reports Electron app launch, then Electron throws `ReferenceError: require is not defined in ES module scope` from `.vite/build/electron-main.js` because package.json uses `"type": "module"`.
 
 ## Deferred Items
 
@@ -108,6 +111,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-23T14:15:47Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-05-23T14:27:12Z
+Stopped at: 02-04 manual launch checkpoint blocked by Electron ESM startup error
 Resume file: .planning/phases/02-secure-desktop-shell-and-view-model-bridge/02-04-PLAN.md
