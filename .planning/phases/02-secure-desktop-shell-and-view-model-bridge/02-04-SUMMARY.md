@@ -34,23 +34,29 @@ key-files:
     - tests/renderer/renderer-boundary-source.test.ts
   modified:
     - src/renderer/App.tsx
+    - src/renderer/main.tsx
     - src/renderer/styles.css
+    - package.json
+    - vite.main.config.ts
+    - vite.preload.config.ts
+    - src/main/window.ts
+    - tests/security/browser-window-security.test.ts
 
 key-decisions:
   - "Renderer production code derives DTO types from the preload bridge and does not import src/main/**."
   - "The route uses the existing typed listSessions request contract instead of expanding IPC schema in a renderer-only plan."
-  - "Manual launch acceptance is not marked passed because Electron throws during startup before a window can be verified."
+  - "Electron main and preload Vite bundles use .cjs filenames so the CommonJS Electron output can launch inside the repo's type: module package."
 
 patterns-established:
   - "Sessions route calls only window.agentWorkbench list/get methods for data."
   - "Unsupported and Unknown states render as explicit neutral badges, never as success labels."
   - "Renderer source tests scan for forbidden V1 mutation/control labels and provider-specific branches."
 
-requirements-completed: []
+requirements-completed: [DESK-01, DESK-03, DESK-04, DESK-05]
 
-duration: 8min
+duration: 14min
 completed: 2026-05-23
-status: checkpoint
+status: complete
 ---
 
 # Phase 2 Plan 04: Sessions-First Renderer Route Summary
@@ -59,11 +65,11 @@ status: checkpoint
 
 ## Performance
 
-- **Duration:** 8 min
+- **Duration:** 14 min
 - **Started:** 2026-05-23T14:19:01Z
-- **Completed:** 2026-05-23T14:27:12Z
-- **Tasks:** 3 automated tasks complete; 1 manual launch checkpoint blocked
-- **Files modified:** 11
+- **Completed:** 2026-05-23T14:32:50Z
+- **Tasks:** 4 complete
+- **Files modified:** 17
 
 ## Accomplishments
 
@@ -71,12 +77,14 @@ status: checkpoint
 - Wired `/sessions` as the default route with preload-backed session loading, preview selection, reload, empty/error states, and keyboard navigation.
 - Added renderer tests proving bridge calls, selection behavior, exact copy, explicit Unsupported/Unknown rendering, sanitized errors, and read-only scope.
 - Added source-boundary tests that reject renderer imports from `src/main/**` or adapter-private code and reject provider-specific branching.
+- Fixed the Electron launch blocker caused by CommonJS Vite main output being emitted as `.js` under the repo's `type: module` package, then verified the desktop window manually.
 
 ## Task Commits
 
 1. **Task 1: Build renderer shell/list/preview components** - `611b79c` (feat)
 2. **Task 2: Wire Sessions route to preload bridge** - `91788a6` (feat)
 3. **Task 3: Prove renderer read-only boundaries** - `fd13e2f` (test)
+4. **Task 4: Manual local launch check fix and verification** - `f4196f0` (fix)
 
 ## Files Created/Modified
 
@@ -90,18 +98,35 @@ status: checkpoint
 - `src/renderer/styles.css` - UI-SPEC layout, color, spacing, selected row, skeleton, and responsive styles.
 - `tests/renderer/sessions-route.test.tsx` - Renderer behavior and copy tests.
 - `tests/renderer/renderer-boundary-source.test.ts` - Renderer source-scope and provider-neutrality tests.
+- `package.json` / `vite.main.config.ts` / `vite.preload.config.ts` / `src/main/window.ts` - Electron main/preload bundles now emit and load `.cjs` files so the dev app launches under `type: module`.
+- `src/renderer/main.tsx` - Imports the React plugin preamble from a module entrypoint so the strict CSP does not need unsafe script permissions for dev refresh.
+- `tests/security/browser-window-security.test.ts` - Locks the preload path to `preload.cjs`.
 
 ## Decisions Made
 
 - Used `Window["agentWorkbench"]` return types inside renderer code so production renderer source stays free of direct `src/main/**` imports.
 - Kept `listSessions()` on the existing typed preload contract. The plan action mentioned `{ limit: 50 }`, but the current IPC request schema does not define `limit`; expanding IPC was outside this renderer-only slice.
-- Left manual launch acceptance open because the app startup path currently throws before human visual verification can occur.
+- Kept the repo's `type: module` baseline and fixed Electron's CommonJS runtime expectation by naming generated main/preload bundles `.cjs` instead of weakening the TypeScript/ESM project posture.
 
 ## Deviations from Plan
 
 ### Auto-fixed Issues
 
-None.
+**1. Electron main/preload bundles needed CommonJS filenames under `type: module`**
+- **Found during:** Task 4 (Manual local launch check)
+- **Issue:** `npm start` built the app but Electron threw `ReferenceError: require is not defined in ES module scope` because Vite emitted CommonJS main-process code as `.vite/build/electron-main.js` while `package.json` declares `"type": "module"`.
+- **Fix:** Changed the Electron app entry to `.vite/build/electron-main.cjs`, configured the main Vite lib output as `electron-main.cjs`, emitted `preload.cjs`, updated `src/main/window.ts`, and source-tested the preload path.
+- **Files modified:** `package.json`, `vite.main.config.ts`, `vite.preload.config.ts`, `src/main/window.ts`, `tests/security/browser-window-security.test.ts`
+- **Verification:** `npm run typecheck`, browser-window security test, `npm run package`, and `npm start`
+- **Committed in:** `f4196f0`
+
+**2. React Fast Refresh preamble needed module initialization under strict CSP**
+- **Found during:** Task 4 (Manual local launch check)
+- **Issue:** After the Electron main process launched, Vite reported `@vitejs/plugin-react can't detect preamble` because the strict Electron CSP prevents the plugin's inline preamble from being a reliable initialization path.
+- **Fix:** Imported `@vitejs/plugin-react/preamble` from `src/renderer/main.tsx`, preserving the local-only CSP without adding `unsafe-eval` or remote script permissions.
+- **Files modified:** `src/renderer/main.tsx`
+- **Verification:** `npm start` launched the window and no further Vite client error appeared after reload.
+- **Committed in:** `f4196f0`
 
 ### Plan Adjustments
 
@@ -112,12 +137,12 @@ None.
 - **Files modified:** `src/renderer/routes/SessionsRoute.tsx`, `tests/renderer/sessions-route.test.tsx`
 - **Verification:** `npm run typecheck`, `npm run test -- tests/renderer/sessions-route.test.tsx`
 
-**Total deviations:** 0 auto-fixed; 1 scoped plan adjustment.
-**Impact on plan:** Renderer behavior remains read-only and bridge-backed. No schema expansion occurred in this UI plan.
+**Total deviations:** 2 auto-fixed; 1 scoped plan adjustment.
+**Impact on plan:** Renderer behavior remains read-only and bridge-backed. The launch fixes preserve the approved Electron/Vite stack and strict CSP instead of broadening permissions.
 
 ## Issues Encountered
 
-**Manual launch checkpoint blocked.**
+**Manual launch checkpoint initially blocked, then resolved.**
 
 `npm start` progressed through Electron Forge system checks, Vite renderer dev server startup, and main/preload bundle builds. It reported:
 
@@ -133,7 +158,7 @@ file:///Users/rhishi/dev/repositories/control-plus-zebra/.vite/build/electron-ma
 package.json contains "type": "module"
 ```
 
-The dev process was stopped after collecting the error. Because the Electron main process failed before the route could be visually verified, the manual launch acceptance criteria are **not passed**.
+The startup blocker was fixed in `f4196f0` by emitting Electron main/preload bundles as `.cjs`. A second dev-launch pass opened one local Electron window titled `Agent Workbench` at `localhost:5173/#/sessions`. Computer Use verified the visible route showed `Sessions`, `Reload Sessions`, fake-backed session rows, a selected-session preview, `Unsupported` and `Unknown` capability badges, and no launch, approve, reject, terminal, PR, cleanup, delete, reset, or arbitrary mutation controls.
 
 ## Verification
 
@@ -143,7 +168,9 @@ The dev process was stopped after collecting the error. Because the Electron mai
 - `npm run test:boundaries` - PASS, 2 files / 9 tests
 - `npm run test:renderer` - PASS, 1 file / 7 tests
 - `npm run test -- tests/security/renderer-forbidden-apis.test.ts` - PASS, 1 file / 2 tests
-- `npm start` - BLOCKED, Electron startup throws `require is not defined in ES module scope`
+- `npm run test -- tests/security/browser-window-security.test.ts` - PASS, 1 file / 3 tests
+- `npm run package` - PASS
+- `npm start` - PASS, Electron app launched and manual UI checkpoint passed via Computer Use
 
 ## Known Stubs
 
@@ -155,26 +182,19 @@ None.
 
 ## User Setup Required
 
-Manual local launch verification is still required after the Electron startup issue is fixed:
-
-1. Run `npm start`.
-2. Confirm one local Electron window opens.
-3. Confirm the default route title is `Sessions`.
-4. Confirm `Reload Sessions` is visible.
-5. Confirm fake-backed session rows and a selected-session preview are visible.
-6. Confirm no launch, approve, reject, terminal, PR creation, cleanup, delete, reset, or arbitrary mutation controls are visible.
+None - manual local launch verification passed in this execution.
 
 ## Next Phase Readiness
 
-Automated renderer work is complete and committed. Phase 2 should not be marked complete until the manual launch checkpoint passes or the startup blocker is resolved and rechecked.
+Phase 2 is ready for phase-level verification and routing to Phase 3 planning/execution. Phase 8 still owns automated Electron smoke coverage, but the Phase 2 manual launch checkpoint has passed.
 
 ## Self-Check: PASSED
 
 - Created files exist: `src/renderer/components/AppShell.tsx`, `src/renderer/routes/SessionsRoute.tsx`, `tests/renderer/sessions-route.test.tsx`, `tests/renderer/renderer-boundary-source.test.ts`
-- Task commits exist: `611b79c`, `91788a6`, `fd13e2f`
-- Automated verification passed: lint, typecheck, full tests, boundaries, renderer tests, and renderer security test
-- Manual launch acceptance remains explicitly blocked and unpassed
+- Task commits exist: `611b79c`, `91788a6`, `fd13e2f`, `f4196f0`
+- Automated verification passed: lint, typecheck, full tests, boundaries, renderer tests, security tests, and packaging
+- Manual launch acceptance passed: one local Electron window opens to Sessions with read-only fake-backed content
 
 ---
 *Phase: 02-secure-desktop-shell-and-view-model-bridge*
-*Completed: 2026-05-23 checkpoint*
+*Completed: 2026-05-23*

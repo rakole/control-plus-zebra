@@ -67,10 +67,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Electron App Shell and Security
 
-- [ ] **DESK-01**: App is scaffolded as a macOS Electron desktop app using Vite, React, and TypeScript.
+- [x] **DESK-01**: App is scaffolded as a macOS Electron desktop app using Vite, React, and TypeScript.
 - [x] **DESK-02**: Renderer has Node.js integration disabled, context isolation enabled, sandboxing enabled, and a restrictive Content Security Policy.
-- [ ] **DESK-03**: Preload exposes a narrow typed bridge with one method per allowed IPC operation and never exposes `ipcRenderer` directly.
-- [ ] **DESK-04**: IPC handlers validate payloads and return sanitized view models rather than raw filesystem records or adapter-private objects.
+- [x] **DESK-03**: Preload exposes a narrow typed bridge with one method per allowed IPC operation and never exposes `ipcRenderer` directly.
+- [x] **DESK-04**: IPC handlers validate payloads and return sanitized view models rather than raw filesystem records or adapter-private objects.
 - [x] **DESK-05**: Renderer cannot read arbitrary local files, run shell commands, or import main-process adapter internals.
 - [x] **DESK-06**: The app loads local packaged content and does not execute remote code in V1.
 
@@ -181,10 +181,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AUDT-07 | Phase 5 | Pending |
 | AUDT-08 | Phase 5 | Pending |
 | AUDT-09 | Phase 5 | Pending |
-| DESK-01 | Phase 2 | Pending |
+| DESK-01 | Phase 2 | Complete |
 | DESK-02 | Phase 2 | Complete |
-| DESK-03 | Phase 2 | Pending |
-| DESK-04 | Phase 2 | Pending |
+| DESK-03 | Phase 2 | Complete |
+| DESK-04 | Phase 2 | Complete |
 | DESK-05 | Phase 2 | Complete |
 | DESK-06 | Phase 2 | Complete |
 | UI-01 | Phase 6 | Pending |
