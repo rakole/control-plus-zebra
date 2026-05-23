@@ -40,7 +40,7 @@ Plans:
 **Wave 1**
 - [x] 01-01: Define normalized model, capabilities, diagnostics, IDs, and confidence contracts.
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 01-02: Implement adapter contract, registry, and fake adapter fixture.
+- [x] 01-02: Implement adapter contract, registry, and fake adapter fixture.
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 01-03: Add contract and golden normalization tests for adapter outputs.
 - [ ] 01-04: Add import-boundary enforcement for core, renderer, and adapters.
@@ -189,7 +189,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Architecture Contracts and Fixture Proof | 1/4 | In progress | - |
+| 1. Architecture Contracts and Fixture Proof | 2/4 | In progress | - |
 | 2. Secure Desktop Shell and View-Model Bridge | 0/4 | Not started | - |
 | 3. Source Registry, Scanner, Cache, and Data Sources UI | 0/4 | Not started | - |
 | 4. Gemini CLI Adapter End-to-End | 0/4 | Not started | - |

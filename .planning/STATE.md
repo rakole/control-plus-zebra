@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 ## Current Position
 
 Phase: 1 of 8 (Architecture Contracts and Fixture Proof)
-Plan: 01-01 complete; 3 plans remaining in current phase
-Status: In progress; Wave 2 ready to execute
-Last activity: 2026-05-23 - Executed 01-01 shared-core workspace, model, diagnostics, and adapter contract foundation
+Plan: 01-02 complete; 2 plans remaining in current phase
+Status: In progress; Wave 3 ready to execute
+Last activity: 2026-05-23 - Executed 01-02 fake adapter, registry, and smoke proof
 
-Progress: [███-------] 25%
+Progress: [█████-----] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 1 min
-- Total execution time: 1 min
+- Total plans completed: 2
+- Average duration: 3 min
+- Total execution time: 6 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1. Architecture Contracts and Fixture Proof | 1/4 | 1 min | 1 min |
+| 1. Architecture Contracts and Fixture Proof | 2/4 | 6 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01
-- Trend: Execution started; Wave 1 proof complete
+- Last 5 plans: 01-01, 01-02
+- Trend: Wave 2 proof complete; contract/golden and boundary plans remain
 
 *Updated after each plan completion*
 
@@ -54,10 +54,12 @@ Recent decisions affecting current work:
 - Phase 1 execution: Use a strict NodeNext TypeScript baseline and remove deprecated compiler switches instead of silencing them.
 - Phase 1 execution: Capability truth states are explicit shared contracts (`supported`, `unsupported`, `unknown`) from the first milestone.
 - Phase 1 execution: Shared adapter contract exposes validation, discovery, parse, and normalize seams while reserving verification and audit conclusions for later shared-core phases.
+- Phase 1 execution: Bundled adapters register only through composition-root registry surfaces, not shared model or diagnostics modules.
+- Phase 1 execution: Malformed fake fixtures become diagnostics and empty normalized slices instead of inferred success or silent coercion.
+- Phase 1 execution: The fake proof fixture stays intentionally non-Gemini-shaped while still covering messages, tool calls, shell evidence, artifacts, and file mutations.
 
 ### Pending Todos
 
-- Execute `01-02` fake adapter, fixture, and registry wiring.
 - Execute `01-03` reusable contract/golden/truth-rule tests.
 - Execute `01-04` lint, import-boundary, and shared naming guardrails.
 
@@ -79,5 +81,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-23
-Stopped at: 01-01 complete; Wave 2 ready
-Resume file: .planning/phases/01-architecture-contracts-and-fixture-proof/01-02-PLAN.md
+Stopped at: 01-02 complete; Wave 3 ready
+Resume file: .planning/phases/01-architecture-contracts-and-fixture-proof/01-03-PLAN.md
