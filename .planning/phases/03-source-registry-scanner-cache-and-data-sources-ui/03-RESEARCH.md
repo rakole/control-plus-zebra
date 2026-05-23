@@ -481,11 +481,11 @@ The planner should add narrower per-plan commands, but the phase gate should req
 | Adapter emitting conclusions | Spoofing / Tampering | Adapter contract stays evidence-only and shared core derives conclusions later. [CITED: AGENTS.md] |
 | Cache poisoning by malformed adapter output | Tampering | Normalize through shared validator before cache/store writes. [CITED: .planning/REQUIREMENTS.md] |
 
-## Open Questions / Planner Notes
+## Resolved Planner Decisions
 
-1. **Shadcn component path:** Current config validation succeeds, but no official components are installed; planner should decide whether to use the approved shadcn components with a human-verified `radix-ui` install or use existing CSS classes matching UI-SPEC exactly. [VERIFIED: codebase]
-2. **Watcher depth:** Phase 3 must define shared watcher orchestration boundaries and support truth, but full live controls are deferred; planner should implement the minimal watch-plan contract needed for DATA-07 without adding start/stop UI controls. [CITED: .planning/phases/03-source-registry-scanner-cache-and-data-sources-ui/03-CONTEXT.md]
-3. **Cache location naming:** Use an injected app-data path and Electron `userData` subdirectory at runtime; planner should pick deterministic filenames such as `sources.json`, `raw-artifact-index.json`, and `normalized-cache.json` during implementation. [CITED: https://www.electronjs.org/docs/latest/api/app]
+1. **Shadcn component path:** Resolved. Phase 3 implementation should use the existing CSS fallback unless `npm exec shadcn -- info` succeeds and official shadcn components can be generated without new unverified dependency installs. Any new dependency such as `radix-ui` requires a blocking human verification checkpoint because `slopcheck` is unavailable. Do not rerun `shadcn init`, add third-party registries, or install packages without the checkpoint. [VERIFIED: codebase]
+2. **Watcher depth:** Resolved. Phase 3 implements only the minimal shared watch-plan/support-truth contract and shared orchestrator boundary needed for DATA-07. It must not add live watcher controls, broad auto-start behavior, renderer start/stop controls, or adapter-owned watcher lifecycle. [CITED: .planning/phases/03-source-registry-scanner-cache-and-data-sources-ui/03-CONTEXT.md]
+3. **Cache location naming:** Resolved. Phase 3 uses injected app-data paths with deterministic filenames: `sources.json` for source registry persistence, `raw-artifact-index.json` for artifact index metadata, and `normalized-cache.json` for normalized cache data. Electron runtime can supply `app.getPath("userData")` later; tests must use injected temporary directories. [CITED: https://www.electronjs.org/docs/latest/api/app]
 
 ## Assumptions Log
 
