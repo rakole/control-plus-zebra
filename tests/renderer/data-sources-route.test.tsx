@@ -3,24 +3,48 @@ import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../../src/renderer/App.js";
+import type {
+  DataSourceAdapterViewModel,
+  DataSourcesResponse,
+  DataSourceViewModel as IpcDataSourceViewModel
+} from "../../src/main/ipc/view-models.js";
 
 const adapters = [
-  {
+  buildAdapter({
     adapterId: "fixture-harness",
     displayName: "Fixture Harness",
-    watchSupport: {
-      label: "Watch Supported",
-      detail: "Shared watcher plan is available for this harness."
-    }
-  },
-  {
+    capabilityBadges: [
+      buildCapabilityBadge({
+        key: "sessionDiscovery",
+        label: "Session Discovery",
+        state: "Supported"
+      }),
+      buildCapabilityBadge({
+        key: "watchPlans",
+        label: "Watch Plans",
+        state: "Supported",
+        reason: "Shared watcher plan is available for this harness."
+      })
+    ]
+  }),
+  buildAdapter({
     adapterId: "archive-reader",
     displayName: "Archive Reader",
-    watchSupport: {
-      label: "Watch Unknown",
-      detail: "Watch support has not been reported for this harness."
-    }
-  }
+    capabilityBadges: [
+      buildCapabilityBadge({
+        key: "sessionDiscovery",
+        label: "Session Discovery",
+        state: "Unsupported",
+        reason: "This harness does not currently report scan support."
+      }),
+      buildCapabilityBadge({
+        key: "watchPlans",
+        label: "Watch Plans",
+        state: "Unknown",
+        reason: "Watch support has not been reported for this harness."
+      })
+    ]
+  })
 ];
 
 const firstSource = buildSource({
@@ -31,36 +55,27 @@ const firstSource = buildSource({
   rootPath: "/Users/rhishi/.fixtures/agent-workbench",
   enabled: true,
   enabledLabel: "Enabled",
-  validation: {
-    label: "Valid",
-    detail: "Source root validated through the shared source registry."
-  },
-  scan: {
-    label: "Scanned with Diagnostics",
-    detail: "4 artifacts were normalized with parser warnings."
-  },
-  cache: {
-    label: "Cached",
-    detail: "Cache snapshot is current for the latest scan."
-  },
-  watch: {
-    label: "Watch Supported",
-    detail: "Shared watcher orchestration is available."
-  },
+  validationStatus: "Valid",
+  scanStatus: "Scanned with Diagnostics",
+  scanReason: "4 artifacts were normalized with parser warnings.",
+  cacheStatus: "Cached",
+  watchSupport: "Watch Supported",
+  watchReason: "Shared watcher orchestration is available.",
   diagnosticCount: 2,
   diagnostics: [
     {
       code: "source.partial-output",
       severity: "warning",
-      message: "One output artifact is intentionally unavailable."
+      message: "One output artifact is intentionally unavailable.",
+      sourceArea: "source"
     },
     {
       code: "cache.mtime-shift",
       severity: "info",
-      message: "Cache metadata was refreshed after the latest scan."
+      message: "Cache metadata was refreshed after the latest scan.",
+      sourceArea: "cache"
     }
-  ],
-  hasCompletedScan: true
+  ]
 });
 
 const secondSource = buildSource({
@@ -71,86 +86,42 @@ const secondSource = buildSource({
   rootPath: "/Volumes/agent-archives/import",
   enabled: false,
   enabledLabel: "Disabled",
-  validation: {
-    label: "Unknown",
-    detail: "Validation results are unavailable for this source."
-  },
-  scan: {
-    label: "Unsupported",
-    detail: "This harness does not currently report scan support."
-  },
-  cache: {
-    label: "Stale",
-    detail: "Source settings changed. Validate the source, then rescan to refresh cache state."
-  },
-  watch: {
-    label: "Watch Unknown",
-    detail: "Watch support has not been reported for this source."
-  },
+  validationStatus: "Unknown",
+  scanStatus: "Unsupported",
+  scanReason: "This harness does not currently report scan support.",
+  cacheStatus: "Stale",
+  cacheReason:
+    "Source settings changed. Validate the source, then rescan to refresh cache state.",
+  watchSupport: "Watch Unknown",
+  watchReason: "Watch support has not been reported for this source.",
   diagnosticCount: 1,
   diagnostics: [
     {
       code: "source.waiting-on-adapter",
       severity: "warning",
-      message: "Additional adapter support is still required for this source."
+      message: "Additional adapter support is still required for this source.",
+      sourceArea: "adapter"
     }
   ]
 });
 
 describe("Data Sources route", () => {
   const listDataSources = vi.fn();
-  const createDataSource = vi.fn();
+  const addDataSource = vi.fn();
   const updateDataSource = vi.fn();
+  const setDataSourceEnabled = vi.fn();
   const validateDataSource = vi.fn();
   const scanDataSource = vi.fn();
 
   beforeEach(() => {
     window.location.hash = "#/data-sources";
-    listDataSources.mockResolvedValue({
-      ok: true,
-      adapters,
-      sources: [firstSource, secondSource]
-    });
-    createDataSource.mockImplementation(({ adapterId, displayName, rootPath, enabled }) =>
-      Promise.resolve({
-        ok: true,
-        source: buildSource({
-          sourceId: "source-new",
-          adapterId,
-          adapterDisplayName:
-            adapters.find((adapter) => adapter.adapterId === adapterId)?.displayName ??
-            "Fixture Harness",
-          sourceName: displayName,
-          rootPath,
-          enabled,
-          enabledLabel: enabled ? "Enabled" : "Disabled",
-          validation: {
-            label: "Not Validated",
-            detail: "Validate the source before scanning."
-          },
-          scan: {
-            label: "Never Scanned",
-            detail: "No scan has completed for this data source yet."
-          },
-          cache: {
-            label: "Unknown",
-            detail: "Cache status is unavailable until a scan completes."
-          },
-          watch: {
-            label: "Watch Supported",
-            detail: "Shared watcher plan is available for this harness."
-          },
-          diagnosticCount: 0,
-          diagnostics: []
-        })
-      })
-    );
-    updateDataSource.mockImplementation(
-      ({ sourceId, adapterId, displayName, rootPath, enabled }) =>
-        Promise.resolve({
-          ok: true,
-          source: buildSource({
-            sourceId,
+
+    listDataSources.mockResolvedValue(buildDataSourcesResponse([firstSource, secondSource]));
+    addDataSource.mockImplementation(({ adapterId, displayName, rootPath, enabled }) =>
+      Promise.resolve(
+        buildDataSourcesResponse([
+          buildSource({
+            sourceId: "source-new",
             adapterId,
             adapterDisplayName:
               adapters.find((adapter) => adapter.adapterId === adapterId)?.displayName ??
@@ -159,94 +130,109 @@ describe("Data Sources route", () => {
             rootPath,
             enabled,
             enabledLabel: enabled ? "Enabled" : "Disabled",
-            validation: {
-              label: "Not Validated",
-              detail: "Validate the source before scanning."
-            },
-            scan: {
-              label: "Never Scanned",
-              detail: "No scan has completed for this data source yet."
-            },
-            cache: {
-              label: "Unknown",
-              detail: "Cache status is unavailable until a scan completes."
-            },
-            watch: {
-              label: "Watch Supported",
-              detail: "Shared watcher plan is available for this harness."
-            },
+            validationStatus: "Not Validated",
+            scanStatus: "Never Scanned",
+            cacheStatus: "Unknown",
+            watchSupport: "Watch Supported",
+            watchReason: "Shared watcher plan is available for this harness.",
             diagnosticCount: 0,
             diagnostics: []
-          })
-        })
+          }),
+          firstSource,
+          secondSource
+        ])
+      )
     );
-    validateDataSource.mockResolvedValue({
-      ok: true,
-      source: buildSource({
-        sourceId: "source-new",
-        adapterId: "fixture-harness",
-        adapterDisplayName: "Fixture Harness",
-        sourceName: "Fresh Source",
-        rootPath: "/tmp/fresh-source",
-        enabled: true,
-        enabledLabel: "Enabled",
-        validation: {
-          label: "Valid",
-          detail: "Source root validated through the shared source registry."
-        },
-        scan: {
-          label: "Never Scanned",
-          detail: "No scan has completed for this data source yet."
-        },
-        cache: {
-          label: "Unknown",
-          detail: "Cache status is unavailable until a scan completes."
-        },
-        watch: {
-          label: "Watch Supported",
-          detail: "Shared watcher plan is available for this harness."
-        },
-        diagnosticCount: 0,
-        diagnostics: []
-      })
-    });
-    scanDataSource.mockResolvedValue({
-      ok: true,
-      source: buildSource({
-        sourceId: "source-new",
-        adapterId: "fixture-harness",
-        adapterDisplayName: "Fixture Harness",
-        sourceName: "Fresh Source",
-        rootPath: "/tmp/fresh-source",
-        enabled: true,
-        enabledLabel: "Enabled",
-        validation: {
-          label: "Valid",
-          detail: "Source root validated through the shared source registry."
-        },
-        scan: {
-          label: "Scanned with Diagnostics",
-          detail: "Normalization completed with one parser warning."
-        },
-        cache: {
-          label: "Cached",
-          detail: "Cache snapshot is current for the latest scan."
-        },
-        watch: {
-          label: "Watch Supported",
-          detail: "Shared watcher plan is available for this harness."
-        },
-        diagnosticCount: 1,
-        diagnostics: [
-          {
-            code: "scan.normalized-with-warning",
-            severity: "warning",
-            message: "One artifact emitted a non-blocking parser warning."
-          }
-        ],
-        hasCompletedScan: true
-      })
-    });
+    updateDataSource.mockImplementation(({ sourceId, adapterId, displayName, rootPath }) =>
+      Promise.resolve(
+        buildDataSourcesResponse([
+          buildSource({
+            sourceId,
+            adapterId,
+            adapterDisplayName:
+              adapters.find((adapter) => adapter.adapterId === adapterId)?.displayName ??
+              "Fixture Harness",
+            sourceName: displayName,
+            rootPath,
+            enabled: true,
+            enabledLabel: "Enabled",
+            validationStatus: "Not Validated",
+            scanStatus: "Never Scanned",
+            cacheStatus: "Unknown",
+            watchSupport: "Watch Supported",
+            watchReason: "Shared watcher plan is available for this harness.",
+            diagnosticCount: 0,
+            diagnostics: []
+          }),
+          secondSource
+        ])
+      )
+    );
+    setDataSourceEnabled.mockImplementation(({ sourceId, enabled }) =>
+      Promise.resolve(
+        buildDataSourcesResponse([
+          buildSource({
+            ...firstSource,
+            sourceId,
+            enabled,
+            enabledLabel: enabled ? "Enabled" : "Disabled"
+          }),
+          secondSource
+        ])
+      )
+    );
+    validateDataSource.mockResolvedValue(
+      buildDataSourcesResponse([
+        buildSource({
+          sourceId: "source-new",
+          adapterId: "fixture-harness",
+          adapterDisplayName: "Fixture Harness",
+          sourceName: "Fresh Source",
+          rootPath: "/tmp/fresh-source",
+          enabled: true,
+          enabledLabel: "Enabled",
+          validationStatus: "Valid",
+          scanStatus: "Never Scanned",
+          cacheStatus: "Unknown",
+          watchSupport: "Watch Supported",
+          watchReason: "Shared watcher plan is available for this harness.",
+          diagnosticCount: 0,
+          diagnostics: []
+        }),
+        firstSource,
+        secondSource
+      ])
+    );
+    scanDataSource.mockResolvedValue(
+      buildDataSourcesResponse([
+        buildSource({
+          sourceId: "source-new",
+          adapterId: "fixture-harness",
+          adapterDisplayName: "Fixture Harness",
+          sourceName: "Fresh Source",
+          rootPath: "/tmp/fresh-source",
+          enabled: true,
+          enabledLabel: "Enabled",
+          validationStatus: "Valid",
+          scanStatus: "Scanned with Diagnostics",
+          scanReason: "Normalization completed with one parser warning.",
+          cacheStatus: "Cached",
+          watchSupport: "Watch Supported",
+          watchReason: "Shared watcher plan is available for this harness.",
+          diagnosticCount: 1,
+          diagnostics: [
+            {
+              code: "scan.normalized-with-warning",
+              severity: "warning",
+              message: "One artifact emitted a non-blocking parser warning.",
+              sourceArea: "normalization"
+            }
+          ]
+        }),
+        firstSource,
+        secondSource
+      ])
+    );
 
     Object.defineProperty(window, "agentWorkbench", {
       configurable: true,
@@ -255,8 +241,9 @@ describe("Data Sources route", () => {
         listSessions: vi.fn(),
         getSessionById: vi.fn(),
         listDataSources,
-        createDataSource,
+        addDataSource,
         updateDataSource,
+        setDataSourceEnabled,
         validateDataSource,
         scanDataSource
       }
@@ -302,7 +289,9 @@ describe("Data Sources route", () => {
     await user.keyboard("{ArrowDown}{Enter}");
 
     expect(screen.getByRole("heading", { name: "Archive Inbox" })).toBeInTheDocument();
-    expect(screen.getByText("Validation results are unavailable for this source.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Validation results are unavailable for this source.")
+    ).toBeInTheDocument();
   });
 
   it("creates a draft source, validates it, and scans only after validation succeeds", async () => {
@@ -323,24 +312,43 @@ describe("Data Sources route", () => {
 
     await user.click(screen.getByRole("button", { name: "Validate Source" }));
 
-    await waitFor(() => expect(createDataSource).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(validateDataSource).toHaveBeenCalledWith({ sourceId: "source-new" }));
+    await waitFor(() => expect(addDataSource).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(validateDataSource).toHaveBeenCalledWith({ sourceId: "source-new" })
+    );
     expect(scanDataSource).not.toHaveBeenCalled();
-    expect(screen.getByText("Source root validated through the shared source registry.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Source root validated through the shared source registry.")
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Scan Source" }));
 
     await waitFor(() => expect(scanDataSource).toHaveBeenCalledWith({ sourceId: "source-new" }));
     expect(await screen.findByRole("button", { name: "Rescan Source" })).toBeInTheDocument();
-    expect(screen.getByText("Normalization completed with one parser warning.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Normalization completed with one parser warning.")
+    ).toBeInTheDocument();
+  });
+
+  it("persists existing source enabled toggles through the dedicated preload method", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("button", { name: /Fixture Root/u });
+
+    await user.click(screen.getByRole("switch", { name: "Source Enabled" }));
+
+    await waitFor(() =>
+      expect(setDataSourceEnabled).toHaveBeenCalledWith({
+        enabled: false,
+        sourceId: "source-1"
+      })
+    );
+    expect(updateDataSource).not.toHaveBeenCalled();
   });
 
   it("renders the exact empty state copy", async () => {
-    listDataSources.mockResolvedValueOnce({
-      ok: true,
-      adapters,
-      sources: []
-    });
+    listDataSources.mockResolvedValueOnce(buildDataSourcesResponse([]));
 
     render(<App />);
 
@@ -359,7 +367,7 @@ describe("Data Sources route", () => {
         code: "data-sources.list.failed",
         message: "Raw path leak /Users/private/source-root"
       }
-    });
+    } satisfies DataSourcesResponse);
 
     render(<App />);
 
@@ -372,10 +380,8 @@ describe("Data Sources route", () => {
   });
 
   it("shows validation and scan failure copy when the selected source reports failed states", async () => {
-    listDataSources.mockResolvedValueOnce({
-      ok: true,
-      adapters,
-      sources: [
+    listDataSources.mockResolvedValueOnce(
+      buildDataSourcesResponse([
         buildSource({
           sourceId: "source-3",
           adapterId: "fixture-harness",
@@ -384,38 +390,31 @@ describe("Data Sources route", () => {
           rootPath: "/tmp/broken-source",
           enabled: true,
           enabledLabel: "Enabled",
-          validation: {
-            label: "Invalid",
-            detail: "Source validation failed for the current root path."
-          },
-          scan: {
-            label: "Scan Failed",
-            detail:
-              "Review source, adapter, cache, and normalization diagnostics before trying again."
-          },
-          cache: {
-            label: "Unknown",
-            detail: "Cache status is unavailable until a scan completes."
-          },
-          watch: {
-            label: "Watch Unsupported",
-            detail: "Shared watching is unsupported for this source."
-          },
+          validationStatus: "Validation Failed",
+          scanStatus: "Scan Failed",
+          scanReason:
+            "Review source, adapter, cache, and normalization diagnostics before trying again.",
+          cacheStatus: "Unknown",
+          watchSupport: "Watch Unsupported",
+          watchReason: "Shared watching is unsupported for this source.",
           diagnosticCount: 1,
           diagnostics: [
             {
               code: "source.invalid-root",
               severity: "error",
-              message: "The configured source root is missing required artifacts."
+              message: "The configured source root is missing required artifacts.",
+              sourceArea: "source"
             }
           ]
         })
-      ]
-    });
+      ])
+    );
 
     render(<App />);
 
-    expect(await screen.findByText(/Source validation failed\. Review the diagnostics/u)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Source validation failed\. Review the diagnostics/u)
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
         "Scan failed. Review source, adapter, cache, and normalization diagnostics, then rescan when the source is ready."
@@ -424,7 +423,45 @@ describe("Data Sources route", () => {
   });
 });
 
-function buildSource(overrides: Partial<DataSourceFixture>) {
+function buildDataSourcesResponse(
+  sources: IpcDataSourceViewModel[],
+  adapterList: DataSourceAdapterViewModel[] = adapters
+): DataSourcesResponse {
+  return {
+    ok: true,
+    dataSources: {
+      adapters: adapterList,
+      sources
+    }
+  };
+}
+
+function buildAdapter(
+  overrides: Partial<DataSourceAdapterViewModel>
+): DataSourceAdapterViewModel {
+  return {
+    adapterId: "fixture-harness",
+    displayName: "Fixture Harness",
+    capabilityBadges: [],
+    defaultRoots: [],
+    ...overrides
+  };
+}
+
+function buildCapabilityBadge(
+  overrides: Partial<DataSourceAdapterViewModel["capabilityBadges"][number]>
+) {
+  return {
+    key: "watchPlans",
+    label: "Watch Plans",
+    state: "Unknown" as const,
+    ...overrides
+  };
+}
+
+function buildSource(
+  overrides: Partial<IpcDataSourceViewModel>
+): IpcDataSourceViewModel {
   return {
     sourceId: "source-1",
     adapterId: "fixture-harness",
@@ -433,65 +470,13 @@ function buildSource(overrides: Partial<DataSourceFixture>) {
     rootPath: "/tmp/source-root",
     enabled: true,
     enabledLabel: "Enabled",
-    validation: {
-      label: "Valid",
-      detail: "Source root validated through the shared source registry."
-    },
-    scan: {
-      label: "Never Scanned",
-      detail: "No scan has completed for this data source yet."
-    },
-    cache: {
-      label: "Unknown",
-      detail: "Cache status is unavailable until a scan completes."
-    },
-    watch: {
-      label: "Watch Unknown",
-      detail: "Watch support has not been reported for this data source."
-    },
+    validationStatus: "Valid",
+    scanStatus: "Never Scanned",
+    cacheStatus: "Unknown",
+    watchSupport: "Watch Unknown",
     diagnosticCount: 0,
+    capabilityBadges: [],
     diagnostics: [],
-    hasCompletedScan: false,
     ...overrides
   };
 }
-
-type DataSourceFixture = {
-  sourceId: string;
-  adapterId: string;
-  adapterDisplayName: string;
-  sourceName?: string;
-  rootPath: string;
-  enabled: boolean;
-  enabledLabel: "Enabled" | "Disabled";
-  validation: {
-    label: "Valid" | "Invalid" | "Not Validated" | "Unknown";
-    detail: string;
-  };
-  scan: {
-    label:
-      | "Never Scanned"
-      | "Scanning"
-      | "Scan Failed"
-      | "Scanned"
-      | "Scanned with Diagnostics"
-      | "Unsupported"
-      | "Unknown";
-    detail: string;
-  };
-  cache: {
-    label: "Cached" | "Stale" | "Unsupported" | "Unknown";
-    detail: string;
-  };
-  watch: {
-    label: "Watch Supported" | "Watch Unsupported" | "Watch Unknown";
-    detail: string;
-  };
-  diagnosticCount: number;
-  diagnostics: Array<{
-    code: string;
-    severity: "info" | "warning" | "error";
-    message: string;
-  }>;
-  hasCompletedScan?: boolean;
-};
