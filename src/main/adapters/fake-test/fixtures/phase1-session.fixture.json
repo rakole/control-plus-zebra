@@ -1,0 +1,131 @@
+{
+  "source": {
+    "id": "fixture-source-01",
+    "displayName": "Phase 1 Fixture Source",
+    "rootPath": "/tmp/fake-harness/phase1-fixture"
+  },
+  "project": {
+    "id": "project-01",
+    "name": "control-plus-zebra",
+    "rootPath": "/workspace/control-plus-zebra"
+  },
+  "session": {
+    "id": "session-01",
+    "title": "Phase 1 architecture proof",
+    "startedAt": "2026-05-23T10:00:00.000Z",
+    "endedAt": "2026-05-23T10:00:06.000Z",
+    "lifecycleState": "completed"
+  },
+  "capabilities": {
+    "sessionDiscovery": { "status": "supported" },
+    "liveSessionObservation": {
+      "status": "unsupported",
+      "reason": "Fixture data is static."
+    },
+    "eventStreaming": {
+      "status": "unsupported",
+      "reason": "Fixture playback is file-based."
+    },
+    "messageCapture": { "status": "supported" },
+    "toolCallCapture": { "status": "supported" },
+    "shellCommandCapture": { "status": "supported" },
+    "outputArtifactCapture": { "status": "supported" },
+    "fileMutationCapture": { "status": "supported" },
+    "sourceValidation": { "status": "supported" },
+    "watchPlans": {
+      "status": "unsupported",
+      "reason": "Phase 1 does not model watch plans."
+    },
+    "gitContextCapture": {
+      "status": "unsupported",
+      "reason": "Fixture does not include git evidence."
+    },
+    "githubContextCapture": {
+      "status": "unsupported",
+      "reason": "Fixture does not include GitHub evidence."
+    },
+    "verificationSignals": {
+      "status": "unknown",
+      "reason": "Verification is derived later from shared shell evidence."
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "fake.partial-shell-history",
+      "severity": "warning",
+      "message": "Fixture only captures the final verification command."
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact-01",
+      "kind": "text",
+      "path": "artifacts/implementation-note.txt",
+      "mediaType": "text/plain",
+      "byteLength": 84
+    }
+  ],
+  "events": [
+    {
+      "id": "evt-01",
+      "kind": "lifecycle",
+      "timestamp": "2026-05-23T10:00:00.000Z",
+      "state": "active",
+      "summary": "Session started"
+    },
+    {
+      "id": "evt-02",
+      "kind": "message",
+      "timestamp": "2026-05-23T10:00:01.000Z",
+      "role": "user",
+      "text": "Define the shared contracts and keep them harness-neutral."
+    },
+    {
+      "id": "evt-03",
+      "kind": "message",
+      "timestamp": "2026-05-23T10:00:02.000Z",
+      "role": "assistant",
+      "text": "I will add the shared contracts and prove them with a fake adapter."
+    },
+    {
+      "id": "evt-04",
+      "kind": "tool-call",
+      "timestamp": "2026-05-23T10:00:03.000Z",
+      "toolName": "write_file",
+      "status": "succeeded",
+      "inputSummary": "Created src/main/core/model/entities.ts",
+      "outputSummary": "Shared model scaffold written.",
+      "artifactIds": ["artifact-01"],
+      "fileMutations": [
+        {
+          "id": "mutation-01",
+          "path": "src/main/core/model/entities.ts",
+          "mutationKind": "created"
+        }
+      ]
+    },
+    {
+      "id": "evt-05",
+      "kind": "shell-command",
+      "timestamp": "2026-05-23T10:00:04.000Z",
+      "command": "npm run typecheck",
+      "outputSource": "combined",
+      "exitCode": 0,
+      "outputSummary": "Type checking passed."
+    },
+    {
+      "id": "evt-06",
+      "kind": "output-artifact",
+      "timestamp": "2026-05-23T10:00:05.000Z",
+      "artifactId": "artifact-01",
+      "summary": "Implementation note saved for later audit."
+    },
+    {
+      "id": "evt-07",
+      "kind": "lifecycle",
+      "timestamp": "2026-05-23T10:00:06.000Z",
+      "state": "completed",
+      "summary": "Session completed"
+    }
+  ]
+}
