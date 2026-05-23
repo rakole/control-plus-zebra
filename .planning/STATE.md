@@ -11,8 +11,8 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 
 Phase: 1 of 8 (Architecture Contracts and Fixture Proof)
 Plan: 0 of 4 in current phase
-Status: Ready to plan
-Last activity: 2026-05-23 - Initialized project context, config, research, requirements, and roadmap
+Status: Context gathered; ready to plan
+Last activity: 2026-05-23 - Gathered Phase 1 context for architecture contracts and fixture proof
 
 Progress: [----------] 0%
 
@@ -46,6 +46,10 @@ Recent decisions affecting current work:
 - Initialization: Gemini CLI is the first adapter, not the product architecture.
 - Initialization: Phase 0/1 must prove contracts and fixtures before UI depth.
 - Initialization: V1 is read-only and must not launch sessions, control terminals, create PRs, or run arbitrary shell commands.
+- Phase 1 context: Use a minimal but future-shaped adapter contract with explicit lifecycle seams and mandatory structured capabilities.
+- Phase 1 context: Model the full shared proof nouns now, with deterministic adapter/source/native-based IDs and first-class diagnostics/confidence.
+- Phase 1 context: Use one small non-Gemini fake fixture with golden normalized output as the main proof artifact.
+- Phase 1 context: Enforce strict import and naming boundaries with both lint and automated tests from the start.
 
 ### Pending Todos
 
@@ -69,5 +73,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-23
-Stopped at: Project initialized; Phase 1 is ready for `$gsd-plan-phase 1`
-Resume file: None
+Stopped at: Phase 1 context gathered
+Resume file: .planning/phases/01-architecture-contracts-and-fixture-proof/01-CONTEXT.md
