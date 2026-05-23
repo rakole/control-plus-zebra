@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  createDataSource,
+  addDataSource,
   listDataSources,
   scanDataSource,
+  setDataSourceEnabled,
   updateDataSource,
   validateDataSource,
   type CreateDataSourceRequest,
   type DataSourceAdapterOption,
+  type SetDataSourceEnabledRequest,
   type DataSourceViewModel,
   type UpdateDataSourceRequest
 } from "../data-sources-bridge.js";
@@ -161,9 +163,9 @@ export function DataSourcesRoute() {
       return;
     }
 
-    void persistExistingSource({
-      ...nextSource,
-      isDraft: false
+    void persistEnabledState({
+      enabled,
+      sourceId: nextSource.sourceId
     });
   }
 
@@ -196,6 +198,19 @@ export function DataSourcesRoute() {
     return response.source;
   }
 
+  async function persistEnabledState(
+    request: SetDataSourceEnabledRequest
+  ): Promise<DataSourceViewModel | null> {
+    const response = await setDataSourceEnabled(request);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    applyUpdatedSource(response.source);
+    return response.source;
+  }
+
   function applyUpdatedSource(source: DataSourceViewModel) {
     setSources((current) => upsertSource(current, source));
     setSelectedSource(createEditableSource(source));
@@ -212,7 +227,7 @@ export function DataSourcesRoute() {
       let persistedSource: DataSourceViewModel | null = null;
 
       if (selectedSource.isDraft) {
-        const response = await createDataSource(buildCreateRequest(selectedSource));
+        const response = await addDataSource(buildCreateRequest(selectedSource));
 
         if (!response.ok) {
           throw new Error(response.error.message);
@@ -430,8 +445,7 @@ function buildUpdateRequest(source: DataSourceEditorState): UpdateDataSourceRequ
     sourceId: source.sourceId,
     adapterId: source.adapterId,
     displayName: normalizeDisplayName(source.sourceName),
-    rootPath: source.rootPath,
-    enabled: source.enabled
+    rootPath: source.rootPath
   };
 }
 

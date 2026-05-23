@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: ready_to_plan
-stopped_at: Phase 4 complete; ready for Phase 5 planning
-last_updated: "2026-05-23T18:15:44Z"
-last_activity: 2026-05-23 - Phase 4 Gemini CLI adapter execution completed and Phase 5 is ready for planning
+status: active
+stopped_at: Phase 5 complete; Phase 6 not started
+last_updated: "2026-05-23T19:23:07Z"
+last_activity: 2026-05-24 - Completed Phase 5 shell, verification, audit, and regression hardening
 progress:
   total_phases: 8
-  completed_phases: 4
-  total_plans: 23
-  completed_plans: 23
-  percent: 50
+  completed_phases: 5
+  total_plans: 27
+  completed_plans: 27
+  percent: 63
 ---
 
 # Project State
@@ -25,20 +25,20 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 
 ## Current Position
 
-Phase: 5 of 8 (Shared Shell, Verification, and Run Audit)
-Plan: awaiting Phase 5 planning
-Status: ready_to_plan
-Last activity: 2026-05-23 - Phase 4 Gemini CLI adapter execution completed and Phase 5 is ready for planning
+Phase: 6 of 8 (Harness-Neutral Triage UI)
+Plan: Phase 5 complete; Phase 6 planning not started
+Status: active
+Last activity: 2026-05-24 - Completed Phase 5 shell, verification, audit, and regression hardening
 
-Progress: [█████-----] 50%
+Progress: [██████----] 63%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 23
+- Total plans completed: 27
 - Average duration: 5 min
-- Total execution time: 125 min
+- Total execution time: 156 min
 
 **By Phase:**
 
@@ -48,11 +48,12 @@ Progress: [█████-----] 50%
 | 2. Secure Desktop Shell and View-Model Bridge | 4/4 | 34 min | 9 min |
 | 3. Source Registry, Scanner, Cache, and Data Sources UI | 11/11 | 60 min | 5 min |
 | 4. Gemini CLI Adapter End-to-End | 4/4 | 18 min | 5 min |
+| 5. Shared Shell, Verification, and Run Audit | 4/4 | 31 min | 8 min |
 
 **Recent Trend:**
 
-- Last 5 plans: 03-11, 04-01, 04-02, 04-03, 04-04
-- Trend: Phase 4 is complete; the app now ingests real Gemini CLI evidence through the shared adapter, scanner, cache, and session-view-model pipeline with contract, golden, and truth-rule proof
+- Last 5 plans: 04-04, 05-01, 05-02, 05-03, 05-04
+- Trend: Phase 5 is complete; the app now derives truthful shared shell, verification, and run-audit state from fake and Gemini evidence with full regression proof
 
 *Updated after each plan completion*
 
@@ -103,15 +104,21 @@ Recent decisions affecting current work:
 - Phase 4 execution: Gemini parsing preserves adapter-private raw events and emits diagnostics for malformed rows, malformed sidecars, duplicate/intermediate rows, and missing joins while continuing over later valid evidence.
 - Phase 4 execution: Gemini normalization maps evidence into shared projects, sessions, messages, tool calls, shell commands, output artifacts, file mutations, and diagnostics only, with lifecycle derived from chronology and sidecar bodies loaded lazily.
 - Phase 4 execution: Representative Gemini fixtures plus contract, golden, truth-rule, boundary, lint, typecheck, and full-suite checks now prove the first real adapter without shared Gemini-specific branches.
+- Phase 5 planning: Execute in four waves - 05-01 shared shell parsing foundation, 05-02 verification classifier, 05-03 run-audit engine, and 05-04 fixture/regression hardening.
+- Phase 5 planning: Derive shell, verification, and audit truth during `Scanner.scanSource()` and persist it in a sibling derived cache payload while adapters remain evidence-only.
+- Phase 5 planning: Keep current IPC/session preview surfaces sanitized; public run-audit presentation remains Phase 6 work even after internal cache records gain derived truth.
+- Phase 5 execution: Shared shell evidence now carries harness-neutral tool/artifact relation fields, scanner scans derive parsed shell summaries before cache write, and missing sidecars degrade confidence instead of erasing shell truth.
+- Phase 5 execution: Verification now derives from qualifying shared shell summaries with latest-per-intent semantics, explicit `not-run`, and session -> source -> adapter capability precedence.
+- Phase 5 execution: Run audit now persists conservative status precedence and attention reasons internally while current session summaries/previews remain sanitized for Phase 6.
+- Phase 5 execution: Fake and Gemini regression fixtures now lock exit-code precedence, rerun recovery, incomplete claims, parser warnings, and cancelled-plus-failed-verification through the shared scanner pipeline.
 
 ### Pending Todos
 
-- Plan and execute Phase 5 shared shell parsing, verification semantics, and run-audit classification work.
-- Extend the Phase 5 fixture corpus to prove shell exit-code precedence, verification gaps, cancellation, and dirty-git truth rules.
+- Begin Phase 6 planning and implementation for harness-neutral triage UI surfaces on top of the internal audit truth completed in Phase 5.
 
 ### Blockers/Concerns
 
-- Phase 5 still needs to turn shell/tool evidence into trustworthy verification and audit conclusions without letting tool success override shell exit-code truth.
+- Phase 6 still needs to surface the new internal audit truth without flattening capability gaps or breaking the current renderer safety boundaries.
 - Cache backend starts file-backed; revisit SQLite only if realistic fixture volume proves it necessary.
 
 ## Deferred Items
@@ -126,6 +133,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-23T18:15:44Z
-Stopped at: Phase 4 complete; ready for Phase 5 planning
+Last session: 2026-05-23T19:23:07Z
+Stopped at: Phase 5 complete; Phase 6 planning not started
 Resume file: .planning/ROADMAP.md

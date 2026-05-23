@@ -113,6 +113,9 @@ export interface ShellCommandEvidence extends SourceBoundEntityBase {
   endedAt?: string;
   outputSummary?: string;
   eventId?: SessionEventId;
+  toolCallId?: ToolCallId;
+  artifactIds?: OutputArtifactId[];
+  rawToolStatus?: ToolCallStatus;
 }
 
 export type OutputArtifactKind = "image" | "json" | "text" | "trace" | "unknown";

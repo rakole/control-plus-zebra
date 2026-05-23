@@ -441,6 +441,24 @@ export async function normalizeFakeTestEvents(
         startedAt: timelineEvent.timestamp,
         ...(timelineEvent.outputSummary ? { outputSummary: timelineEvent.outputSummary } : {}),
         eventId,
+        ...(timelineEvent.toolCallId
+          ? {
+              toolCallId: createToolCallId({
+                adapterId,
+                sourceId,
+                nativeId: timelineEvent.toolCallId
+              })
+            }
+          : {}),
+        ...(timelineEvent.artifactIds.length > 0
+          ? {
+              artifactIds: timelineEvent.artifactIds
+                .map((artifactId) => ensureOutputArtifact(artifactId, eventId))
+                .filter((artifact): artifact is OutputArtifact => artifact !== undefined)
+                .map((artifact) => artifact.id)
+            }
+          : {}),
+        ...(timelineEvent.rawToolStatus ? { rawToolStatus: timelineEvent.rawToolStatus } : {}),
         confidence: HIGH_CONFIDENCE
       });
 

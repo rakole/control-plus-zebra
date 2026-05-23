@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Secure Desktop Shell and View-Model Bridge** - Create the Electron/Vite/React shell with safe IPC and local-only security defaults.
 - [x] **Phase 3: Source Registry, Scanner, Cache, and Data Sources UI** - Let users configure sources and run shared ingestion through a safe cache pipeline.
 - [x] **Phase 4: Gemini CLI Adapter End-to-End** - Parse Gemini fixtures into the same normalized flow as the fake adapter.
-- [ ] **Phase 5: Shared Shell, Verification, and Run Audit** - Turn evidence into trustworthy command, verification, and audit classifications.
+- [x] **Phase 5: Shared Shell, Verification, and Run Audit** - Turn evidence into trustworthy command, verification, and audit classifications.
 - [ ] **Phase 6: Harness-Neutral Triage UI** - Deliver the user-facing dashboards, detail views, diagnostics, and capability-gated states.
 - [ ] **Phase 7: Git, GitHub, Export, and Import** - Add read-only repo/PR context plus portable archive workflows.
 - [ ] **Phase 8: Hardening, Packaging, and Readiness** - Verify the full desktop app, packaging path, and safety gates for V1.
@@ -136,10 +136,19 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 05-01: Implement shell command parser, exit-code parser, and command intent classifier.
-- [ ] 05-02: Implement verification classifier and no-verification/capability-gap semantics.
-- [ ] 05-03: Implement run audit engine, attention reasons, and status precedence.
-- [ ] 05-04: Add shell, verification, and audit fixtures/tests for truth-rule edge cases.
+**Wave 1**
+- [x] 05-01: Implement shell command parser, exit-code parser, and command intent classifier.
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 05-02: Implement verification classifier and no-verification/capability-gap semantics.
+**Wave 3** *(blocked on Wave 2 completion)*
+- [x] 05-03: Implement run audit engine, attention reasons, and status precedence.
+**Wave 4** *(blocked on Wave 3 completion)*
+- [x] 05-04: Add shell, verification, and audit fixtures/tests for truth-rule edge cases.
+
+Cross-cutting constraints:
+- Shared shell, verification, and run-audit conclusions stay in `src/main/core/**`; adapters remain evidence-only and current IPC/session preview outputs stay sanitized until Phase 6.
+- Missing or unsupported capability states remain explicit and must never flatten into `passed` or `clean`; `clean` is gated behind explicit supported git context.
+- Prefer scan-time shared derivation plus persisted derived summaries over adapter-specific heuristics or caching full stdout/stderr bodies.
 
 ### Phase 6: Harness-Neutral Triage UI
 **Goal:** User can triage agent runs through harness-neutral Overview, Projects, Sessions, Session Detail, Run Audit, and Diagnostics pages that preserve capability gaps instead of hiding missing evidence.
@@ -209,7 +218,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 2. Secure Desktop Shell and View-Model Bridge | 4/4 | Complete | 2026-05-23 |
 | 3. Source Registry, Scanner, Cache, and Data Sources UI | 11/11 | Complete | 2026-05-23 |
 | 4. Gemini CLI Adapter End-to-End | 4/4 | Complete | 2026-05-23 |
-| 5. Shared Shell, Verification, and Run Audit | 0/4 | Not started | - |
+| 5. Shared Shell, Verification, and Run Audit | 4/4 | Complete | 2026-05-24 |
 | 6. Harness-Neutral Triage UI | 0/5 | Not started | - |
 | 7. Git, GitHub, Export, and Import | 0/4 | Not started | - |
 | 8. Hardening, Packaging, and Readiness | 0/3 | Not started | - |

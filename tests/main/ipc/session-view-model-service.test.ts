@@ -1,4 +1,4 @@
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -118,6 +118,54 @@ describe("session view model service", () => {
       })
     );
     expect(findForbiddenKeys(preview)).toEqual([]);
+  });
+
+  it("counts log-only Gemini sessions as message evidence instead of collapsing them to zero", async () => {
+    const runtime = await createTempRuntime(tempDirs);
+    const geminiRoot = path.join(runtime.appDataDir, "gemini-root");
+
+    await cp(geminiFixtureRoot, geminiRoot, { recursive: true });
+
+    const logsPath = path.join(geminiRoot, "alpha-project", "logs.json");
+    const logs = JSON.parse(await readFile(logsPath, "utf8")) as Array<Record<string, unknown>>;
+
+    logs.unshift(
+      {
+        sessionId: "99999999-9999-4999-8999-999999999999",
+        messageId: 0,
+        type: "user",
+        message: "brew upgrade gemini-cli",
+        timestamp: "2026-05-23T09:10:29.109Z"
+      },
+      {
+        sessionId: "99999999-9999-4999-8999-999999999999",
+        messageId: 1,
+        type: "user",
+        message: "/quit",
+        timestamp: "2026-05-23T09:11:16.495Z"
+      }
+    );
+    await writeFile(logsPath, `${JSON.stringify(logs, null, 2)}\n`, "utf8");
+
+    const source = await runtime.sourceRegistry.createSource({
+      adapterId: "gemini-cli",
+      displayName: "Gemini Fixture Root",
+      rootPath: geminiRoot
+    });
+    const validated = await runtime.scanner.validateSource(source.sourceId);
+
+    await runtime.scanner.scanSource(validated.source.sourceId);
+
+    const service = createSessionViewModelService({ runtime });
+    const sessions = await service.listSessions();
+    const logOnlySession = sessions.find(
+      (session) => session.title === "brew upgrade gemini-cli"
+    );
+
+    expect(logOnlySession).toBeDefined();
+    expect(logOnlySession?.evidenceSummary.messages).toBe(2);
+    expect(logOnlySession?.evidenceSummary.toolCalls).toBe(0);
+    expect(logOnlySession?.evidenceSummary.shellCommands).toBe(0);
   });
 });
 

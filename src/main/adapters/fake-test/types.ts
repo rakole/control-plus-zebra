@@ -88,7 +88,10 @@ const fakeShellCommandEventSchema = z.object({
   outputSource: z.enum(["stdout", "stderr", "combined", "unknown"]),
   cwd: z.string().optional(),
   exitCode: z.number().int().optional(),
-  outputSummary: z.string().optional()
+  outputSummary: z.string().optional(),
+  toolCallId: z.string().optional(),
+  artifactIds: z.array(z.string()).default([]),
+  rawToolStatus: z.enum(["started", "succeeded", "failed", "cancelled", "unknown"]).optional()
 });
 
 const fakeOutputArtifactEventSchema = z.object({

@@ -22,7 +22,7 @@ runAdapterContractSuite({
     verificationSignals: "unknown"
   },
   minimums: {
-    sources: 3,
+    sources: 4,
     messages: 5,
     toolCalls: 4,
     shellCommands: 1,
