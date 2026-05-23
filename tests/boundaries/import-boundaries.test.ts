@@ -179,6 +179,10 @@ async function readRelativeImports(file: string): Promise<string[]> {
   for (const match of contents.matchAll(pattern)) {
     const specifier = match[1];
 
+    if (!specifier) {
+      continue;
+    }
+
     if (specifier.startsWith(".")) {
       imports.add(specifier);
     }
@@ -268,7 +272,11 @@ function classifySourcePath(file: string): SourceKind {
   const adapterMatch = normalized.match(/^src\/main\/adapters\/([^/]+)\//u);
 
   if (adapterMatch) {
-    return { type: "adapter", adapterId: adapterMatch[1] };
+    const adapterId = adapterMatch[1];
+
+    if (adapterId) {
+      return { type: "adapter", adapterId };
+    }
   }
 
   return { type: "other" };
