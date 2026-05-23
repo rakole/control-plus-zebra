@@ -64,7 +64,7 @@ Cross-cutting constraints:
 
 Plans:
 - [x] 02-01: Scaffold Electron Forge + Vite + React + TypeScript without weakening security defaults.
-- [ ] 02-02: Implement typed preload API and IPC handler conventions.
+- [x] 02-02: Implement typed preload API and IPC handler conventions.
 - [ ] 02-03: Add local-only CSP, renderer restrictions, and forbidden API checks.
 - [ ] 02-04: Render first app shell route from sanitized fake-adapter view-model data.
 
@@ -190,7 +190,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Architecture Contracts and Fixture Proof | 4/4 | Complete | 2026-05-23 |
-| 2. Secure Desktop Shell and View-Model Bridge | 1/4 | In progress | - |
+| 2. Secure Desktop Shell and View-Model Bridge | 2/4 | In progress | - |
 | 3. Source Registry, Scanner, Cache, and Data Sources UI | 0/4 | Not started | - |
 | 4. Gemini CLI Adapter End-to-End | 0/4 | Not started | - |
 | 5. Shared Shell, Verification, and Run Audit | 0/4 | Not started | - |

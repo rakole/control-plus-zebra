@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-05-23T13:55:49Z"
-last_activity: 2026-05-23 - Completed Phase 2 Plan 01 secure desktop shell scaffold
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-05-23T14:06:31Z"
+last_activity: 2026-05-23 - Completed Phase 2 Plan 02 typed preload and IPC bridge
 progress:
   total_phases: 8
   completed_phases: 1
   total_plans: 8
-  completed_plans: 5
-  percent: 16
+  completed_plans: 6
+  percent: 19
 ---
 
 # Project State
@@ -26,31 +26,31 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 ## Current Position
 
 Phase: 2 of 8 (Secure Desktop Shell and View-Model Bridge)
-Plan: 02-01 complete; next plan is 02-02 typed preload API and IPC handler conventions
+Plan: 02-02 complete; next plan is 02-03 local-only CSP and renderer security guardrails
 Status: Phase 2 in progress
-Last activity: 2026-05-23 - Completed Phase 2 Plan 01 secure desktop shell scaffold
+Last activity: 2026-05-23 - Completed Phase 2 Plan 02 typed preload and IPC bridge
 
-Progress: [██--------] 16%
+Progress: [██--------] 19%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 5
+- Total plans completed: 6
 - Average duration: 6 min
-- Total execution time: 29 min
+- Total execution time: 36 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1. Architecture Contracts and Fixture Proof | 4/4 | 13 min | 3 min |
-| 2. Secure Desktop Shell and View-Model Bridge | 1/4 | 16 min | 16 min |
+| 2. Secure Desktop Shell and View-Model Bridge | 2/4 | 23 min | 12 min |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01, 01-02, 01-03, 01-04, 02-01
-- Trend: Phase 2 shell scaffold is underway; Electron/Vite/React packaging and security defaults are green
+- Last 5 plans: 01-02, 01-03, 01-04, 02-01, 02-02
+- Trend: Phase 2 shell scaffold now has typed preload methods, validated IPC handlers, and fake-backed sanitized session DTOs
 
 *Updated after each plan completion*
 
@@ -82,10 +82,11 @@ Recent decisions affecting current work:
 - Phase 2 planning: Keep renderer data access through `window.agentWorkbench` and sanitized fake-backed DTOs only; no renderer-local session mocks or adapter-private imports.
 - Phase 2 planning: Lock security proof in Phase 2 with BrowserWindow defaults, local-only CSP, forbidden renderer API scans, and main/adapter import-boundary tests.
 - Phase 2 execution: Electron Forge/Vite/React scaffold packages successfully with a secure BrowserWindow, empty typed preload bridge, and Sessions-routed renderer shell.
+- Phase 2 execution: Typed IPC/preload bridge exposes only `app:getShellState`, `sessions:list`, and `sessions:getById`, with Zod validation and sanitized fake-backed view models.
 
 ### Pending Todos
 
-- Execute remaining Phase 2 preload bridge, security guardrails, and Sessions-first fake-backed renderer route from plans 02-02 through 02-04.
+- Execute remaining Phase 2 security guardrails and Sessions-first fake-backed renderer route from plans 02-03 through 02-04.
 - Gather the real Gemini fixture corpus before Phase 4 adapter implementation begins.
 
 ### Blockers/Concerns
@@ -105,6 +106,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-23T13:55:49Z
-Stopped at: Completed 02-01-PLAN.md
-Resume file: .planning/phases/02-secure-desktop-shell-and-view-model-bridge/02-02-PLAN.md
+Last session: 2026-05-23T14:06:31Z
+Stopped at: Completed 02-02-PLAN.md
+Resume file: .planning/phases/02-secure-desktop-shell-and-view-model-bridge/02-03-PLAN.md
