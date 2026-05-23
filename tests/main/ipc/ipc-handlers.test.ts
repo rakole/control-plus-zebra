@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { IPC_CHANNELS, registerIpcHandlers } from "../../../src/main/ipc/index.js";
+import type { DataSourcesViewModelService } from "../../../src/main/app/data-sources-view-model-service.js";
 import type { SessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import {
+  dataSourcesResponseSchema,
   getSessionByIdResponseSchema,
   listSessionsResponseSchema,
   shellStateViewModelSchema,
@@ -14,19 +16,25 @@ describe("ipc handlers", () => {
   it("registers only the allowed IPC channels", () => {
     const collector = createIpcCollector();
 
-    registerIpcHandlers(collector, createFakeService());
+    registerIpcHandlers(collector, createFakeServices());
 
     expect([...collector.handlers.keys()]).toEqual([
       IPC_CHANNELS.getShellState,
       IPC_CHANNELS.listSessions,
-      IPC_CHANNELS.getSessionById
+      IPC_CHANNELS.getSessionById,
+      IPC_CHANNELS.listDataSources,
+      IPC_CHANNELS.addDataSource,
+      IPC_CHANNELS.updateDataSource,
+      IPC_CHANNELS.setDataSourceEnabled,
+      IPC_CHANNELS.validateDataSource,
+      IPC_CHANNELS.scanDataSource
     ]);
   });
 
   it("returns sanitized invalid-request errors for bad get-by-id payloads", async () => {
     const collector = createIpcCollector();
 
-    registerIpcHandlers(collector, createFakeService());
+    registerIpcHandlers(collector, createFakeServices());
 
     const result = await collector.invoke(IPC_CHANNELS.getSessionById, { sessionId: "" });
 
@@ -43,15 +51,17 @@ describe("ipc handlers", () => {
   it("returns schema-valid DTOs for shell, list, and get handlers", async () => {
     const collector = createIpcCollector();
 
-    registerIpcHandlers(collector, createFakeService());
+    registerIpcHandlers(collector, createFakeServices());
 
     const shell = await collector.invoke(IPC_CHANNELS.getShellState);
     const list = await collector.invoke(IPC_CHANNELS.listSessions);
     const get = await collector.invoke(IPC_CHANNELS.getSessionById, { sessionId: "session_1" });
+    const sources = await collector.invoke(IPC_CHANNELS.listDataSources);
 
     expect(() => shellStateViewModelSchema.parse(shell)).not.toThrow();
     expect(() => listSessionsResponseSchema.parse(list)).not.toThrow();
     expect(() => getSessionByIdResponseSchema.parse(get)).not.toThrow();
+    expect(() => dataSourcesResponseSchema.parse(sources)).not.toThrow();
   });
 });
 
@@ -75,7 +85,10 @@ function createIpcCollector() {
   };
 }
 
-function createFakeService(): SessionViewModelService {
+function createFakeServices(): {
+  dataSourcesService: DataSourcesViewModelService;
+  sessionService: SessionViewModelService;
+} {
   const summary: SessionSummaryViewModel = {
     adapterId: "fake-test",
     adapterDisplayName: "Fake Test Harness",
@@ -108,8 +121,19 @@ function createFakeService(): SessionViewModelService {
     projectName: "control-plus-zebra",
     diagnostics: []
   };
+  const dataSourcesViewModel = {
+    adapters: [
+      {
+        adapterId: "fake-test",
+        displayName: "Fake Test Harness",
+        capabilityBadges: [],
+        defaultRoots: []
+      }
+    ],
+    sources: []
+  };
 
-  return {
+  const sessionService: SessionViewModelService = {
     getShellState() {
       return {
         appName: "Agent Workbench",
@@ -117,7 +141,13 @@ function createFakeService(): SessionViewModelService {
         allowedOperations: [
           IPC_CHANNELS.getShellState,
           IPC_CHANNELS.listSessions,
-          IPC_CHANNELS.getSessionById
+          IPC_CHANNELS.getSessionById,
+          IPC_CHANNELS.listDataSources,
+          IPC_CHANNELS.addDataSource,
+          IPC_CHANNELS.updateDataSource,
+          IPC_CHANNELS.setDataSourceEnabled,
+          IPC_CHANNELS.validateDataSource,
+          IPC_CHANNELS.scanDataSource
         ],
         adapters: [
           {
@@ -133,5 +163,31 @@ function createFakeService(): SessionViewModelService {
     async getSessionById({ sessionId }: { sessionId: string }) {
       return sessionId === preview.sessionId ? preview : null;
     }
+  };
+
+  const dataSourcesService: DataSourcesViewModelService = {
+    async listDataSources() {
+      return dataSourcesViewModel;
+    },
+    async addDataSource() {
+      return dataSourcesViewModel;
+    },
+    async updateDataSource() {
+      return dataSourcesViewModel;
+    },
+    async setDataSourceEnabled() {
+      return dataSourcesViewModel;
+    },
+    async validateDataSource() {
+      return dataSourcesViewModel;
+    },
+    async scanDataSource() {
+      return dataSourcesViewModel;
+    }
+  };
+
+  return {
+    dataSourcesService,
+    sessionService
   };
 }

@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { createBundledAdapterRegistry } from "../../../src/main/core/registry/index.js";
+import { createSafeFilesystem } from "../../../src/main/core/security/index.js";
 
 async function collectAsync<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const items: T[] = [];
@@ -23,7 +24,10 @@ describe("fake-test adapter smoke proof", () => {
     );
     const context = {
       projectDir: process.cwd(),
-      platform: process.platform
+      platform: process.platform,
+      safeFilesystem: createSafeFilesystem({
+        allowedRootPaths: [fixturePath]
+      })
     };
 
     expect(registry.listDescriptors().map((descriptor) => descriptor.id)).toContain("fake-test");

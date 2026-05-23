@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Architecture Contracts and Fixture Proof** - Prove harness neutrality with shared contracts, fake adapter, and boundary tests.
 - [x] **Phase 2: Secure Desktop Shell and View-Model Bridge** - Create the Electron/Vite/React shell with safe IPC and local-only security defaults.
-- [ ] **Phase 3: Source Registry, Scanner, Cache, and Data Sources UI** - Let users configure sources and run shared ingestion through a safe cache pipeline.
+- [x] **Phase 3: Source Registry, Scanner, Cache, and Data Sources UI** - Let users configure sources and run shared ingestion through a safe cache pipeline.
 - [ ] **Phase 4: Gemini CLI Adapter End-to-End** - Parse Gemini fixtures into the same normalized flow as the fake adapter.
 - [ ] **Phase 5: Shared Shell, Verification, and Run Audit** - Turn evidence into trustworthy command, verification, and audit classifications.
 - [ ] **Phase 6: Harness-Neutral Triage UI** - Deliver the user-facing dashboards, detail views, diagnostics, and capability-gated states.
@@ -83,25 +83,25 @@ Plans:
 
 Plans:
 **Wave 1**
-- [ ] 03-01: Implement persisted source registry records and source validation state.
+- [x] 03-01: Implement persisted source registry records and source validation state.
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 03-02: Implement safe filesystem helpers, indexed output-artifact allowlisting, and fake adapter refactor.
+- [x] 03-02: Implement safe filesystem helpers, indexed output-artifact allowlisting, and fake adapter refactor.
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 03-03: Implement scanner, raw artifact index, normalization validation, and session merge path.
-- [ ] 03-04: Implement watcher plan contract and shared orchestrator boundary.
+- [x] 03-03: Implement scanner, raw artifact index, normalization validation, and session merge path.
+- [x] 03-04: Implement watcher plan contract and shared orchestrator boundary.
 **Wave 4** *(blocked on Wave 3 scanner completion)*
-- [ ] 03-05: Implement file-backed normalized cache keys and store foundation.
+- [x] 03-05: Implement file-backed normalized cache keys and store foundation.
 **Wave 5** *(blocked on Wave 4 cache foundation completion)*
-- [ ] 03-06: Integrate scanner cache writes with source scan/cache summaries.
+- [x] 03-06: Integrate scanner cache writes with source scan/cache summaries.
 **Wave 6** *(blocked on Wave 5 cache summary integration)*
-- [ ] 03-07: Route existing session view models through the source/scanner/cache path.
-- [ ] 03-08: Add Data Sources view-model and DTO service layer.
+- [x] 03-07: Route existing session view models through the source/scanner/cache path.
+- [x] 03-08: Add Data Sources view-model and DTO service layer.
 **Wave 7** *(blocked on Wave 6 Data Sources service completion)*
-- [ ] 03-09: Wire Data Sources IPC, preload, and Electron main integration.
+- [x] 03-09: Wire Data Sources IPC, preload, and Electron main integration.
 **Wave 8** *(blocked on Wave 7 IPC/preload completion)*
-- [ ] 03-10: Build Harnesses and Data Sources renderer route around shared source state.
+- [x] 03-10: Build Harnesses and Data Sources renderer route around shared source state.
 **Wave 9** *(blocked on Wave 8 renderer completion)*
-- [ ] 03-11: Extend Data Sources renderer, preload, and IPC guardrails.
+- [x] 03-11: Extend Data Sources renderer, preload, and IPC guardrails.
 
 ### Phase 4: Gemini CLI Adapter End-to-End
 **Goal:** User can point Agent Workbench at Gemini CLI fixture data and see parsed Gemini sessions flow through the same normalized pipeline as the fake adapter, with parser uncertainty surfaced as diagnostics.
@@ -207,7 +207,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 |-------|----------------|--------|-----------|
 | 1. Architecture Contracts and Fixture Proof | 4/4 | Complete | 2026-05-23 |
 | 2. Secure Desktop Shell and View-Model Bridge | 4/4 | Complete | 2026-05-23 |
-| 3. Source Registry, Scanner, Cache, and Data Sources UI | 0/11 | Planned | - |
+| 3. Source Registry, Scanner, Cache, and Data Sources UI | 11/11 | Complete | 2026-05-23 |
 | 4. Gemini CLI Adapter End-to-End | 0/4 | Not started | - |
 | 5. Shared Shell, Verification, and Run Audit | 0/4 | Not started | - |
 | 6. Harness-Neutral Triage UI | 0/5 | Not started | - |

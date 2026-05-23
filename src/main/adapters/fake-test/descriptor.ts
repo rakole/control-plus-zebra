@@ -40,6 +40,7 @@ export const fakeTestDescriptor: HarnessDescriptor = {
   displayName: "Fake Test Harness",
   vendor: "Agent Workbench",
   adapterVersion: "0.1.0",
+  parserVersion: "0.1.0",
   supportedPlatforms: ["darwin", "linux", "win32"],
   defaultRoots: [
     {

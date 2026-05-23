@@ -8,6 +8,7 @@ import {
 } from "./discovery.js";
 import { normalizeFakeTestEvents } from "./normalize.js";
 import { parseFakeTestArtifact, type FakeRawEvent } from "./parse.js";
+import type { WatchPlan } from "../../core/watcher/watch-plan.js";
 
 export const fakeTestAdapter: SessionSourceAdapter<FakeRawEvent> = {
   descriptor: fakeTestDescriptor,
@@ -15,7 +16,19 @@ export const fakeTestAdapter: SessionSourceAdapter<FakeRawEvent> = {
   discoverSources: discoverFakeTestSources,
   discoverArtifacts: discoverFakeTestArtifacts,
   parseArtifact: parseFakeTestArtifact,
-  normalize: normalizeFakeTestEvents
+  normalize: normalizeFakeTestEvents,
+  async getWatchPlan(source): Promise<WatchPlan> {
+    return {
+      adapterId: fakeTestDescriptor.id,
+      sourceId: source.id,
+      status: fakeTestDescriptor.capabilities.watchPlans.status,
+      scopePaths: [],
+      strategy: "none",
+      ...(fakeTestDescriptor.capabilities.watchPlans.reason
+        ? { reason: fakeTestDescriptor.capabilities.watchPlans.reason }
+        : {})
+    };
+  }
 };
 
 export { fakeTestDescriptor } from "./descriptor.js";

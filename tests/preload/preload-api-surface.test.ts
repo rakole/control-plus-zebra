@@ -12,10 +12,22 @@ describe("preload API surface", () => {
     expect(typesSource).toContain("getShellState()");
     expect(typesSource).toContain("listSessions(request?");
     expect(typesSource).toContain("getSessionById(request");
+    expect(typesSource).toContain("listDataSources()");
+    expect(typesSource).toContain("addDataSource(request");
+    expect(typesSource).toContain("updateDataSource(request");
+    expect(typesSource).toContain("setDataSourceEnabled(request");
+    expect(typesSource).toContain("validateDataSource(request");
+    expect(typesSource).toContain("scanDataSource(request");
     expect(extractBridgeMethodNames(typesSource)).toEqual([
       "getShellState",
       "listSessions",
-      "getSessionById"
+      "getSessionById",
+      "listDataSources",
+      "addDataSource",
+      "updateDataSource",
+      "setDataSourceEnabled",
+      "validateDataSource",
+      "scanDataSource"
     ]);
     expect(findForbiddenPublicNames(typesSource)).toEqual([]);
   });
@@ -27,7 +39,13 @@ describe("preload API surface", () => {
     expect(extractBridgeMethodNames(preloadSource)).toEqual([
       "getShellState",
       "listSessions",
-      "getSessionById"
+      "getSessionById",
+      "listDataSources",
+      "addDataSource",
+      "updateDataSource",
+      "setDataSourceEnabled",
+      "validateDataSource",
+      "scanDataSource"
     ]);
     expect(preloadSource).not.toMatch(/\b(?:fs|child_process|shell)\b/u);
     expect(preloadSource).not.toMatch(/(?<!\.)\binvoke\s*\(/u);

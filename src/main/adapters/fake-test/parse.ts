@@ -1,7 +1,6 @@
-import { readFile } from "node:fs/promises";
-
-import type { RawArtifactRef } from "../../core/adapter-contract/types.js";
+import type { AdapterContext, RawArtifactRef } from "../../core/adapter-contract/types.js";
 import type { RawHarnessEvent } from "../../core/adapter-contract/index.js";
+import { createSafeFilesystem } from "../../core/security/safe-filesystem.js";
 import { fakeHarnessFixtureSchema, type FakeParsedPayload } from "./types.js";
 
 export type FakeRawEvent = RawHarnessEvent<FakeParsedPayload>;
@@ -31,12 +30,19 @@ function buildParseDiagnosticEvent(
 }
 
 export async function* parseFakeTestArtifact(
-  artifact: RawArtifactRef
+  artifact: RawArtifactRef,
+  context: AdapterContext
 ): AsyncIterable<FakeRawEvent> {
   let fixtureText: string;
+  const safeFilesystem =
+    context.safeFilesystem ??
+    createSafeFilesystem({
+      allowedArtifactPaths: [artifact.path],
+      allowedRootPaths: [artifact.path]
+    });
 
   try {
-    fixtureText = await readFile(artifact.path, "utf8");
+    fixtureText = await safeFilesystem.readTextFile(artifact.path);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown read error";
     yield buildParseDiagnosticEvent(

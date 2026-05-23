@@ -1,6 +1,7 @@
 import type { HarnessCapabilities } from "../model/capabilities.js";
 import type { AdapterId } from "../model/identifiers.js";
 import type { OutputArtifact } from "../model/entities.js";
+import type { WatchPlan } from "../watcher/watch-plan.js";
 import type {
   AdapterContext,
   AdapterNormalizationInput,
@@ -20,6 +21,7 @@ export interface HarnessDescriptor {
   displayName: string;
   vendor?: string;
   adapterVersion: string;
+  parserVersion?: string;
   supportedPlatforms: SupportedPlatform[];
   defaultRoots: SourceRootHint[];
   capabilities: HarnessCapabilities;
@@ -53,4 +55,8 @@ export interface SessionSourceAdapter<
     artifact: OutputArtifact,
     context: AdapterContext
   ): Promise<LoadedOutputArtifact>;
+  getWatchPlan?(
+    source: DiscoveredHarnessSource,
+    context: AdapterContext
+  ): Promise<WatchPlan | null>;
 }

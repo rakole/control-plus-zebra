@@ -1,4 +1,3 @@
-import { stat } from "node:fs/promises";
 import path from "node:path";
 
 import type {
@@ -11,18 +10,24 @@ import type {
 import { buildDiagnostic } from "../../core/diagnostics/diagnostic.js";
 import { HIGH_CONFIDENCE } from "../../core/model/confidence.js";
 import { createRawArtifactId, createSourceId } from "../../core/model/identifiers.js";
+import { createSafeFilesystem } from "../../core/security/safe-filesystem.js";
 import { fakeTestCapabilities, fakeTestDescriptor } from "./descriptor.js";
 
 export async function validateFakeTestSourceRoot(
   root: SourceRootConfig,
-  _context: AdapterContext
+  context: AdapterContext
 ): Promise<SourceRootValidation> {
   const resolvedPath = path.resolve(root.rootPath);
+  const safeFilesystem =
+    context.safeFilesystem ??
+    createSafeFilesystem({
+      allowedRootPaths: [resolvedPath]
+    });
 
   try {
-    const fileStat = await stat(resolvedPath);
+    const fileStat = await safeFilesystem.statPath(resolvedPath);
 
-    if (!fileStat.isFile()) {
+    if (fileStat.kind !== "file") {
       return {
         ok: false,
         normalizedPath: resolvedPath,
@@ -91,9 +96,14 @@ export async function* discoverFakeTestSources(
 
 export async function* discoverFakeTestArtifacts(
   source: DiscoveredHarnessSource,
-  _context: AdapterContext
+  context: AdapterContext
 ): AsyncIterable<RawArtifactRef> {
-  const fileStat = await stat(source.rootPath);
+  const safeFilesystem =
+    context.safeFilesystem ??
+    createSafeFilesystem({
+      allowedRootPaths: [source.rootPath]
+    });
+  const fileStat = await safeFilesystem.statPath(source.rootPath);
 
   yield {
     id: createRawArtifactId({
@@ -107,7 +117,8 @@ export async function* discoverFakeTestArtifacts(
     path: source.rootPath,
     artifactType: "fake-session-fixture",
     mediaType: "application/json",
-    byteLength: fileStat.size,
+    ...(fileStat.byteLength !== undefined ? { byteLength: fileStat.byteLength } : {}),
+    ...(fileStat.inode !== undefined ? { inode: fileStat.inode } : {}),
     mtimeMs: fileStat.mtimeMs
   };
 }
