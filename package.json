@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": ".vite/build/electron-main.js",
+  "main": ".vite/build/electron-main.cjs",
   "scripts": {
     "lint": "eslint .",
     "start": "electron-forge start",

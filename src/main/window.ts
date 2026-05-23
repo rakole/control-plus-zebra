@@ -6,7 +6,7 @@ import { buildContentSecurityPolicy } from "./security/content-security-policy.j
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
-const preloadPath = path.join(__dirname, "preload.js");
+const preloadPath = path.join(__dirname, "preload.cjs");
 let contentSecurityPolicyRegistered = false;
 
 export function createMainWindow(): BrowserWindow {

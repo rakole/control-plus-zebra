@@ -6,7 +6,7 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
-        entryFileNames: "preload.js"
+        entryFileNames: "preload.cjs"
       }
     }
   }

@@ -16,7 +16,7 @@ describe("BrowserWindow security defaults", () => {
     expect(source).toMatch(/contextIsolation:\s*true/u);
     expect(source).toMatch(/sandbox:\s*true/u);
     expect(source).toMatch(/preload:\s*preloadPath/u);
-    expect(source).toContain('path.join(__dirname, "preload.js")');
+    expect(source).toContain('path.join(__dirname, "preload.cjs")');
   });
 
   it("loads only the Vite development server variable or packaged local renderer file", async () => {
