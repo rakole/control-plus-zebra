@@ -70,6 +70,10 @@ Use these entry points:
 - `$gsd-quick` for small fixes, doc updates, and ad-hoc tasks.
 - `$gsd-debug` for investigation and bug fixing.
 
+Runtime note for Codex:
+- GSD was originally written around Claude Code `Task(...)` / `Agent(...)` subagent calls. In Codex, invoke subagents with the `spawn_agent` tool name instead, and translate Claude-style subagent steps to `spawn_agent(...)` calls explicitly when following GSD workflows.
+- close each subagent as soon as its work is completed
+
 Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
 <!-- GSD:workflow-end -->
 
