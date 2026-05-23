@@ -159,10 +159,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ARCH-07 | Phase 1 | Pending |
 | ADPT-01 | Phase 1 | Pending |
 | ADPT-02 | Phase 1 | Pending |
-| ADPT-03 | Phase 4 | Pending |
-| ADPT-04 | Phase 4 | Pending |
-| ADPT-05 | Phase 4 | Pending |
-| ADPT-06 | Phase 4 | Pending |
+| ADPT-03 | Phase 4 | Complete |
+| ADPT-04 | Phase 4 | Complete |
+| ADPT-05 | Phase 4 | Complete |
+| ADPT-06 | Phase 4 | Complete |
 | ADPT-07 | Phase 1 | Pending |
 | DATA-01 | Phase 3 | Pending |
 | DATA-02 | Phase 3 | Pending |

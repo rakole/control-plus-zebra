@@ -1,4 +1,4 @@
-import { copyFile, mkdtemp, stat, utimes } from "node:fs/promises";
+import { copyFile, cp, mkdtemp, stat, utimes } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -16,6 +16,7 @@ import { WatchOrchestrator } from "../../../src/main/core/watcher/index.js";
 const sourceFixturePath = path.resolve(
   "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json"
 );
+const geminiFixtureRoot = path.resolve("src/main/adapters/gemini-cli/fixtures/sample-root");
 
 async function createScannerHarness() {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-scanner-"));
@@ -43,7 +44,8 @@ async function createScannerHarness() {
     fixturePath,
     rawArtifactIndex,
     scanner,
-    sourceRegistry
+    sourceRegistry,
+    tempDir
   };
 }
 
@@ -87,5 +89,31 @@ describe("Scanner cache integration", () => {
 
     expect(reconciled?.cache.status).toBe("stale");
     expect(reconciled?.scan.status).toBe("stale");
+  });
+
+  it("caches Gemini sessions through the shared scanner pipeline alongside existing bundled adapters", async () => {
+    const { cacheStore, scanner, sourceRegistry, tempDir } = await createScannerHarness();
+    const copiedGeminiRoot = path.join(tempDir, "gemini-root");
+
+    await cp(geminiFixtureRoot, copiedGeminiRoot, { recursive: true });
+
+    const source = await sourceRegistry.createSource({
+      adapterId: "gemini-cli",
+      rootPath: copiedGeminiRoot
+    });
+    const validated = await scanner.validateSource(source.sourceId);
+
+    await scanner.scanSource(validated.source.sourceId);
+
+    const cachedRecords = await cacheStore.listLatestRecords();
+    const geminiRecords = cachedRecords.filter((record) => record.adapterId === "gemini-cli");
+
+    expect(geminiRecords.length).toBeGreaterThan(0);
+    expect(geminiRecords.flatMap((record) => record.normalized.sessions).length).toBeGreaterThan(0);
+    expect(
+      geminiRecords.some((record) =>
+        record.normalized.sessions.some((session) => session.lifecycleState === "completed")
+      )
+    ).toBe(true);
   });
 });

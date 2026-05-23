@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: ready_to_plan
-stopped_at: Phase 4 context gathered
-last_updated: "2026-05-23T17:11:56Z"
-last_activity: 2026-05-23 - Phase 4 context gathered and ready for planning
+stopped_at: Phase 4 complete; ready for Phase 5 planning
+last_updated: "2026-05-23T18:15:44Z"
+last_activity: 2026-05-23 - Phase 4 Gemini CLI adapter execution completed and Phase 5 is ready for planning
 progress:
   total_phases: 8
-  completed_phases: 3
-  total_plans: 19
-  completed_plans: 19
-  percent: 38
+  completed_phases: 4
+  total_plans: 23
+  completed_plans: 23
+  percent: 50
 ---
 
 # Project State
@@ -21,24 +21,24 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-23)
 
 **Core value:** Agent Workbench must truthfully classify local coding-agent runs from normalized evidence, not harness-specific assumptions.
-**Current focus:** Phase 4 - Gemini CLI Adapter End-to-End
+**Current focus:** Phase 5 - Shared Shell, Verification, and Run Audit
 
 ## Current Position
 
-Phase: 4 of 8 (Gemini CLI Adapter End-to-End)
-Plan: awaiting Phase 4 planning
+Phase: 5 of 8 (Shared Shell, Verification, and Run Audit)
+Plan: awaiting Phase 5 planning
 Status: ready_to_plan
-Last activity: 2026-05-23 - Phase 4 context gathered and ready for planning
+Last activity: 2026-05-23 - Phase 4 Gemini CLI adapter execution completed and Phase 5 is ready for planning
 
-Progress: [████------] 38%
+Progress: [█████-----] 50%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 19
+- Total plans completed: 23
 - Average duration: 5 min
-- Total execution time: 107 min
+- Total execution time: 125 min
 
 **By Phase:**
 
@@ -47,11 +47,12 @@ Progress: [████------] 38%
 | 1. Architecture Contracts and Fixture Proof | 4/4 | 13 min | 3 min |
 | 2. Secure Desktop Shell and View-Model Bridge | 4/4 | 34 min | 9 min |
 | 3. Source Registry, Scanner, Cache, and Data Sources UI | 11/11 | 60 min | 5 min |
+| 4. Gemini CLI Adapter End-to-End | 4/4 | 18 min | 5 min |
 
 **Recent Trend:**
 
-- Last 5 plans: 03-07, 03-08, 03-09, 03-10, 03-11
-- Trend: Phase 3 is complete; the app now persists data sources, scans through shared ingestion/cache boundaries, and exposes a read-only Data Sources settings workflow over narrow IPC/preload contracts
+- Last 5 plans: 03-11, 04-01, 04-02, 04-03, 04-04
+- Trend: Phase 4 is complete; the app now ingests real Gemini CLI evidence through the shared adapter, scanner, cache, and session-view-model pipeline with contract, golden, and truth-rule proof
 
 *Updated after each plan completion*
 
@@ -98,15 +99,19 @@ Recent decisions affecting current work:
 - Phase 4 context: Discover all core Gemini artifact families, keep tool-output bodies lazy via `loadOutputArtifact`, and ignore filesystem noise like `.DS_Store`.
 - Phase 4 context: Parse Gemini artifacts with diagnostic-tolerant continuation and preserve intermediate/partial records as adapter-private raw events before normalization.
 - Phase 4 context: Keep Gemini adapter output evidence-only and add a compact representative fixture pack plus contract/golden edge-case coverage.
+- Phase 4 execution: Gemini CLI now validates temp-root directories, discovers one source per evidence-bearing project directory, and indexes `.project_root`, `logs.json`, chat JSONL, and tool-output sidecars deterministically.
+- Phase 4 execution: Gemini parsing preserves adapter-private raw events and emits diagnostics for malformed rows, malformed sidecars, duplicate/intermediate rows, and missing joins while continuing over later valid evidence.
+- Phase 4 execution: Gemini normalization maps evidence into shared projects, sessions, messages, tool calls, shell commands, output artifacts, file mutations, and diagnostics only, with lifecycle derived from chronology and sidecar bodies loaded lazily.
+- Phase 4 execution: Representative Gemini fixtures plus contract, golden, truth-rule, boundary, lint, typecheck, and full-suite checks now prove the first real adapter without shared Gemini-specific branches.
 
 ### Pending Todos
 
-- Convert the observed Gemini artifact layout into minimized committed fixtures for Phase 4 planning and execution.
-- Plan and execute Phase 4 Gemini CLI adapter discovery, parsing, normalization, and edge-case coverage work.
+- Plan and execute Phase 5 shared shell parsing, verification semantics, and run-audit classification work.
+- Extend the Phase 5 fixture corpus to prove shell exit-code precedence, verification gaps, cancellation, and dirty-git truth rules.
 
 ### Blockers/Concerns
 
-- Real Gemini layout is now partially grounded from a local sample, but the committed fixture corpus still needs to be curated and anonymized during planning/execution.
+- Phase 5 still needs to turn shell/tool evidence into trustworthy verification and audit conclusions without letting tool success override shell exit-code truth.
 - Cache backend starts file-backed; revisit SQLite only if realistic fixture volume proves it necessary.
 
 ## Deferred Items
@@ -121,6 +126,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-23T17:11:56Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-gemini-cli-adapter-end-to-end/04-CONTEXT.md
+Last session: 2026-05-23T18:15:44Z
+Stopped at: Phase 4 complete; ready for Phase 5 planning
+Resume file: .planning/ROADMAP.md

@@ -1,0 +1,5 @@
+{"sessionId":"22222222-2222-4222-8222-222222222222","projectHash":"project-hash-alpha","startTime":"2026-05-23T09:20:00.000Z","lastUpdated":"2026-05-23T09:20:00.000Z","kind":"main"}
+{"id":"user-222","timestamp":"2026-05-23T09:21:00.000Z","type":"user","content":[{"text":"Can you summarize the last scan?"}]}
+{"id":"assistant-tools-222","timestamp":"2026-05-23T09:21:10.000Z","type":"gemini","content":"","toolCalls":[{"id":"update_topic_1700000003000_0","name":"update_topic","args":{"title":"Session summary","summary":"Summarizing the last scan."},"result":[{"functionResponse":{"id":"update_topic_1700000003000_0","name":"update_topic","response":{"output":"Topic updated"}}}],"status":"success","timestamp":"2026-05-23T09:21:10.100Z","resultDisplay":"Topic updated","description":"Update the topic context","displayName":"Update Topic","renderOutputAsMarkdown":true}]}
+{"id":"cancel-222","timestamp":"2026-05-23T09:21:12.352Z","type":"info","content":"Request cancelled."}
+{"$set":{"lastUpdated":"2026-05-23T09:21:12.353Z"}}
