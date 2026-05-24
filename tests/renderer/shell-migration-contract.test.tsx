@@ -92,6 +92,26 @@ describe("renderer shell migration navigation contracts", () => {
       "aria-current"
     );
   });
+
+  it("minimizes and expands the workbench menubar without losing accessible navigation names", async () => {
+    const user = userEvent.setup();
+    const { container } = renderWorkbench("/overview");
+
+    const sidebar = container.querySelector<HTMLElement>('[data-slot="workbench-sidebar"]');
+    const navigation = await screen.findByLabelText("Workbench navigation");
+
+    expect(sidebar).toHaveAttribute("data-state", "expanded");
+
+    await user.click(await screen.findByRole("button", { name: "Minimise menu" }));
+
+    expect(sidebar).toHaveAttribute("data-state", "minimized");
+    expect(within(navigation).getByRole("link", { name: "Overview" })).toBeInTheDocument();
+    expect(within(navigation).getByRole("link", { name: "Diagnostics" })).toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: "Expand menu" }));
+
+    expect(sidebar).toHaveAttribute("data-state", "expanded");
+  });
 });
 
 describe("renderer shell migration topbar contracts", () => {

@@ -5,12 +5,13 @@ import {
   FolderKanban,
   LayoutDashboard
 } from "lucide-react";
-import { HashRouter, NavLink, useLocation } from "react-router";
+import * as React from "react";
+import { HashRouter, useLocation } from "react-router";
 
+import { AnimatedWorkbenchMenu } from "./components/app/animated-workbench-menu.js";
 import { ModeToggle } from "./components/app/mode-toggle.js";
 import { WorkbenchShell } from "./components/app/workbench-shell.js";
 import { WorkbenchTopbar } from "./components/app/workbench-topbar.js";
-import { cn } from "./lib/utils.js";
 import { RouteRegistry } from "./routes/route-registry.js";
 
 const navigation = [
@@ -31,31 +32,14 @@ export function App() {
 
 function WorkbenchApp() {
   const location = useLocation();
+  const [isMenuMinimized, setIsMenuMinimized] = React.useState(false);
   const routeTitle = getRouteTitle(location.pathname);
 
   return (
     <WorkbenchShell
-      navigation={
-        <nav aria-label="Workbench navigation" className="flex flex-col gap-1">
-          {navigation.map((item) => (
-            <NavLink
-              key={item.label}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring/40",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
-                )
-              }
-              to={item.to}
-            >
-              <item.icon aria-hidden="true" className="size-4 shrink-0" />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
-        </nav>
-      }
+      navigation={<AnimatedWorkbenchMenu items={navigation} minimized={isMenuMinimized} />}
+      onSidebarMinimizedChange={setIsMenuMinimized}
+      sidebarMinimized={isMenuMinimized}
       topbar={<WorkbenchTopbar actions={<ModeToggle />} title={routeTitle} />}
     >
       <RouteRegistry />

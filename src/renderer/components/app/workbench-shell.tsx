@@ -9,6 +9,8 @@ export interface WorkbenchShellProps extends React.ComponentProps<"div"> {
   topbar?: React.ReactNode;
   sidebarHeader?: React.ReactNode;
   sidebarFooter?: React.ReactNode;
+  sidebarMinimized?: boolean | undefined;
+  onSidebarMinimizedChange?: ((minimized: boolean) => void) | undefined;
   mainClassName?: string;
 }
 
@@ -17,6 +19,8 @@ export function WorkbenchShell({
   topbar,
   sidebarHeader,
   sidebarFooter,
+  sidebarMinimized = false,
+  onSidebarMinimizedChange,
   mainClassName,
   className,
   children,
@@ -26,7 +30,8 @@ export function WorkbenchShell({
     <div
       data-slot="workbench-shell"
       className={cn(
-        "grid min-h-screen bg-background text-foreground md:grid-cols-[18rem_minmax(0,1fr)]",
+        "grid min-h-screen bg-background text-foreground transition-[grid-template-columns] duration-300 md:grid-cols-[18rem_minmax(0,1fr)]",
+        sidebarMinimized && "md:grid-cols-[5rem_minmax(0,1fr)]",
         className
       )}
       {...props}
@@ -35,6 +40,8 @@ export function WorkbenchShell({
         navigation={navigation}
         header={sidebarHeader}
         footer={sidebarFooter}
+        minimized={sidebarMinimized}
+        onMinimizedChange={onSidebarMinimizedChange}
       />
       <div className="relative flex min-w-0 flex-col overflow-hidden">
         <GradientDots
