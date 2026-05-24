@@ -31,6 +31,7 @@ export const truthStateLabelSchema = z.enum([
   "Failed Verification",
   "Incomplete",
   "Needs Review",
+  "No Matching PR",
   "Not Run",
   "Passed",
   "Supported",
@@ -163,6 +164,7 @@ export const projectSummaryViewModelSchema = z
     latestVerification: truthStateViewModelSchema,
     latestRunAudit: truthStateViewModelSchema,
     gitStatus: truthStateViewModelSchema,
+    githubStatus: truthStateViewModelSchema,
     branch: fieldValueViewModelSchema,
     head: fieldValueViewModelSchema,
     dirtyState: truthStateViewModelSchema,
@@ -171,7 +173,9 @@ export const projectSummaryViewModelSchema = z
     additions: metricStateViewModelSchema,
     deletions: metricStateViewModelSchema,
     remoteUrl: fieldValueViewModelSchema,
-    pullRequest: fieldValueViewModelSchema
+    pullRequest: fieldValueViewModelSchema,
+    checks: fieldValueViewModelSchema,
+    reviewStatus: fieldValueViewModelSchema
   })
   .strict();
 export type ProjectSummaryViewModel = z.infer<typeof projectSummaryViewModelSchema>;

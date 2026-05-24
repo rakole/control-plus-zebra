@@ -30,6 +30,7 @@ describe("triage view model service", () => {
     expect(gitBackedProject).toEqual(
       expect.objectContaining({
         gitStatus: expect.objectContaining({ label: "Available" }),
+        githubStatus: expect.objectContaining({ label: "No Matching PR" }),
         branch: expect.objectContaining({ displayValue: "main" }),
         dirtyState: expect.objectContaining({ label: "Dirty" }),
         remoteUrl: expect.objectContaining({
@@ -38,7 +39,7 @@ describe("triage view model service", () => {
       })
     );
     expect(degradedProject?.gitStatus.label).toBe("Unknown");
-    expect(gitBackedProject?.pullRequest.displayValue).toBe("Unknown");
+    expect(gitBackedProject?.pullRequest.displayValue).toBe("No Matching PR");
     expect(JSON.stringify(projects)).not.toContain("rawEvents");
   });
 

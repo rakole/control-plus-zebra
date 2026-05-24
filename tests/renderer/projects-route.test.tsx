@@ -24,5 +24,6 @@ describe("Projects route", () => {
     expect(screen.getByText(/Dirty Dirty/u)).toBeInTheDocument();
     expect(screen.getByText("Validated Repo Root")).toBeInTheDocument();
     expect(screen.getByText("https://github.com/example/control-plus-zebra.git")).toBeInTheDocument();
+    expect(screen.getAllByText("No Matching PR").length).toBeGreaterThan(0);
   });
 });

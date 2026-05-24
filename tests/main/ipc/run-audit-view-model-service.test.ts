@@ -34,12 +34,13 @@ describe("run audit view model service", () => {
     expect(runAudit?.sections.find((section) => section.title === "Git / GitHub")?.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ label: "Git Snapshot", value: "Available" }),
+        expect.objectContaining({ label: "GitHub Snapshot", value: "No Matching PR" }),
         expect.objectContaining({ label: "Branch", value: "main" }),
         expect.objectContaining({
           label: "Remote URL",
           value: "https://github.com/example/control-plus-zebra.git"
         }),
-        expect.objectContaining({ label: "Pull Request", value: "Unknown" })
+        expect.objectContaining({ label: "Pull Request", value: "No Matching PR" })
       ])
     );
   });

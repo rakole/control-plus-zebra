@@ -288,6 +288,7 @@ function createFakeServices(): {
           latestVerification: { label: "Passed", tone: "positive" },
           latestRunAudit: { label: "Needs Review", tone: "warning" },
           gitStatus: { label: "Unknown", tone: "neutral" },
+          githubStatus: { label: "Unknown", tone: "neutral" },
           branch: { status: "unknown", displayValue: "Unknown" },
           head: { status: "unknown", displayValue: "Unknown" },
           dirtyState: { label: "Unknown", tone: "neutral" },
@@ -296,7 +297,9 @@ function createFakeServices(): {
           additions: { status: "unknown", displayValue: "Unknown" },
           deletions: { status: "unknown", displayValue: "Unknown" },
           remoteUrl: { status: "unknown", displayValue: "Unknown" },
-          pullRequest: { status: "unknown", displayValue: "Unknown" }
+          pullRequest: { status: "unknown", displayValue: "Unknown" },
+          checks: { status: "unknown", displayValue: "Unknown" },
+          reviewStatus: { status: "unknown", displayValue: "Unknown" }
         }
       ];
     }

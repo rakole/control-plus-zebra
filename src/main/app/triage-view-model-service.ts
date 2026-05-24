@@ -165,6 +165,7 @@ export function createTriageViewModelService(
           }
 
           const projectSnapshot = getProjectGitSnapshot(data, project);
+          const githubSnapshot = getProjectGitHubSnapshot(data, project);
 
           return projectSummaryViewModelSchema.parse({
             projectId: project?.id ?? key,
@@ -177,6 +178,7 @@ export function createTriageViewModelService(
             latestVerification: getVerificationState(data, latestSession),
             latestRunAudit: getRunAuditState(data, latestSession),
             gitStatus: toGitStatusState(projectSnapshot),
+            githubStatus: toGitHubStatusState(githubSnapshot),
             branch: toGitFieldValue(projectSnapshot, (snapshot) => snapshot.branch),
             head: toGitFieldValue(projectSnapshot, (snapshot) => snapshot.headSha, {
               displayValue: abbreviateSha
@@ -187,10 +189,9 @@ export function createTriageViewModelService(
             additions: toGitMetricState(projectSnapshot, (snapshot) => snapshot.additions),
             deletions: toGitMetricState(projectSnapshot, (snapshot) => snapshot.deletions),
             remoteUrl: toGitRemoteField(projectSnapshot),
-            pullRequest: toFieldState(
-              "Unknown",
-              "GitHub context arrives in the next Phase 7 slice."
-            )
+            pullRequest: toGitHubPullRequestField(githubSnapshot),
+            checks: toGitHubSummaryField(githubSnapshot, (snapshot) => snapshot.checksSummary),
+            reviewStatus: toGitHubSummaryField(githubSnapshot, (snapshot) => snapshot.reviewSummary)
           });
         })
         .filter((project): project is ProjectSummaryViewModel => project !== null)
@@ -286,6 +287,13 @@ export function getProjectGitSnapshot(
   project?: Project
 ): DerivedProject["git"] | undefined {
   return project ? data.projectSnapshotsByProjectId.get(project.id)?.git : undefined;
+}
+
+export function getProjectGitHubSnapshot(
+  data: LoadedTriageData,
+  project?: Project
+): DerivedProject["github"] | undefined {
+  return project ? data.projectSnapshotsByProjectId.get(project.id)?.github : undefined;
 }
 
 export function getDiagnosticsForSession(
@@ -554,6 +562,79 @@ export function toGitStatusState(
     tone: "neutral",
     reason: getGitUnavailableReason(gitSnapshot)
   };
+}
+
+export function toGitHubPullRequestField(
+  githubSnapshot?: DerivedProject["github"]
+): FieldValueViewModel {
+  if (
+    githubSnapshot?.status === "available" &&
+    githubSnapshot.pullRequestNumber &&
+    githubSnapshot.pullRequestTitle
+  ) {
+    return toFieldValueWithDisplay(
+      String(githubSnapshot.pullRequestNumber),
+      `#${githubSnapshot.pullRequestNumber} ${githubSnapshot.pullRequestTitle}`
+    );
+  }
+
+  if (githubSnapshot?.status === "no-matching-pr") {
+    return toFieldValueWithDisplay("no-matching-pr", "No Matching PR");
+  }
+
+  return toFieldState(
+    githubSnapshot?.status === "unsupported" ? "Unsupported" : "Unknown",
+    getGitHubUnavailableReason(githubSnapshot)
+  );
+}
+
+export function toGitHubStatusState(
+  githubSnapshot?: DerivedProject["github"]
+): TruthStateViewModel {
+  switch (githubSnapshot?.status) {
+    case "available":
+      return { label: "Available", tone: "info" };
+    case "no-matching-pr":
+      return {
+        label: "No Matching PR",
+        tone: "neutral",
+        reason: githubSnapshot.reason
+      };
+    case "unsupported":
+      return {
+        label: "Unsupported",
+        tone: "neutral",
+        reason: githubSnapshot.reason
+      };
+    default:
+      return {
+        label: "Unknown",
+        tone: "neutral",
+        reason: getGitHubUnavailableReason(githubSnapshot)
+      };
+  }
+}
+
+export function toGitHubSummaryField(
+  githubSnapshot: DerivedProject["github"] | undefined,
+  selectValue: (snapshot: NonNullable<DerivedProject["github"]>) => string | undefined
+): FieldValueViewModel {
+  if (githubSnapshot?.status === "available") {
+    const value = selectValue(githubSnapshot);
+
+    if (value) {
+      return toFieldValue(value);
+    }
+  }
+
+  if (githubSnapshot?.status === "no-matching-pr") {
+    return toFieldValueWithDisplay("no-matching-pr", "No Matching PR");
+  }
+
+  return toFieldState(
+    githubSnapshot?.status === "unsupported" ? "Unsupported" : "Unknown",
+    getGitHubUnavailableReason(githubSnapshot)
+  );
 }
 
 export function toGitValidatedRootField(
@@ -939,5 +1020,12 @@ function getGitUnavailableReason(gitSnapshot?: DerivedProject["git"]): string {
   return (
     gitSnapshot?.reason ??
     "Git context is unavailable because Agent Workbench could not validate a safe repository root for this project."
+  );
+}
+
+function getGitHubUnavailableReason(githubSnapshot?: DerivedProject["github"]): string {
+  return (
+    githubSnapshot?.reason ??
+    "GitHub context is unavailable because the shared read-only `gh` snapshot could not be collected for this project."
   );
 }

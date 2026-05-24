@@ -6,6 +6,7 @@ import {
 } from "../ipc/view-models.js";
 import {
   buildSessionPreviewViewModel,
+  getProjectGitHubSnapshot,
   getDerivedSession,
   getDiagnosticsForSession,
   getProjectGitSnapshot,
@@ -13,6 +14,9 @@ import {
   loadTriageData,
   toGitDirtyState,
   toGitFieldValue,
+  toGitHubPullRequestField,
+  toGitHubStatusState,
+  toGitHubSummaryField,
   toGitMetricState,
   toGitStatusState
 } from "./triage-view-model-service.js";
@@ -55,7 +59,9 @@ export function createRunAuditViewModelService(
       );
       const project = getProjectForSession(data, session);
       const projectSnapshot = getProjectGitSnapshot(data, project);
+      const githubSnapshot = getProjectGitHubSnapshot(data, project);
       const gitStatus = toGitStatusState(projectSnapshot);
+      const githubStatus = toGitHubStatusState(githubSnapshot);
       const dirtyState = toGitDirtyState(projectSnapshot);
       const branch = toGitFieldValue(projectSnapshot, (snapshot) => snapshot.branch);
       const head = toGitFieldValue(projectSnapshot, (snapshot) => snapshot.headSha);
@@ -71,6 +77,9 @@ export function createRunAuditViewModelService(
       const untrackedFiles = toGitMetricState(projectSnapshot, (snapshot) => snapshot.untrackedFiles);
       const additions = toGitMetricState(projectSnapshot, (snapshot) => snapshot.additions);
       const deletions = toGitMetricState(projectSnapshot, (snapshot) => snapshot.deletions);
+      const pullRequest = toGitHubPullRequestField(githubSnapshot);
+      const checks = toGitHubSummaryField(githubSnapshot, (snapshot) => snapshot.checksSummary);
+      const review = toGitHubSummaryField(githubSnapshot, (snapshot) => snapshot.reviewSummary);
 
       return runAuditViewModelSchema.parse({
         session: preview,
@@ -265,10 +274,28 @@ export function createRunAuditViewModelService(
                 ...(remoteUrl.reason ? { hint: remoteUrl.reason } : {})
               },
               {
+                label: "GitHub Snapshot",
+                value: githubStatus.label,
+                tone: githubStatus.tone,
+                ...(githubStatus.reason ? { hint: githubStatus.reason } : {})
+              },
+              {
                 label: "Pull Request",
-                value: "Unknown",
-                tone: "neutral",
-                hint: "GitHub context arrives in the next Phase 7 slice."
+                value: pullRequest.displayValue,
+                tone: pullRequest.status === "value" ? "info" : "neutral",
+                ...(pullRequest.reason ? { hint: pullRequest.reason } : {})
+              },
+              {
+                label: "Checks",
+                value: checks.displayValue,
+                tone: checks.status === "value" ? "info" : "neutral",
+                ...(checks.reason ? { hint: checks.reason } : {})
+              },
+              {
+                label: "Review / Merge",
+                value: review.displayValue,
+                tone: review.status === "value" ? "info" : "neutral",
+                ...(review.reason ? { hint: review.reason } : {})
               }
             ]
           },

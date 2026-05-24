@@ -21,7 +21,7 @@ describe("Run audit route", () => {
     expect(await screen.findByRole("heading", { name: "Run Audit" })).toBeInTheDocument();
     expect(screen.getByText("Claim vs Evidence")).toBeInTheDocument();
     expect(screen.getByText("Git / GitHub")).toBeInTheDocument();
-    expect(screen.getByText("Available")).toBeInTheDocument();
+    expect(screen.getAllByText("No Matching PR").length).toBeGreaterThan(0);
     expect(screen.getByText("main")).toBeInTheDocument();
     expect(screen.getByText("https://github.com/example/control-plus-zebra.git")).toBeInTheDocument();
   });

@@ -5,6 +5,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { createWorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
+import { GitHubSnapshotProvider } from "../../../src/main/core/github/github-snapshot-provider.js";
+import { Scanner } from "../../../src/main/core/ingestion/index.js";
 
 const fakeFixturePath = path.resolve(
   "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json"
@@ -47,10 +49,33 @@ export async function createTempRuntime(tempDirs: string[]) {
   const appDataDir = await mkdtemp(path.join(os.tmpdir(), "awb-triage-service-"));
 
   tempDirs.push(appDataDir);
-  return createWorkbenchRuntime({
+  const runtime = createWorkbenchRuntime({
     appDataDir,
     projectDir: process.cwd()
   });
+  const githubSnapshotProvider = new GitHubSnapshotProvider({
+    runner: {
+      async run() {
+        const error = new Error(
+          "no pull requests found for branch \"main\""
+        ) as NodeJS.ErrnoException & { stderr: string };
+        error.stderr = "no pull requests found for branch \"main\"";
+        throw error;
+      }
+    }
+  });
+
+  runtime.scanner = new Scanner({
+    adapterRegistry: runtime.adapterRegistry,
+    cacheStore: runtime.cacheStore,
+    githubSnapshotProvider,
+    projectDir: process.cwd(),
+    rawArtifactIndex: runtime.rawArtifactIndex,
+    sourceRegistry: runtime.sourceRegistry,
+    watchOrchestrator: runtime.watchOrchestrator
+  });
+
+  return runtime;
 }
 
 export async function cleanupTempDirs(tempDirs: string[]) {

@@ -100,6 +100,7 @@ export function ProjectsRoute() {
                         <TruthStateBadge state={project.latestRunAudit} />
                         <TruthStateBadge state={project.latestVerification} />
                         <TruthStateBadge state={project.gitStatus} />
+                        <TruthStateBadge state={project.githubStatus} />
                         <span className="metric-pill">Branch {project.branch.displayValue}</span>
                         <span className="metric-pill">Dirty {project.dirtyState.label}</span>
                         <span className="metric-pill">PR {project.pullRequest.displayValue}</span>
@@ -119,6 +120,7 @@ export function ProjectsRoute() {
                       </div>
                       <div className="state-row">
                         <TruthStateBadge state={selectedProject.gitStatus} />
+                        <TruthStateBadge state={selectedProject.githubStatus} />
                         <TruthStateBadge state={selectedProject.dirtyState} />
                       </div>
                     </div>
@@ -163,6 +165,14 @@ export function ProjectsRoute() {
                       <div>
                         <dt>Pull Request</dt>
                         <dd>{selectedProject.pullRequest.displayValue}</dd>
+                      </div>
+                      <div>
+                        <dt>Checks</dt>
+                        <dd>{selectedProject.checks.displayValue}</dd>
+                      </div>
+                      <div>
+                        <dt>Review / Merge</dt>
+                        <dd>{selectedProject.reviewStatus.displayValue}</dd>
                       </div>
                     </dl>
                   </>

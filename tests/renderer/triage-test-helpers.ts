@@ -102,6 +102,7 @@ export interface ProjectFixture {
   latestVerification: TruthStateFixture;
   latestRunAudit: TruthStateFixture;
   gitStatus: TruthStateFixture;
+  githubStatus: TruthStateFixture;
   branch: { status: string; displayValue: string };
   head: { status: string; displayValue: string };
   dirtyState: TruthStateFixture;
@@ -111,6 +112,8 @@ export interface ProjectFixture {
   deletions: { status: string; displayValue: string };
   remoteUrl: { status: string; displayValue: string; reason?: string };
   pullRequest: { status: string; displayValue: string };
+  checks: { status: string; displayValue: string };
+  reviewStatus: { status: string; displayValue: string };
 }
 
 export interface DiagnosticsFixture {
@@ -258,7 +261,10 @@ export function buildRunAudit(overrides: Partial<RunAuditFixture> = {}) {
             value: "https://github.com/example/control-plus-zebra.git",
             tone: "info" as const
           },
-          { label: "Pull Request", value: "Unknown", tone: "neutral" as const }
+          { label: "GitHub Snapshot", value: "No Matching PR", tone: "neutral" as const },
+          { label: "Pull Request", value: "No Matching PR", tone: "neutral" as const },
+          { label: "Checks", value: "No Matching PR", tone: "neutral" as const },
+          { label: "Review / Merge", value: "No Matching PR", tone: "neutral" as const }
         ]
       }
     ],
@@ -306,6 +312,7 @@ export function buildProject(overrides: Partial<ProjectFixture> = {}) {
     latestVerification: { label: "Passed", tone: "positive" as const },
     latestRunAudit: { label: "Needs Review", tone: "warning" as const },
     gitStatus: { label: "Available", tone: "info" as const },
+    githubStatus: { label: "No Matching PR", tone: "neutral" as const },
     branch: { status: "value" as const, displayValue: "main" },
     head: { status: "value" as const, displayValue: "abc12345" },
     dirtyState: { label: "Dirty", tone: "warning" as const },
@@ -317,7 +324,9 @@ export function buildProject(overrides: Partial<ProjectFixture> = {}) {
       status: "value" as const,
       displayValue: "https://github.com/example/control-plus-zebra.git"
     },
-    pullRequest: { status: "unknown" as const, displayValue: "Unknown" },
+    pullRequest: { status: "value" as const, displayValue: "No Matching PR" },
+    checks: { status: "value" as const, displayValue: "No Matching PR" },
+    reviewStatus: { status: "value" as const, displayValue: "No Matching PR" },
     ...overrides
   };
 }
