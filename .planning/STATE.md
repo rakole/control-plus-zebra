@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 ## Current Position
 
 Phase: 7 of 8 (Git, GitHub, Export, and Import)
-Plan: Phase 6 complete; Phase 7 ready for planning
+Plan: Phase 7 context captured; ready for planning
 Status: active
-Last activity: 2026-05-24 - Completed Phase 6 with Overview, Projects, Sessions, Session Detail, Run Audit, Diagnostics, and cross-route truth-state regressions
+Last activity: 2026-05-24 - Captured Phase 7 context for shared read-only git, optional GitHub snapshots, and archive export/import over the Phase 6 triage surfaces
 
 Progress: [███████---] 75%
 
@@ -121,10 +121,14 @@ Recent decisions affecting current work:
 - Phase 6 execution: Overview, Projects, Sessions, Session Detail, Run Audit, and Diagnostics now ship as real routes backed by dedicated main-owned view-model services and typed preload methods.
 - Phase 6 execution: Shared truth-state badges and capability-warning panels keep Unknown and Unsupported evidence explicit across every triage surface.
 - Phase 6 execution: The broader node IPC, renderer, boundary, typecheck, and lint suite passed together before closing the phase.
+- Phase 7 context: Shared git inspection runs only after the shared provider validates a repository root; observed roots may be candidates, but inferred and unknown roots never trigger git commands.
+- Phase 7 context: GitHub snapshots stay optional, read-only, and project-scoped, capturing PR, check, and review or merge summary only after validated git context exists.
+- Phase 7 context: Archive export defaults to normalized data plus diagnostics, with raw artifacts opt-in and warned as sensitive when included.
+- Phase 7 context: Imported archives register as persistent read-only `archive-reader` sources with explicit archive metadata and no live validate, scan, git, or GitHub operations.
 
 ### Pending Todos
 
-- Plan Phase 7 for read-only git, GitHub, export, and import support over the newly completed triage surfaces.
+- Plan Phase 7 against the captured read-only git, GitHub, export, and import context.
 - Preserve Phase 6 truth-state guarantees while adding repo and GitHub context in Phase 7.
 
 ### Blockers/Concerns
@@ -144,6 +148,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-24T03:12:00Z
-Stopped at: Phase 6 complete
-Resume file: .planning/ROADMAP.md
+Last session: 2026-05-24T06:05:49Z
+Stopped at: Phase 7 context gathered
+Resume file: .planning/phases/07-git-github-export-and-import/07-CONTEXT.md
