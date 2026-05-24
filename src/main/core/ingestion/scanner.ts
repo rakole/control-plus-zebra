@@ -343,89 +343,96 @@ export class Scanner {
           artifacts: indexEntries
         });
         const now = new Date().toISOString();
-
-      const derivedSessions = shellDerivation.sessions.map((sessionDerivation) => {
-        const session = normalizedWithDerivedDiagnostics.sessions.find(
-          (candidate) => candidate.id === sessionDerivation.sessionId
+        const projectGitSnapshotsByProjectId = new Map(
+          projectGitDerivation.projects.map((project) => [project.projectId, project.git] as const)
         );
 
-        if (!session) {
-          throw new Error(`Expected derived shell session '${sessionDerivation.sessionId}' to exist.`);
-        }
+        const derivedSessions = shellDerivation.sessions.map((sessionDerivation) => {
+          const session = normalizedWithDerivedDiagnostics.sessions.find(
+            (candidate) => candidate.id === sessionDerivation.sessionId
+          );
 
-        const sessionCapabilities = normalizedWithDerivedDiagnostics.capabilities.sessions.find(
-          (candidate) => candidate.sessionId === session.id
-        );
+          if (!session) {
+            throw new Error(`Expected derived shell session '${sessionDerivation.sessionId}' to exist.`);
+          }
 
-        const sessionEvents = normalizedWithDerivedDiagnostics.events.filter(
-          (event) => event.sessionId === session.id
-        );
-        const sessionMessages = normalizedWithDerivedDiagnostics.messages.filter(
-          (message) => message.sessionId === session.id
-        );
-        const sessionToolCalls = normalizedWithDerivedDiagnostics.toolCalls.filter(
-          (toolCall) => toolCall.sessionId === session.id
-        );
-        const sessionDiagnostics = getSessionDiagnostics(
-          normalizedWithDerivedDiagnostics.diagnostics,
-          session,
-          sessionDerivation
-        );
-        const verification = deriveVerificationForSession({
-          adapterCapabilities: normalizedWithDerivedDiagnostics.capabilities.adapter,
-          parsedShellCommands: sessionDerivation.shellCommands,
-          session,
-          sessionMessages,
-          ...(sessionCapabilities ? { sessionCapabilities } : {}),
-          sourceCapabilities: normalizedWithDerivedDiagnostics.capabilities.source
-        });
+          const sessionCapabilities = normalizedWithDerivedDiagnostics.capabilities.sessions.find(
+            (candidate) => candidate.sessionId === session.id
+          );
 
-        return {
-          ...sessionDerivation,
-          verification,
-          audit: deriveRunAuditForSession({
+          const sessionEvents = normalizedWithDerivedDiagnostics.events.filter(
+            (event) => event.sessionId === session.id
+          );
+          const sessionMessages = normalizedWithDerivedDiagnostics.messages.filter(
+            (message) => message.sessionId === session.id
+          );
+          const sessionToolCalls = normalizedWithDerivedDiagnostics.toolCalls.filter(
+            (toolCall) => toolCall.sessionId === session.id
+          );
+          const sessionDiagnostics = getSessionDiagnostics(
+            normalizedWithDerivedDiagnostics.diagnostics,
+            session,
+            sessionDerivation
+          );
+          const verification = deriveVerificationForSession({
             adapterCapabilities: normalizedWithDerivedDiagnostics.capabilities.adapter,
-            diagnostics: sessionDiagnostics,
             parsedShellCommands: sessionDerivation.shellCommands,
             session,
-            sessionEvents,
-            sessionFileMutations: normalizedWithDerivedDiagnostics.fileMutations.filter(
-              (fileMutation) => fileMutation.sessionId === session.id
-            ),
             sessionMessages,
-            sessionToolCalls,
-            verification,
             ...(sessionCapabilities ? { sessionCapabilities } : {}),
             sourceCapabilities: normalizedWithDerivedDiagnostics.capabilities.source
-          })
+          });
+          const projectGitSnapshot = session.projectId
+            ? projectGitSnapshotsByProjectId.get(session.projectId)
+            : undefined;
+
+          return {
+            ...sessionDerivation,
+            verification,
+            audit: deriveRunAuditForSession({
+              adapterCapabilities: normalizedWithDerivedDiagnostics.capabilities.adapter,
+              diagnostics: sessionDiagnostics,
+              parsedShellCommands: sessionDerivation.shellCommands,
+              ...(projectGitSnapshot ? { projectGitSnapshot } : {}),
+              session,
+              sessionEvents,
+              sessionFileMutations: normalizedWithDerivedDiagnostics.fileMutations.filter(
+                (fileMutation) => fileMutation.sessionId === session.id
+              ),
+              sessionMessages,
+              sessionToolCalls,
+              verification,
+              ...(sessionCapabilities ? { sessionCapabilities } : {}),
+              sourceCapabilities: normalizedWithDerivedDiagnostics.capabilities.source
+            })
+          };
+        });
+
+        const projectSnapshots = projectGitDerivation.projects.map((projectGitSnapshot) => {
+          const githubSnapshot = projectGitHubDerivation.projectsByProjectId.get(
+            projectGitSnapshot.projectId
+          );
+
+          return {
+            ...projectGitSnapshot,
+            ...(githubSnapshot ? { github: githubSnapshot } : {})
+          };
+        });
+
+        const nextCacheRecord: NormalizedCacheRecord = {
+          cacheKey,
+          adapterId: normalizedWithDerivedDiagnostics.adapterId,
+          sourceId: normalizedWithDerivedDiagnostics.sourceId,
+          artifactFingerprint,
+          createdAt: now,
+          updatedAt: now,
+          normalized: normalizedWithDerivedDiagnostics,
+          derived: {
+            sessions: derivedSessions,
+            projects: projectSnapshots
+          }
         };
-      });
-
-      const projectSnapshots = projectGitDerivation.projects.map((projectGitSnapshot) => {
-        const githubSnapshot = projectGitHubDerivation.projectsByProjectId.get(
-          projectGitSnapshot.projectId
-        );
-
-        return {
-          ...projectGitSnapshot,
-          ...(githubSnapshot ? { github: githubSnapshot } : {})
-        };
-      });
-
-      const nextCacheRecord: NormalizedCacheRecord = {
-        cacheKey,
-        adapterId: normalizedWithDerivedDiagnostics.adapterId,
-        sourceId: normalizedWithDerivedDiagnostics.sourceId,
-        artifactFingerprint,
-        createdAt: now,
-        updatedAt: now,
-        normalized: normalizedWithDerivedDiagnostics,
-        derived: {
-          sessions: derivedSessions,
-          projects: projectSnapshots
-        }
-      };
-      cacheRecord = nextCacheRecord;
+        cacheRecord = nextCacheRecord;
 
         await this.#cacheStore.writeRecord(nextCacheRecord);
         normalizedResults.push(normalizedWithDerivedDiagnostics);

@@ -7,7 +7,12 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
 import { FileBackedCacheStore } from "../../../src/main/core/cache/index.js";
+import {
+  GitSnapshotProvider,
+  type ProjectGitSnapshotResult
+} from "../../../src/main/core/git/git-snapshot-provider.js";
 import { RawArtifactIndex, Scanner } from "../../../src/main/core/ingestion/index.js";
+import type { Project } from "../../../src/main/core/model/entities.js";
 import {
   createBundledAdapterRegistry,
   FileBackedSourceRegistryStore,
@@ -36,9 +41,26 @@ class FailingCacheStore extends FileBackedCacheStore {
   }
 }
 
-async function createScannerHarness(fakeFixturePath = sourceFixturePath) {
+class StubGitSnapshotProvider extends GitSnapshotProvider {
+  readonly #result: ProjectGitSnapshotResult;
+
+  constructor(result: ProjectGitSnapshotResult) {
+    super();
+    this.#result = result;
+  }
+
+  async collect(_project: Project): Promise<ProjectGitSnapshotResult> {
+    return this.#result;
+  }
+}
+
+async function createScannerHarness(options: {
+  fakeFixturePath?: string;
+  gitSnapshotProvider?: GitSnapshotProvider;
+} = {}) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-scanner-"));
   const fixturePath = path.join(tempDir, "fixture.json");
+  const fakeFixturePath = options.fakeFixturePath ?? sourceFixturePath;
 
   await copyFile(fakeFixturePath, fixturePath);
 
@@ -51,6 +73,7 @@ async function createScannerHarness(fakeFixturePath = sourceFixturePath) {
   const scanner = new Scanner({
     adapterRegistry: createBundledAdapterRegistry(),
     cacheStore,
+    ...(options.gitSnapshotProvider ? { gitSnapshotProvider: options.gitSnapshotProvider } : {}),
     projectDir: process.cwd(),
     rawArtifactIndex,
     sourceRegistry,
@@ -134,26 +157,31 @@ describe("Scanner cache integration", () => {
       expect.arrayContaining([
         expect.objectContaining({
           intent: "typecheck",
-          result: "passed",
+          result: "unknown",
           rawToolStatus: "succeeded"
         })
         ])
     );
     expect(
-      geminiRecords.flatMap((record) => record.derived?.sessions ?? []).map((session) => session.verification?.status)
-    ).toContain("passed");
+      geminiRecords
+        .flatMap((record) => record.derived?.sessions ?? [])
+        .map((session) => session.verification?.status)
+    ).toEqual(expect.arrayContaining(["failed", "unknown"]));
     expect(
       geminiRecords.flatMap((record) => record.derived?.sessions ?? []).map((session) => session.audit?.status)
     ).toEqual(expect.arrayContaining(["active", "cancelled", "needs-review"]));
-    expect(
-      geminiRecords
-        .flatMap((record) => record.derived?.sessions ?? [])
-        .some(
-          (session) =>
-            session.audit?.status === "cancelled" &&
-            session.audit.attentionReasons.includes("failed-verification")
+    const failedVerificationSession = geminiRecords
+      .flatMap((record) => record.derived?.sessions ?? [])
+      .find((session) =>
+        session.shellCommands.some(
+          (shellCommand) =>
+            shellCommand.command === "npm run test -- tests/main/core/run-audit-engine.test.ts" &&
+            shellCommand.result === "failed" &&
+            shellCommand.rawToolStatus === "succeeded"
         )
-    ).toBe(true);
+      );
+    expect(failedVerificationSession?.verification?.status).toBe("failed");
+    expect(failedVerificationSession?.audit?.attentionReasons).toContain("failed-verification");
     expect(
       geminiRecords
         .flatMap((record) => record.derived?.sessions ?? [])
@@ -215,7 +243,9 @@ describe("Scanner cache integration", () => {
   });
 
   it("fails verification when a fake fixture reports successful tool status with a nonzero shell exit code", async () => {
-    const { cacheStore, scanner, sourceRegistry } = await createScannerHarness(exitPrecedenceFixturePath);
+    const { cacheStore, scanner, sourceRegistry } = await createScannerHarness({
+      fakeFixturePath: exitPrecedenceFixturePath
+    });
     const source = await sourceRegistry.createSource({
       adapterId: "fake-test",
       rootPath: exitPrecedenceFixturePath
@@ -237,7 +267,9 @@ describe("Scanner cache integration", () => {
   });
 
   it("keeps the latest verification result per intent when a fake rerun succeeds", async () => {
-    const { cacheStore, scanner, sourceRegistry } = await createScannerHarness(verificationRerunFixturePath);
+    const { cacheStore, scanner, sourceRegistry } = await createScannerHarness({
+      fakeFixturePath: verificationRerunFixturePath
+    });
     const source = await sourceRegistry.createSource({
       adapterId: "fake-test",
       rootPath: verificationRerunFixturePath
@@ -255,11 +287,49 @@ describe("Scanner cache integration", () => {
     expect(testIntentResult?.commandIds).toHaveLength(2);
   });
 
-  it("persists project-scoped git snapshots when a scanned project root validates as a repository", async () => {
+  it("uses shared git snapshots in run audit even when adapter git capture is unsupported", async () => {
+    const { cacheStore, scanner, sourceRegistry } = await createScannerHarness({
+      fakeFixturePath: verificationRerunFixturePath,
+      gitSnapshotProvider: new StubGitSnapshotProvider({
+        diagnostics: [],
+        git: {
+          status: "available",
+          rootConfidence: "confirmed",
+          candidateRootPath: "/tmp/fixture-repo",
+          validatedRootPath: "/tmp/fixture-repo",
+          diagnosticIds: [],
+          snapshot: {
+            additions: 0,
+            branch: "main",
+            changedFiles: 0,
+            deletions: 0,
+            dirty: false,
+            headSha: "abc123",
+            untrackedFiles: 0
+          }
+        }
+      })
+    });
+    const source = await sourceRegistry.createSource({
+      adapterId: "fake-test",
+      rootPath: verificationRerunFixturePath
+    });
+    const validated = await scanner.validateSource(source.sourceId);
+
+    await scanner.scanSource(validated.source.sourceId);
+
+    const cachedRecord = await cacheStore.getLatestSourceRecord(validated.source.sourceId);
+    const audit = cachedRecord?.derived?.sessions[0]?.audit;
+
+    expect(audit?.status).toBe("clean");
+    expect(audit?.attentionReasons).not.toContain("capability-missing");
+  });
+
+  it("persists project-scoped git snapshots and marks otherwise complete dirty claimed runs for review", async () => {
     const { cacheStore, scanner, sourceRegistry, tempDir } = await createScannerHarness();
     const fixturePath = path.join(tempDir, "git-backed.fixture.json");
     const gitRepoRoot = await createGitFixtureRepo(tempDir);
-    await rewriteFixtureProjectRoot(sourceFixturePath, fixturePath, gitRepoRoot);
+    await rewriteFixtureProjectRoot(verificationRerunFixturePath, fixturePath, gitRepoRoot);
 
     const source = await sourceRegistry.createSource({
       adapterId: "fake-test",
@@ -271,6 +341,7 @@ describe("Scanner cache integration", () => {
 
     const cachedRecord = await cacheStore.getLatestSourceRecord(validated.source.sourceId);
     const projectSnapshot = cachedRecord?.derived?.projects?.[0]?.git;
+    const audit = cachedRecord?.derived?.sessions[0]?.audit;
 
     expect(projectSnapshot).toEqual(
       expect.objectContaining({
@@ -282,10 +353,16 @@ describe("Scanner cache integration", () => {
         })
       })
     );
+    expect(audit?.status).toBe("needs-review");
+    expect(audit?.attentionReasons).toContain("dirty-after-claim");
+    expect(audit?.attentionReasons).not.toContain("pending-tool-calls");
+    expect(audit?.attentionReasons).not.toContain("post-claim-activity");
   });
 
   it("marks fake runs incomplete when claimed completion is followed by pending tool work", async () => {
-    const { cacheStore, scanner, sourceRegistry } = await createScannerHarness(incompleteRunFixturePath);
+    const { cacheStore, scanner, sourceRegistry } = await createScannerHarness({
+      fakeFixturePath: incompleteRunFixturePath
+    });
     const source = await sourceRegistry.createSource({
       adapterId: "fake-test",
       rootPath: incompleteRunFixturePath

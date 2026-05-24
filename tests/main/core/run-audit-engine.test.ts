@@ -9,6 +9,7 @@ import type {
   SessionMessage,
   ToolCall
 } from "../../../src/main/core/model/entities.js";
+import type { ProjectGitSnapshot } from "../../../src/main/core/git/git-snapshot-provider.js";
 import type { ParsedShellCommand } from "../../../src/main/core/shell/types.js";
 import { deriveRunAuditForSession } from "../../../src/main/core/audit/run-audit-engine.js";
 import type { VerificationResult } from "../../../src/main/core/verification/types.js";
@@ -136,12 +137,49 @@ function createDiagnostic(overrides: Partial<Diagnostic> = {}): Diagnostic {
   };
 }
 
+function createProjectGitSnapshot(
+  status: ProjectGitSnapshot["status"] = "available",
+  overrides: Partial<ProjectGitSnapshot> = {}
+): ProjectGitSnapshot {
+  if (status === "available") {
+    return {
+      status,
+      rootConfidence: "confirmed",
+      candidateRootPath: "/tmp/control-plus-zebra",
+      validatedRootPath: "/tmp/control-plus-zebra",
+      diagnosticIds: [],
+      snapshot: {
+        additions: 0,
+        branch: "main",
+        changedFiles: 0,
+        deletions: 0,
+        dirty: false,
+        headSha: "abc123",
+        untrackedFiles: 0
+      },
+      ...overrides
+    };
+  }
+
+  return {
+    status,
+    rootConfidence: "unknown",
+    diagnosticIds: [],
+    reason:
+      status === "unsupported"
+        ? "Shared read-only git is unavailable."
+        : "Shared git snapshot could not be collected for this project.",
+    ...overrides
+  };
+}
+
 describe("run audit engine", () => {
   it("applies the documented status precedence order", () => {
     const baseArgs = {
       adapterCapabilities: createCapabilities("supported"),
       diagnostics: [] as Diagnostic[],
       parsedShellCommands: [createShellCommand()],
+      projectGitSnapshot: createProjectGitSnapshot(),
       sessionMessages: [createMessage()],
       sessionToolCalls: [createToolCall()],
       sourceCapabilities: createCapabilities("supported")
@@ -218,6 +256,7 @@ describe("run audit engine", () => {
       adapterCapabilities: createCapabilities("supported"),
       diagnostics: [],
       parsedShellCommands: [createShellCommand()],
+      projectGitSnapshot: createProjectGitSnapshot(),
       session: createSession({ lifecycleState: "cancelled" }),
       sessionEvents: [],
       sessionFileMutations: [],
@@ -235,6 +274,7 @@ describe("run audit engine", () => {
       adapterCapabilities: createCapabilities("supported"),
       diagnostics: [],
       parsedShellCommands: [createShellCommand()],
+      projectGitSnapshot: createProjectGitSnapshot(),
       session: createSession(),
       sessionEvents: [
         createEvent({ id: "message-event-01", messageId: "message-01", eventKind: "message", ordinal: 2 }),
@@ -257,6 +297,7 @@ describe("run audit engine", () => {
       adapterCapabilities: createCapabilities("unsupported"),
       diagnostics: [createDiagnostic()],
       parsedShellCommands: [createShellCommand()],
+      projectGitSnapshot: createProjectGitSnapshot("unknown"),
       session: createSession(),
       sessionEvents: [createEvent({ id: "message-event-01", messageId: "message-01" })],
       sessionFileMutations: [],
@@ -271,11 +312,59 @@ describe("run audit engine", () => {
     );
   });
 
-  it("blocks clean when git capability is unsupported and keeps current session previews headless", () => {
+  it("keeps clean runs clean when shared git evidence is available even if adapter git capture is unsupported", () => {
     const result = deriveRunAuditForSession({
       adapterCapabilities: createCapabilities("unsupported"),
       diagnostics: [],
       parsedShellCommands: [createShellCommand()],
+      projectGitSnapshot: createProjectGitSnapshot(),
+      session: createSession(),
+      sessionEvents: [createEvent({ id: "message-event-01", messageId: "message-01" })],
+      sessionFileMutations: [],
+      sessionMessages: [createMessage()],
+      sessionToolCalls: [],
+      verification: createVerification("passed")
+    });
+
+    expect(result.status).toBe("clean");
+    expect(result.attentionReasons).not.toContain("capability-missing");
+  });
+
+  it("marks claimed-complete runs for review when shared git evidence shows dirty or untracked state", () => {
+    const result = deriveRunAuditForSession({
+      adapterCapabilities: createCapabilities("unsupported"),
+      diagnostics: [],
+      parsedShellCommands: [createShellCommand()],
+      projectGitSnapshot: createProjectGitSnapshot("available", {
+        snapshot: {
+          additions: 4,
+          branch: "main",
+          changedFiles: 2,
+          deletions: 1,
+          dirty: true,
+          headSha: "def456",
+          untrackedFiles: 1
+        }
+      }),
+      session: createSession(),
+      sessionEvents: [createEvent({ id: "message-event-01", messageId: "message-01" })],
+      sessionFileMutations: [],
+      sessionMessages: [createMessage()],
+      sessionToolCalls: [],
+      verification: createVerification("passed")
+    });
+
+    expect(result.status).toBe("needs-review");
+    expect(result.attentionReasons).toContain("dirty-after-claim");
+    expect(result.attentionReasons).not.toContain("capability-missing");
+  });
+
+  it("blocks clean when a claimed completion has no shared git assessment", () => {
+    const result = deriveRunAuditForSession({
+      adapterCapabilities: createCapabilities("supported"),
+      diagnostics: [],
+      parsedShellCommands: [createShellCommand()],
+      projectGitSnapshot: createProjectGitSnapshot("unknown"),
       session: createSession(),
       sessionEvents: [createEvent({ id: "message-event-01", messageId: "message-01" })],
       sessionFileMutations: [],
