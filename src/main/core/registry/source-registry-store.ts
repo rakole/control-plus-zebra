@@ -101,6 +101,8 @@ const watchSummarySchema = z
     status: z.enum(["supported", "unsupported", "unknown"]),
     reason: z.string().min(1).optional(),
     strategy: z.string().min(1).optional(),
+    scopePaths: z.array(z.string().min(1)).optional(),
+    plannedAt: z.string().min(1).optional(),
     updatedAt: z.string().min(1).optional()
   })
   .strict();
@@ -126,10 +128,30 @@ const sourceRecordSchema = z
   })
   .strict();
 
-const sourceRegistryFileSchema = z
+const sourceRegistryFileSchemaV2 = z
+  .object({
+    version: z.literal(2),
+    records: z.array(sourceRecordSchema)
+  })
+  .strict();
+
+const watchSummarySchemaV1 = z
+  .object({
+    status: z.enum(["supported", "unsupported", "unknown"]),
+    reason: z.string().min(1).optional(),
+    strategy: z.string().min(1).optional(),
+    updatedAt: z.string().min(1).optional()
+  })
+  .strict();
+
+const sourceRecordSchemaV1 = sourceRecordSchema.extend({
+  watch: watchSummarySchemaV1
+});
+
+const sourceRegistryFileSchemaV1 = z
   .object({
     version: z.literal(1),
-    records: z.array(sourceRecordSchema)
+    records: z.array(sourceRecordSchemaV1)
   })
   .strict();
 
@@ -153,9 +175,9 @@ export class FileBackedSourceRegistryStore implements SourceRegistryStore {
   async load(): Promise<SourceRecord[]> {
     try {
       const source = await readFile(this.#filePath, "utf8");
-      const parsed = sourceRegistryFileSchema.parse(JSON.parse(source));
+      const parsed = parseSourceRegistryFile(JSON.parse(source));
 
-      return parsed.records as SourceRecord[];
+      return parsed.records;
     } catch (error) {
       if (isMissingFileError(error)) {
         return [];
@@ -167,13 +189,35 @@ export class FileBackedSourceRegistryStore implements SourceRegistryStore {
 
   async save(records: SourceRecord[]): Promise<void> {
     await mkdir(path.dirname(this.#filePath), { recursive: true });
-    const payload = sourceRegistryFileSchema.parse({
-      version: 1,
+    const payload = sourceRegistryFileSchemaV2.parse({
+      version: 2,
       records
     });
 
     await writeFile(this.#filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   }
+}
+
+function parseSourceRegistryFile(input: unknown): { records: SourceRecord[] } {
+  const parsedV2 = sourceRegistryFileSchemaV2.safeParse(input);
+
+  if (parsedV2.success) {
+    return {
+      records: parsedV2.data.records as SourceRecord[]
+    };
+  }
+
+  const parsedV1 = sourceRegistryFileSchemaV1.parse(input);
+
+  return {
+    records: parsedV1.records.map((record) => ({
+      ...record,
+      watch: {
+        ...record.watch,
+        scopePaths: []
+      }
+    })) as SourceRecord[]
+  };
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {

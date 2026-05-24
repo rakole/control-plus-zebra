@@ -16,3 +16,25 @@ export interface WatchLifecycleRecord extends WatchPlan {
   plannedAt: string;
 }
 
+export type WatchEventOrigin = Extract<WatchStrategy, "native" | "poll">;
+
+export interface WatchRuntimeEvent {
+  adapterId: AdapterId;
+  sourceId: SourceId;
+  origin: WatchEventOrigin;
+  observedAt: string;
+  scopePath?: string;
+  reason?: string;
+}
+
+export interface SourceCacheStaleEvent extends WatchRuntimeEvent {
+  type: "source-cache-stale";
+  watchPlan: WatchLifecycleRecord;
+}
+
+export interface SourceUpdateSignalEvent extends WatchRuntimeEvent {
+  type: "source-update-signaled";
+  watchPlan: WatchLifecycleRecord;
+}
+
+export type RoutedWatchEvent = SourceCacheStaleEvent | SourceUpdateSignalEvent;

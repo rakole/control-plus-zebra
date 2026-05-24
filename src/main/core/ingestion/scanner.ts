@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { SessionSourceAdapter } from "../adapter-contract/session-source-adapter.js";
 import type {
+  AdapterCapabilitySnapshots,
   AdapterContext,
   DiscoveredHarnessSource,
   RawArtifactRef,
@@ -15,7 +16,12 @@ import { createSourceId } from "../model/identifiers.js";
 import type { Diagnostic } from "../diagnostics/diagnostic.js";
 import { createSafeFilesystem, type SafeFilesystem } from "../security/safe-filesystem.js";
 import type { RawArtifactIndex } from "./raw-artifact-index.js";
-import { createRawArtifactIndexEntries, fingerprintEntries, RAW_ARTIFACT_SCHEMA_VERSION } from "./raw-artifact-index.js";
+import {
+  createRawArtifactIndexEntries,
+  fingerprintEntries,
+  type RawArtifactIndexComparison,
+  RAW_ARTIFACT_SCHEMA_VERSION
+} from "./raw-artifact-index.js";
 import { validateNormalizedResult, NORMALIZATION_SCHEMA_VERSION } from "./normalization-validator.js";
 import { mergeNormalizedResults } from "./session-merger.js";
 import type { AdapterRegistry } from "../registry/adapter-registry.js";
@@ -165,7 +171,10 @@ export class Scanner {
       return source;
     }
 
-    const staleReason = "Source contents changed since the last cached scan.";
+    const staleReason = buildChangedArtifactStaleReason(
+      change.comparison,
+      adapter.descriptor.capabilities.live.incrementalParsing
+    );
 
     await this.#sourceRegistry.saveCacheSummary(source.sourceId, {
       status: "stale",
@@ -246,6 +255,19 @@ export class Scanner {
       let totalArtifacts = 0;
       let totalSessions = 0;
       let cacheRecord: NormalizedCacheRecord | undefined;
+      const rawArtifactRefs = new Map<string, RawArtifactRef>();
+      const shellSessions = new Map<string, NonNullable<NormalizedCacheRecord["shellCommands"]>["sessions"][number]>();
+      const verificationResults = new Map<
+        string,
+        NonNullable<NormalizedCacheRecord["verificationResults"]>["sessions"][number]
+      >();
+      const runAudits = new Map<string, NonNullable<NormalizedCacheRecord["runAudits"]>["sessions"][number]>();
+      const gitSnapshots = new Map<string, NonNullable<NormalizedCacheRecord["gitSnapshots"]>["projects"][number]>();
+      const githubSnapshots = new Map<
+        string,
+        NonNullable<NormalizedCacheRecord["githubSnapshots"]>["projects"][number]
+      >();
+      let capabilitySnapshots: AdapterCapabilitySnapshots | undefined;
 
       for (const discoveredSource of discoveredSources) {
         const discoveryContext = this.createContext({
@@ -296,7 +318,9 @@ export class Scanner {
         await this.#sourceRegistry.saveWatchSummary(source.sourceId, {
           status: watchRecord.status,
           ...(watchRecord.reason ? { reason: watchRecord.reason } : {}),
-          strategy: watchRecord.strategy
+          strategy: watchRecord.strategy,
+          scopePaths: watchRecord.scopePaths,
+          plannedAt: watchRecord.plannedAt
         });
 
         const shellDerivation = await deriveShellSessions({
@@ -328,28 +352,6 @@ export class Scanner {
             ...projectGitHubDerivation.diagnostics
           ])
         };
-        const indexDiagnosticsHash = createDiagnosticsHash(normalizedWithDerivedDiagnostics.diagnostics);
-        const indexEntries = createRawArtifactIndexEntries({
-          adapterVersion: adapter.descriptor.adapterVersion,
-          artifacts: artifactsWithMetadata,
-          diagnosticsHash: indexDiagnosticsHash,
-          parserVersion: adapter.descriptor.parserVersion ?? adapter.descriptor.adapterVersion,
-          schemaVersion: RAW_ARTIFACT_SCHEMA_VERSION
-        });
-
-        await this.#rawArtifactIndex.replaceSourceEntries(source.sourceId, indexEntries);
-
-        const artifactFingerprint = fingerprintEntries(indexEntries);
-        const cacheKey = createCacheKey({
-          adapterId: normalized.adapterId,
-          sourceId: normalized.sourceId,
-          adapterVersion: adapter.descriptor.adapterVersion,
-          parserVersion: adapter.descriptor.parserVersion ?? adapter.descriptor.adapterVersion,
-          schemaVersion: NORMALIZATION_SCHEMA_VERSION,
-          diagnosticsHash: indexDiagnosticsHash,
-          artifacts: indexEntries
-        });
-        const now = new Date().toISOString();
         const projectGitSnapshotsByProjectId = new Map(
           projectGitDerivation.projects.map((project) => [project.projectId, project.git] as const)
         );
@@ -425,29 +427,133 @@ export class Scanner {
             ...(githubSnapshot ? { github: githubSnapshot } : {})
           };
         });
-
-        const nextCacheRecord: NormalizedCacheRecord = {
-          cacheKey,
-          adapterId: normalizedWithDerivedDiagnostics.adapterId,
-          sourceId: normalizedWithDerivedDiagnostics.sourceId,
-          artifactFingerprint,
-          createdAt: now,
-          updatedAt: now,
-          normalized: normalizedWithDerivedDiagnostics,
-          derived: {
-            sessions: derivedSessions,
-            projects: projectSnapshots
-          }
-        };
-        cacheRecord = nextCacheRecord;
-
-        await this.#cacheStore.writeRecord(nextCacheRecord);
         normalizedResults.push(normalizedWithDerivedDiagnostics);
         scanDiagnostics = [...scanDiagnostics, ...normalizedWithDerivedDiagnostics.diagnostics];
         totalSessions += normalizedWithDerivedDiagnostics.sessions.length;
+        capabilitySnapshots = mergeCapabilitySnapshots(
+          capabilitySnapshots,
+          normalizedWithDerivedDiagnostics.capabilities
+        );
+
+        for (const artifact of artifactsWithMetadata) {
+          rawArtifactRefs.set(artifact.id, artifact);
+        }
+
+        for (const session of derivedSessions) {
+          shellSessions.set(session.sessionId, {
+            sessionId: session.sessionId,
+            shellCommands: session.shellCommands
+          });
+
+          if (session.verification) {
+            verificationResults.set(session.sessionId, {
+              sessionId: session.sessionId,
+              verification: session.verification
+            });
+          }
+
+          if (session.audit) {
+            runAudits.set(session.sessionId, {
+              sessionId: session.sessionId,
+              audit: session.audit
+            });
+          }
+        }
+
+        for (const projectSnapshot of projectSnapshots) {
+          gitSnapshots.set(projectSnapshot.projectId, {
+            projectId: projectSnapshot.projectId,
+            git: projectSnapshot.git
+          });
+
+          if (projectSnapshot.github) {
+            githubSnapshots.set(projectSnapshot.projectId, {
+              projectId: projectSnapshot.projectId,
+              github: projectSnapshot.github
+            });
+          }
+        }
       }
 
       const merged = mergeNormalizedResults(normalizedResults);
+      const rawArtifactEntries =
+        merged && rawArtifactRefs.size > 0
+          ? createRawArtifactIndexEntries({
+              adapterVersion: adapter.descriptor.adapterVersion,
+              artifacts: [...rawArtifactRefs.values()],
+              diagnosticsHash: createDiagnosticsHash(merged.diagnostics),
+              parserVersion: adapter.descriptor.parserVersion ?? adapter.descriptor.adapterVersion,
+              schemaVersion: RAW_ARTIFACT_SCHEMA_VERSION
+            })
+          : [];
+      const changedArtifactFallbackReason =
+        rawArtifactEntries.length > 0
+          ? await getChangedArtifactFallbackReasonForSource({
+              adapter,
+              rawArtifactEntries,
+              rawArtifactIndex: this.#rawArtifactIndex,
+              sourceId: source.sourceId
+            })
+          : undefined;
+
+      if (merged) {
+        await this.#rawArtifactIndex.replaceSourceEntries(source.sourceId, rawArtifactEntries);
+      }
+
+      if (merged) {
+        const now = new Date().toISOString();
+        const artifactFingerprint = fingerprintEntries(rawArtifactEntries);
+        const cacheKey = createCacheKey({
+          adapterId: merged.adapterId,
+          sourceId: merged.sourceId,
+          adapterVersion: adapter.descriptor.adapterVersion,
+          parserVersion: adapter.descriptor.parserVersion ?? adapter.descriptor.adapterVersion,
+          schemaVersion: NORMALIZATION_SCHEMA_VERSION,
+          diagnosticsHash: createDiagnosticsHash(merged.diagnostics),
+          artifacts: rawArtifactEntries
+        });
+        const derivedSessions = buildDerivedSessionsCompatibility(shellSessions, verificationResults, runAudits);
+        const derivedProjects = buildDerivedProjectsCompatibility(gitSnapshots, githubSnapshots);
+
+        cacheRecord = {
+          cacheKey,
+          adapterId: merged.adapterId,
+          sourceId: merged.sourceId,
+          artifactFingerprint,
+          createdAt: now,
+          updatedAt: now,
+          normalized: merged,
+          shellCommands: {
+            sessions: [...shellSessions.values()]
+          },
+          verificationResults: {
+            sessions: [...verificationResults.values()]
+          },
+          runAudits: {
+            sessions: [...runAudits.values()]
+          },
+          gitSnapshots: {
+            projects: [...gitSnapshots.values()]
+          },
+          githubSnapshots: {
+            projects: [...githubSnapshots.values()]
+          },
+          diagnostics: {
+            entries: merged.diagnostics
+          },
+          rawArtifactIndex: {
+            entries: rawArtifactEntries
+          },
+          capabilitySnapshots: capabilitySnapshots ?? merged.capabilities,
+          derived: {
+            sessions: derivedSessions,
+            ...(derivedProjects.length > 0 ? { projects: derivedProjects } : {})
+          }
+        };
+
+        await this.#cacheStore.writeRecord(cacheRecord);
+      }
+
       const nextScanStatus =
         normalizedResults.length === 0
           ? "scan-failed"
@@ -463,13 +569,15 @@ export class Scanner {
         status: nextScanStatus,
         diagnostics: scanDiagnostics,
         artifactCount: totalArtifacts,
-        sessionCount: totalSessions
+        sessionCount: totalSessions,
+        ...(changedArtifactFallbackReason ? { reason: changedArtifactFallbackReason } : {})
       });
 
       await this.#sourceRegistry.saveCacheSummary(source.sourceId, {
         status: nextCacheStatus,
         diagnostics: scanDiagnostics,
-        ...(cacheRecord ? { cacheKey: cacheRecord.cacheKey } : {})
+        ...(cacheRecord ? { cacheKey: cacheRecord.cacheKey } : {}),
+        ...(changedArtifactFallbackReason ? { reason: changedArtifactFallbackReason } : {})
       });
 
       return {
@@ -611,6 +719,25 @@ function createDiagnosticsHash(diagnostics: Array<{ code: string; message: strin
     .join("|");
 
   return createHash("sha256").update(stable).digest("hex");
+}
+
+async function getChangedArtifactFallbackReasonForSource(args: {
+  adapter: SessionSourceAdapter;
+  rawArtifactEntries: ReturnType<typeof createRawArtifactIndexEntries>;
+  rawArtifactIndex: RawArtifactIndex;
+  sourceId: string;
+}): Promise<string | undefined> {
+  const change = await args.rawArtifactIndex.hasSourceChanged(args.sourceId, args.rawArtifactEntries);
+
+  if (!change.changed || !change.previousFingerprint) {
+    return undefined;
+  }
+
+  if (args.adapter.descriptor.capabilities.live.incrementalParsing) {
+    return undefined;
+  }
+
+  return buildChangedArtifactFallbackReason(change.comparison);
 }
 
 async function deriveShellSessions(args: {
@@ -859,4 +986,118 @@ function dedupeDiagnostics<T extends { id: string }>(diagnostics: T[]): T[] {
   }
 
   return [...seen.values()];
+}
+
+function mergeCapabilitySnapshots(
+  current: AdapterCapabilitySnapshots | undefined,
+  next: AdapterCapabilitySnapshots
+): AdapterCapabilitySnapshots {
+  if (!current) {
+    return next;
+  }
+
+  const sessions = new Map(current.sessions.map((session) => [session.sessionId, session] as const));
+
+  for (const session of next.sessions) {
+    sessions.set(session.sessionId, session);
+  }
+
+  return {
+    adapter: next.adapter,
+    source: next.source,
+    sessions: [...sessions.values()]
+  };
+}
+
+function buildDerivedSessionsCompatibility(
+  shellSessions: Map<string, NonNullable<NormalizedCacheRecord["shellCommands"]>["sessions"][number]>,
+  verificationResults: Map<
+    string,
+    NonNullable<NormalizedCacheRecord["verificationResults"]>["sessions"][number]
+  >,
+  runAudits: Map<string, NonNullable<NormalizedCacheRecord["runAudits"]>["sessions"][number]>
+): NonNullable<NormalizedCacheRecord["derived"]>["sessions"] {
+  const sessionIds = new Set([
+    ...shellSessions.keys(),
+    ...verificationResults.keys(),
+    ...runAudits.keys()
+  ]);
+
+  return [...sessionIds].map((sessionId) => {
+    const verification = verificationResults.get(sessionId)?.verification;
+    const audit = runAudits.get(sessionId)?.audit;
+
+    return {
+      sessionId,
+      shellCommands: shellSessions.get(sessionId)?.shellCommands ?? [],
+      ...(verification ? { verification } : {}),
+      ...(audit ? { audit } : {})
+    };
+  });
+}
+
+function buildDerivedProjectsCompatibility(
+  gitSnapshots: Map<string, NonNullable<NormalizedCacheRecord["gitSnapshots"]>["projects"][number]>,
+  githubSnapshots: Map<string, NonNullable<NormalizedCacheRecord["githubSnapshots"]>["projects"][number]>
+): NonNullable<NonNullable<NormalizedCacheRecord["derived"]>["projects"]> {
+  const projectIds = new Set([...gitSnapshots.keys(), ...githubSnapshots.keys()]);
+
+  return [...projectIds]
+    .map((projectId) => {
+      const gitSnapshot = gitSnapshots.get(projectId);
+
+      if (!gitSnapshot) {
+        return undefined;
+      }
+
+      const githubSnapshot = githubSnapshots.get(projectId);
+
+      return {
+        projectId,
+        git: gitSnapshot.git,
+        ...(githubSnapshot ? { github: githubSnapshot.github } : {})
+      };
+    })
+    .filter((project): project is NonNullable<NonNullable<NormalizedCacheRecord["derived"]>["projects"]>[number] =>
+      Boolean(project)
+    );
+}
+
+function buildChangedArtifactFallbackReason(comparison: RawArtifactIndexComparison): string {
+  return [
+    buildChangedArtifactSummary(comparison),
+    "Adapter incremental parsing is unsupported, so the scanner performed a full reparse."
+  ]
+    .filter((segment): segment is string => Boolean(segment))
+    .join(" ");
+}
+
+function buildChangedArtifactStaleReason(
+  comparison: RawArtifactIndexComparison,
+  incrementalParsingSupported: boolean
+): string {
+  const baseReason = buildChangedArtifactSummary(comparison);
+
+  if (incrementalParsingSupported) {
+    return `${baseReason} The source cache is now stale.`;
+  }
+
+  return `${baseReason} Adapter incremental parsing is unsupported, so the next scan will perform a full reparse.`;
+}
+
+function buildChangedArtifactSummary(comparison: RawArtifactIndexComparison): string {
+  const changedFields = [...new Set(comparison.changed.flatMap((entry) => entry.changes.map((change) => change.field)))];
+  const segments = [
+    `${comparison.added.length} added`,
+    `${comparison.removed.length} removed`,
+    `${comparison.changed.length} changed`
+  ];
+
+  return [
+    "Indexed artifacts changed since the last cached scan.",
+    `Change summary: ${segments.join(", ")}.`,
+    changedFields.length > 0 ? `Changed fields: ${changedFields.join(", ")}.` : undefined
+  ]
+    .filter((segment): segment is string => Boolean(segment))
+    .join(" ");
 }

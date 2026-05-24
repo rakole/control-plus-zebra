@@ -1,21 +1,39 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { fakeTestAdapter } from "../../../src/main/adapters/fake-test/index.js";
-import { FileBackedCacheStore } from "../../../src/main/core/cache/index.js";
+import {
+  FileBackedCacheStore,
+  type HydratedNormalizedCacheRecord,
+  type NormalizedCacheRecord
+} from "../../../src/main/core/cache/index.js";
+import {
+  createRawArtifactIndexEntries,
+  RAW_ARTIFACT_SCHEMA_VERSION
+} from "../../../src/main/core/ingestion/index.js";
 import { exerciseAdapter } from "../../contract/run-adapter-contract.js";
 
 const fixturePath = path.resolve("src/main/adapters/fake-test/fixtures/phase1-session.fixture.json");
+const CACHE_FILE_VERSION = 3;
 
 describe("FileBackedCacheStore", () => {
-  it("writes and reloads normalized cache records", async () => {
-	    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-cache-store-"));
-	    const store = new FileBackedCacheStore(path.join(tempDir, "normalized-cache.json"));
-	    const { normalized } = await exerciseAdapter(fakeTestAdapter, fixturePath);
-    const record = {
+  let baseRecord: NormalizedCacheRecord;
+
+  beforeAll(async () => {
+    const { normalized } = await exerciseAdapter(fakeTestAdapter, fixturePath);
+    const sessionId = normalized.sessions[0]?.id;
+    const projectId = normalized.projects[0]?.id;
+
+    if (!sessionId || !projectId) {
+      throw new Error("Expected fake-test fixture to include a session and project.");
+    }
+
+    const rawArtifactIndex = uniqueRawArtifactIndexEntries(normalized);
+
+    baseRecord = {
       cacheKey: "cache-proof",
       adapterId: normalized.adapterId,
       sourceId: normalized.sourceId,
@@ -23,33 +41,462 @@ describe("FileBackedCacheStore", () => {
       createdAt: "2026-05-23T00:00:00.000Z",
       updatedAt: "2026-05-23T00:00:00.000Z",
       normalized,
+      shellCommands: {
+        sessions: [
+          {
+            sessionId,
+            shellCommands: [
+              {
+                shellCommandId: "shell-command-1",
+                command: "npm test",
+                cwd: "/tmp/project",
+                intent: "test",
+                result: "passed",
+                outputSource: "combined",
+                outputTextSource: "artifact",
+                exitCode: 0,
+                exitCodeSource: "artifact",
+                rawToolStatus: "succeeded",
+                ...(normalized.toolCalls[0]?.id ? { toolCallId: normalized.toolCalls[0].id } : {}),
+                artifactIds: rawArtifactIndex[0] ? [rawArtifactIndex[0].id] : [],
+                failureMarkers: [],
+                confidence: {
+                  level: "high",
+                  normalizedLevel: "confirmed",
+                  reason: "fixture proof"
+                },
+                diagnosticIds: normalized.diagnostics[0] ? [normalized.diagnostics[0].id] : []
+              }
+            ]
+          }
+        ]
+      },
+      verificationResults: {
+        sessions: [
+          {
+            sessionId,
+            verification: {
+              status: "passed",
+              confidence: {
+                level: "high",
+                normalizedLevel: "confirmed",
+                reason: "latest verification command passed"
+              },
+              commandIds: ["shell-command-1"],
+              intentResults: [
+                {
+                  intent: "test",
+                  latestCommandId: "shell-command-1",
+                  latestStatus: "passed",
+                  commandIds: ["shell-command-1"],
+                  confidence: {
+                    level: "high",
+                    normalizedLevel: "confirmed"
+                  },
+                  diagnosticIds: normalized.diagnostics[0] ? [normalized.diagnostics[0].id] : []
+                }
+              ],
+              reasonCodes: []
+            }
+          }
+        ]
+      },
+      runAudits: {
+        sessions: [
+          {
+            sessionId,
+            audit: {
+              status: "clean",
+              attentionReasons: [],
+              confidence: {
+                level: "high",
+                normalizedLevel: "confirmed",
+                reason: "verified and clean"
+              },
+              completionClaim: "claimed",
+              supportingCommandIds: ["shell-command-1"],
+              supportingToolCallIds: normalized.toolCalls[0]?.id ? [normalized.toolCalls[0].id] : [],
+              supportingMessageIds: normalized.messages[0]?.id ? [normalized.messages[0].id] : [],
+              diagnosticIds: normalized.diagnostics[0] ? [normalized.diagnostics[0].id] : []
+            }
+          }
+        ]
+      },
+      gitSnapshots: {
+        projects: [
+          {
+            projectId,
+            git: {
+              status: "available",
+              rootConfidence: "confirmed",
+              candidateRootPath: "/tmp/project",
+              validatedRootPath: "/tmp/project",
+              snapshot: {
+                additions: 2,
+                branch: "main",
+                changedFiles: 1,
+                deletions: 0,
+                dirty: false,
+                headSha: "abc123",
+                remoteUrl: "https://github.com/example/repo.git",
+                untrackedFiles: 0
+              },
+              diagnosticIds: []
+            }
+          }
+        ]
+      },
+      githubSnapshots: {
+        projects: [
+          {
+            projectId,
+            github: {
+              status: "available",
+              pullRequestNumber: 42,
+              pullRequestTitle: "Fix cache contract",
+              pullRequestUrl: "https://github.com/example/repo/pull/42",
+              checksSummary: "all checks passing",
+              reviewSummary: "approved",
+              diagnosticIds: []
+            }
+          }
+        ]
+      },
+      diagnostics: {
+        entries: normalized.diagnostics
+      },
+      rawArtifactIndex: {
+        entries: rawArtifactIndex
+      },
+      capabilitySnapshots: normalized.capabilities
+    };
+  });
+
+  it("writes and reloads first-class cache sections", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-cache-store-"));
+    const filePath = path.join(tempDir, "normalized-cache.json");
+    const store = new FileBackedCacheStore(filePath);
+
+    await store.save([baseRecord]);
+
+    const persisted = JSON.parse(await readFile(filePath, "utf8")) as {
+      version: number;
+      records: Array<Record<string, unknown>>;
+    };
+    const loaded = await store.getLatestSourceRecord(baseRecord.sourceId);
+
+    expect(persisted.version).toBe(CACHE_FILE_VERSION);
+    expect(persisted.records[0]).not.toHaveProperty("derived");
+    expect(loaded).toBeDefined();
+    if (!loaded) {
+      throw new Error("Expected the saved record to reload.");
+    }
+    expect(loaded.shellCommands).toEqual({
+      version: 1,
+      sessions: baseRecord.shellCommands?.sessions
+    });
+    expect(loaded.verificationResults).toEqual({
+      version: 1,
+      sessions: baseRecord.verificationResults?.sessions
+    });
+    expect(loaded.runAudits).toEqual({
+      version: 1,
+      sessions: baseRecord.runAudits?.sessions
+    });
+    expect(loaded.gitSnapshots).toEqual({
+      version: 1,
+      projects: baseRecord.gitSnapshots?.projects
+    });
+    expect(loaded.githubSnapshots).toEqual({
+      version: 1,
+      projects: baseRecord.githubSnapshots?.projects
+    });
+    expect(loaded.diagnostics).toEqual({
+      version: 1,
+      entries: baseRecord.diagnostics?.entries
+    });
+    expect(loaded.rawArtifactIndex).toEqual({
+      version: 1,
+      entries: baseRecord.rawArtifactIndex?.entries
+    });
+    expect(loaded.capabilitySnapshots).toEqual({
+      version: 1,
+      adapter: baseRecord.capabilitySnapshots?.adapter,
+      source: baseRecord.capabilitySnapshots?.source,
+      sessions: baseRecord.capabilitySnapshots?.sessions
+    });
+    expect(loaded.derived).toEqual({
+      version: 1,
+      sessions: [
+        {
+          sessionId: baseRecord.shellCommands?.sessions[0]?.sessionId,
+          shellCommands: baseRecord.shellCommands?.sessions[0]?.shellCommands ?? [],
+          verification: baseRecord.verificationResults?.sessions[0]?.verification,
+          audit: baseRecord.runAudits?.sessions[0]?.audit
+        }
+      ],
+      projects: [
+        {
+          projectId: baseRecord.gitSnapshots?.projects[0]?.projectId,
+          git: baseRecord.gitSnapshots?.projects[0]?.git,
+          github: baseRecord.githubSnapshots?.projects[0]?.github
+        }
+      ]
+    });
+  });
+
+  it("migrates legacy derived cache records to first-class sections", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-cache-store-legacy-"));
+    const filePath = path.join(tempDir, "normalized-cache.json");
+    const store = new FileBackedCacheStore(filePath);
+    const legacyNormalized = structuredClone(baseRecord.normalized);
+    const legacyProjectArtifact = {
+      id: "legacy-project-root-map",
+      adapterId: legacyNormalized.adapterId,
+      sourceId: legacyNormalized.sourceId,
+      nativeRef: ".project_root",
+      artifactKind: "project-root-map" as const,
+      parseStrategy: "text" as const,
+      sizeBytes: 12,
+      mtime: "2026-05-23T00:00:00.000Z"
+    };
+
+    legacyNormalized.projects[0] = {
+      ...legacyNormalized.projects[0]!,
+      harnessRefs: [
+        ...(legacyNormalized.projects[0]?.harnessRefs ?? []),
+        {
+          adapterId: legacyNormalized.adapterId,
+          sourceId: legacyNormalized.sourceId,
+          nativeProjectId: "legacy-project",
+          projectRootPath: "/tmp/project",
+          projectRootConfidence: "confirmed",
+          rawArtifactRefs: [legacyProjectArtifact]
+        }
+      ]
+    };
+    const legacyRecord: NormalizedCacheRecord = {
+      cacheKey: baseRecord.cacheKey,
+      adapterId: baseRecord.adapterId,
+      sourceId: baseRecord.sourceId,
+      artifactFingerprint: baseRecord.artifactFingerprint,
+      createdAt: baseRecord.createdAt,
+      updatedAt: baseRecord.updatedAt,
+      normalized: legacyNormalized,
       derived: {
-        sessions: [],
-        projects: []
+        sessions: [
+          {
+            sessionId: baseRecord.shellCommands?.sessions[0]?.sessionId ?? "legacy-session",
+            shellCommands: baseRecord.shellCommands?.sessions[0]?.shellCommands ?? [],
+            ...(baseRecord.verificationResults?.sessions[0]?.verification
+              ? { verification: baseRecord.verificationResults.sessions[0].verification }
+              : {}),
+            ...(baseRecord.runAudits?.sessions[0]?.audit
+              ? { audit: baseRecord.runAudits.sessions[0].audit }
+              : {})
+          }
+        ],
+        projects: [
+          {
+            projectId: baseRecord.gitSnapshots?.projects[0]?.projectId ?? "legacy-project",
+            git: baseRecord.gitSnapshots?.projects[0]?.git ?? {
+              status: "unknown",
+              rootConfidence: "unknown",
+              diagnosticIds: []
+            },
+            ...(baseRecord.githubSnapshots?.projects[0]?.github
+              ? { github: baseRecord.githubSnapshots.projects[0].github }
+              : {})
+          }
+        ]
       }
     };
 
-    await store.writeRecord(record);
+    await writeFile(
+      filePath,
+      `${JSON.stringify({ version: 2, records: [legacyRecord] }, null, 2)}\n`,
+      "utf8"
+    );
 
-    const loaded = await store.getLatestSourceRecord(record.sourceId);
+    const [loaded] = await store.load();
+    if (!loaded) {
+      throw new Error("Expected a migrated legacy record.");
+    }
 
-    expect(loaded).toEqual({
-      ...record,
-      derived: {
-        version: 1,
-        sessions: [],
-        projects: []
-      }
+    expect(loaded.shellCommands).toEqual({
+      version: 1,
+      sessions: legacyRecord.derived?.sessions.map((session) => ({
+        sessionId: session.sessionId,
+        shellCommands: session.shellCommands
+      }))
     });
+    expect(loaded.verificationResults).toEqual({
+      version: 1,
+      sessions: legacyRecord.derived?.sessions
+        .filter((session) => session.verification)
+        .map((session) => ({
+          sessionId: session.sessionId,
+          verification: session.verification!
+        }))
+    });
+    expect(loaded.runAudits).toEqual({
+      version: 1,
+      sessions: legacyRecord.derived?.sessions
+        .filter((session) => session.audit)
+        .map((session) => ({
+          sessionId: session.sessionId,
+          audit: session.audit!
+        }))
+    });
+    expect(loaded.gitSnapshots).toEqual({
+      version: 1,
+      projects: legacyRecord.derived?.projects?.map((project) => ({
+        projectId: project.projectId,
+        git: project.git
+      })) ?? []
+    });
+    expect(loaded.githubSnapshots).toEqual({
+      version: 1,
+      projects: legacyRecord.derived?.projects
+        ?.filter((project) => project.github)
+        .map((project) => ({
+          projectId: project.projectId,
+          github: project.github!
+        })) ?? []
+    });
+    expect(loaded.diagnostics).toEqual({
+      version: 1,
+      entries: baseRecord.normalized.diagnostics
+    });
+    expect(loaded.rawArtifactIndex).toEqual({
+      version: 1,
+      entries: uniqueRawArtifactIndexEntries(legacyNormalized, {
+        adapterVersion: "legacy-cache",
+        diagnosticsHash: "legacy-cache",
+        parserVersion: "legacy-cache"
+      })
+    });
+    expect(loaded.rawArtifactIndex?.entries.some((entry) => entry.id === legacyProjectArtifact.id)).toBe(true);
+    expect(loaded.capabilitySnapshots).toEqual({
+      version: 1,
+      adapter: baseRecord.normalized.capabilities.adapter,
+      source: baseRecord.normalized.capabilities.source,
+      sessions: baseRecord.normalized.capabilities.sessions
+    });
+    expect(loaded.derived?.version).toBe(1);
   });
 
   it("does not treat malformed cache files as a successful load", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-cache-store-bad-"));
     const filePath = path.join(tempDir, "normalized-cache.json");
     const store = new FileBackedCacheStore(filePath);
+    const malformedRecord = structuredClone(baseRecord) as unknown as Record<string, unknown>;
 
-    await writeFile(filePath, "{\"version\":1,\"records\":[{\"bad\":true}]}\n", "utf8");
+    malformedRecord.shellCommands = {
+      version: 1,
+      sessions: [
+        {
+          sessionId: "session-bad",
+          shellCommands: [
+            {
+              shellCommandId: "bad-shell-command",
+              command: 7
+            }
+          ]
+        }
+      ]
+    };
+
+    await writeFile(
+      filePath,
+      `${JSON.stringify({ version: CACHE_FILE_VERSION, records: [malformedRecord] }, null, 2)}\n`,
+      "utf8"
+    );
 
     await expect(store.load()).rejects.toThrow();
   });
+
+  it("does not collide records with the same cache key across different sources", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-cache-store-sources-"));
+    const store = new FileBackedCacheStore(path.join(tempDir, "normalized-cache.json"));
+
+    await store.writeRecord(baseRecord);
+    await store.writeRecord({
+      ...baseRecord,
+      sourceId: "source-second",
+      updatedAt: "2026-05-23T01:00:00.000Z"
+    });
+
+    const loaded = await store.load();
+
+    expect(loaded).toHaveLength(2);
+    expect(new Set(loaded.map((record) => record.sourceId))).toEqual(
+      new Set([baseRecord.sourceId, "source-second"])
+    );
+  });
+
+  it("selects the latest record per source", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-cache-store-latest-"));
+    const store = new FileBackedCacheStore(path.join(tempDir, "normalized-cache.json"));
+    const older = {
+      ...baseRecord,
+      cacheKey: "cache-proof-older",
+      updatedAt: "2026-05-23T00:00:00.000Z"
+    };
+    const newer = {
+      ...baseRecord,
+      cacheKey: "cache-proof-newer",
+      updatedAt: "2026-05-23T02:00:00.000Z"
+    };
+    const otherSource = {
+      ...baseRecord,
+      cacheKey: "cache-proof-other",
+      sourceId: "source-third",
+      updatedAt: "2026-05-23T01:30:00.000Z"
+    };
+
+    await store.save([older, newer, otherSource]);
+
+    const latestForPrimarySource = await store.getLatestSourceRecord(baseRecord.sourceId);
+    const latestRecords = await store.listLatestRecords();
+
+    expect(latestForPrimarySource?.cacheKey).toBe("cache-proof-newer");
+    expect(latestRecords).toHaveLength(2);
+    expect(latestRecords.map((record) => record.cacheKey).sort()).toEqual([
+      "cache-proof-newer",
+      "cache-proof-other"
+    ]);
+  });
 });
+
+function uniqueRawArtifactIndexEntries(
+  record: NormalizedCacheRecord["normalized"],
+  overrides: {
+    adapterVersion?: string;
+    diagnosticsHash?: string;
+    parserVersion?: string;
+  } = {}
+) {
+  const entriesById = new Map<string, ReturnType<typeof collectRawArtifactRefs>[number]>();
+
+  for (const artifact of collectRawArtifactRefs(record)) {
+    entriesById.set(artifact.id, artifact);
+  }
+
+  return createRawArtifactIndexEntries({
+    adapterVersion: overrides.adapterVersion ?? "0.1.0",
+    artifacts: [...entriesById.values()],
+    diagnosticsHash: overrides.diagnosticsHash ?? "diag-a",
+    parserVersion: overrides.parserVersion ?? "0.1.0",
+    schemaVersion: RAW_ARTIFACT_SCHEMA_VERSION
+  });
+}
+
+function collectRawArtifactRefs(record: NormalizedCacheRecord["normalized"]) {
+  return [
+    ...record.projects.flatMap((project) =>
+      (project.harnessRefs ?? []).flatMap((ref) => ref.rawArtifactRefs)
+    ),
+    ...record.sessions.flatMap((session) => session.rawArtifactRefs ?? [])
+  ];
+}

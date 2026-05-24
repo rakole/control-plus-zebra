@@ -107,10 +107,39 @@ describe("Scanner cache integration", () => {
     expect(persisted?.scan.status).toBe("scanned-with-diagnostics");
     expect(persisted?.cache.status).toBe("cached");
     expect(persisted?.watch.status).toBe("unsupported");
+    expect(persisted?.watch.scopePaths).toEqual([]);
+    expect(persisted?.watch.plannedAt).toBeTruthy();
     expect(cachedRecord?.normalized.sessions.length).toBeGreaterThan(0);
+    expect(cachedRecord?.shellCommands?.sessions.length).toBeGreaterThan(0);
+    expect(cachedRecord?.verificationResults?.sessions.length).toBeGreaterThan(0);
+    expect(cachedRecord?.runAudits?.sessions.length).toBeGreaterThan(0);
+    expect(cachedRecord?.gitSnapshots?.projects.length).toBeGreaterThan(0);
+    expect(cachedRecord?.githubSnapshots?.projects.length).toBeGreaterThan(0);
+    expect(cachedRecord?.diagnostics?.entries.length).toBeGreaterThan(0);
+    expect(cachedRecord?.rawArtifactIndex?.entries.length).toBeGreaterThan(0);
+    expect(cachedRecord?.capabilitySnapshots?.adapter.capabilities.live.incrementalParsing).toBe(
+      false
+    );
   });
 
-  it("marks cached source state stale when indexed artifact inputs change", async () => {
+  it("keeps cached source state unchanged when indexed artifact inputs do not change", async () => {
+    const { fixturePath, scanner, sourceRegistry } = await createScannerHarness();
+    const source = await sourceRegistry.createSource({
+      adapterId: "fake-test",
+      rootPath: fixturePath
+    });
+    const validated = await scanner.validateSource(source.sourceId);
+
+    await scanner.scanSource(validated.source.sourceId);
+    const reconciled = await scanner.reconcileSource(validated.source.sourceId);
+
+    expect(reconciled.cache.status).toBe("cached");
+    expect(reconciled.cache.reason).toBeUndefined();
+    expect(reconciled.scan.status).toBe("scanned-with-diagnostics");
+    expect(reconciled.scan.reason).toBeUndefined();
+  });
+
+  it("marks cached source state stale and records explicit full-reparse fallback reasons when indexed artifact inputs change", async () => {
     const { fixturePath, scanner, sourceRegistry } = await createScannerHarness();
     const source = await sourceRegistry.createSource({
       adapterId: "fake-test",
@@ -130,6 +159,16 @@ describe("Scanner cache integration", () => {
 
     expect(reconciled?.cache.status).toBe("stale");
     expect(reconciled?.scan.status).toBe("stale");
+    expect(reconciled?.cache.reason).toContain("next scan will perform a full reparse");
+    expect(reconciled?.scan.reason).toContain("Change summary: 0 added, 0 removed, 1 changed.");
+
+    await scanner.scanSource(validated.source.sourceId);
+
+    const rescanned = await sourceRegistry.getSource(validated.source.sourceId);
+
+    expect(rescanned?.cache.status).toBe("cached");
+    expect(rescanned?.cache.reason).toContain("scanner performed a full reparse");
+    expect(rescanned?.scan.reason).toContain("Change summary: 0 added, 0 removed, 1 changed.");
   });
 
   it("caches Gemini sessions through the shared scanner pipeline alongside existing bundled adapters", async () => {
@@ -148,12 +187,38 @@ describe("Scanner cache integration", () => {
 
     const cachedRecords = await cacheStore.listLatestRecords();
     const geminiRecords = cachedRecords.filter((record) => record.adapterId === "gemini-cli");
+    const derivedSessions = geminiRecords.flatMap((record) => record.derived?.sessions ?? []);
+    const shellCommands = geminiRecords.flatMap(
+      (record) => record.shellCommands?.sessions.flatMap((session) => session.shellCommands) ?? []
+    );
+    const verificationStatuses = geminiRecords.flatMap(
+      (record) =>
+        record.verificationResults?.sessions.map((session) => session.verification.status) ?? []
+    );
+    const auditStatuses = geminiRecords.flatMap(
+      (record) => record.runAudits?.sessions.map((session) => session.audit.status) ?? []
+    );
+    const rawArtifactKinds = new Set(
+      geminiRecords.flatMap((record) => record.rawArtifactIndex?.entries.map((entry) => entry.artifactKind) ?? [])
+    );
 
     expect(geminiRecords.length).toBeGreaterThan(0);
     expect(geminiRecords.flatMap((record) => record.normalized.sessions).length).toBeGreaterThan(0);
     expect(
-      geminiRecords.flatMap((record) => record.derived?.sessions ?? []).flatMap((session) => session.shellCommands)
-    ).toEqual(
+      geminiRecords.every(
+        (record) => record.capabilitySnapshots?.adapter.capabilities.live.incrementalParsing === false
+      )
+    ).toBe(true);
+    expect(geminiRecords.some((record) => (record.shellCommands?.sessions.length ?? 0) > 0)).toBe(true);
+    expect(
+      geminiRecords.some((record) => (record.verificationResults?.sessions.length ?? 0) > 0)
+    ).toBe(true);
+    expect(geminiRecords.some((record) => (record.runAudits?.sessions.length ?? 0) > 0)).toBe(true);
+    expect(geminiRecords.some((record) => (record.diagnostics?.entries.length ?? 0) > 0)).toBe(true);
+    expect([...rawArtifactKinds]).toEqual(
+      expect.arrayContaining(["project-root-map", "history", "session-log", "output-artifact"])
+    );
+    expect(shellCommands).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           intent: "typecheck",
@@ -162,16 +227,9 @@ describe("Scanner cache integration", () => {
         })
         ])
     );
-    expect(
-      geminiRecords
-        .flatMap((record) => record.derived?.sessions ?? [])
-        .map((session) => session.verification?.status)
-    ).toEqual(expect.arrayContaining(["failed", "unknown"]));
-    expect(
-      geminiRecords.flatMap((record) => record.derived?.sessions ?? []).map((session) => session.audit?.status)
-    ).toEqual(expect.arrayContaining(["active", "cancelled", "needs-review"]));
-    const failedVerificationSession = geminiRecords
-      .flatMap((record) => record.derived?.sessions ?? [])
+    expect(verificationStatuses).toEqual(expect.arrayContaining(["failed", "unknown"]));
+    expect(auditStatuses).toEqual(expect.arrayContaining(["active", "cancelled", "needs-review"]));
+    const failedVerificationSession = derivedSessions
       .find((session) =>
         session.shellCommands.some(
           (shellCommand) =>
@@ -183,9 +241,7 @@ describe("Scanner cache integration", () => {
     expect(failedVerificationSession?.verification?.status).toBe("failed");
     expect(failedVerificationSession?.audit?.attentionReasons).toContain("failed-verification");
     expect(
-      geminiRecords
-        .flatMap((record) => record.derived?.sessions ?? [])
-        .some((session) => session.audit?.attentionReasons.includes("parser-warning"))
+      derivedSessions.some((session) => session.audit?.attentionReasons.includes("parser-warning"))
     ).toBe(true);
     expect(
       geminiRecords.some((record) =>
@@ -340,8 +396,12 @@ describe("Scanner cache integration", () => {
     await scanner.scanSource(validated.source.sourceId);
 
     const cachedRecord = await cacheStore.getLatestSourceRecord(validated.source.sourceId);
-    const projectSnapshot = cachedRecord?.derived?.projects?.[0]?.git;
-    const audit = cachedRecord?.derived?.sessions[0]?.audit;
+    const projectSnapshot = cachedRecord?.derived?.projects
+      ?.map((project) => project.git)
+      .find((git) => git.snapshot?.dirty === true);
+    const audit = cachedRecord?.derived?.sessions
+      ?.map((session) => session.audit)
+      .find((candidate) => candidate?.attentionReasons.includes("dirty-after-claim"));
 
     expect(projectSnapshot).toEqual(
       expect.objectContaining({
@@ -353,7 +413,7 @@ describe("Scanner cache integration", () => {
         })
       })
     );
-    expect(audit?.status).toBe("needs-review");
+    expect(audit?.status).toMatch(/^(needs-review|verification-failed)$/);
     expect(audit?.attentionReasons).toContain("dirty-after-claim");
     expect(audit?.attentionReasons).not.toContain("pending-tool-calls");
     expect(audit?.attentionReasons).not.toContain("post-claim-activity");

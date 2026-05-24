@@ -19,17 +19,24 @@ export function createCacheKey(input: CacheKeyInput): string {
     .map((artifact) =>
       JSON.stringify({
         adapterId: artifact.adapterId,
+        adapterVersion: artifact.adapterVersion,
+        artifactKind: artifact.artifactKind,
         artifactType: artifact.artifactType,
-        byteLength: artifact.byteLength ?? null,
         diagnosticsHash: artifact.diagnosticsHash,
         id: artifact.id,
-        inode: artifact.inode ?? null,
         mediaType: artifact.mediaType ?? null,
+        mtime: artifact.mtime ?? null,
         mtimeMs: artifact.mtimeMs ?? null,
         nativeId: artifact.nativeId,
+        nativeRef: artifact.nativeRef ?? null,
+        parseStrategy: artifact.parseStrategy,
+        parserVersion: artifact.parserVersion,
         path: artifact.path ?? null,
         schemaVersion: artifact.schemaVersion,
-        sourceId: artifact.sourceId
+        sizeBytes: artifact.sizeBytes ?? null,
+        sourceId: artifact.sourceId,
+        byteLength: artifact.byteLength ?? null,
+        inode: artifact.inode ?? null
       })
     )
     .join("|");
