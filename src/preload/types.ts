@@ -1,5 +1,7 @@
 import type {
   AddDataSourceRequest,
+  CreateArchiveRequest,
+  CreateArchiveResponse,
   DataSourcesResponse,
   GetOverviewRequest,
   GetOverviewResponse,
@@ -22,6 +24,7 @@ import type {
 
 export interface AgentWorkbenchBridge {
   getShellState(): Promise<ShellStateViewModel>;
+  createArchive(request: CreateArchiveRequest): Promise<CreateArchiveResponse>;
   getOverview(request?: GetOverviewRequest): Promise<GetOverviewResponse>;
   listProjects(request?: ListProjectsRequest): Promise<ListProjectsResponse>;
   listSessions(request?: ListSessionsRequest): Promise<ListSessionsResponse>;

@@ -28,6 +28,13 @@ describe("run audit view model service", () => {
 
     const runAudit = await service.getRunAudit({ sessionId });
 
+    expect(runAudit?.archiveExport).toEqual(
+      expect.objectContaining({
+        scopeKind: "session",
+        scopeId: sessionId,
+        rawArtifactsAvailable: false
+      })
+    );
     expect(runAudit?.sections.map((section) => section.title)).toEqual(
       expect.arrayContaining(["Claim vs Evidence", "Git / GitHub", "Capability Gaps"])
     );

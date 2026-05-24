@@ -10,6 +10,7 @@ describe("preload API surface", () => {
     const typesSource = await readFile("src/preload/types.ts", "utf8");
 
     expect(typesSource).toContain("getShellState()");
+    expect(typesSource).toContain("createArchive(request");
     expect(typesSource).toContain("getOverview(request?");
     expect(typesSource).toContain("listProjects(request?");
     expect(typesSource).toContain("listSessions(request?");
@@ -25,6 +26,7 @@ describe("preload API surface", () => {
     expect(typesSource).toContain("scanDataSource(request");
     expect(extractBridgeMethodNames(typesSource)).toEqual([
       "getShellState",
+      "createArchive",
       "getOverview",
       "listProjects",
       "listSessions",
@@ -48,6 +50,7 @@ describe("preload API surface", () => {
     expect(preloadSource).toContain('contextBridge.exposeInMainWorld("agentWorkbench"');
     expect(extractBridgeMethodNames(preloadSource)).toEqual([
       "getShellState",
+      "createArchive",
       "getOverview",
       "listProjects",
       "listSessions",

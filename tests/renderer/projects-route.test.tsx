@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../../src/renderer/App.js";
@@ -16,6 +16,7 @@ describe("Projects route", () => {
   });
 
   it("renders project rollups with shared git truth and a selected repo detail panel", async () => {
+    const bridge = installBridgeMocks();
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
@@ -25,5 +26,20 @@ describe("Projects route", () => {
     expect(screen.getByText("Validated Repo Root")).toBeInTheDocument();
     expect(screen.getByText("https://github.com/example/control-plus-zebra.git")).toBeInTheDocument();
     expect(screen.getAllByText("No Matching PR").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Export Project Archive" }));
+
+    expect(await screen.findByText("Include Raw Artifacts")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Raw artifacts may include sensitive local data")
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Export Project Archive$/u })[1]!);
+
+    expect(bridge.createArchive).toHaveBeenCalledWith({
+      scope: { kind: "project", projectId: "project-1" },
+      includeRawArtifacts: false,
+      privacyWarningAcknowledged: true
+    });
   });
 });

@@ -1,5 +1,6 @@
 export const IPC_CHANNELS = {
   getShellState: "app:getShellState",
+  createArchive: "export:createArchive",
   getOverview: "overview:get",
   listProjects: "projects:list",
   listSessions: "sessions:list",
@@ -19,6 +20,7 @@ export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 
 export const ALLOWED_IPC_CHANNELS = [
   IPC_CHANNELS.getShellState,
+  IPC_CHANNELS.createArchive,
   IPC_CHANNELS.getOverview,
   IPC_CHANNELS.listProjects,
   IPC_CHANNELS.listSessions,

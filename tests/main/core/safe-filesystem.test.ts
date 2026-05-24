@@ -38,9 +38,11 @@ describe("SafeFilesystem", () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-safe-fs-artifact-"));
     const rootDir = path.join(tempDir, "root");
     const artifactFile = path.join(tempDir, "artifact.txt");
+    const strayFile = path.join(rootDir, "stray.txt");
 
     await mkdir(rootDir, { recursive: true });
     await writeFile(artifactFile, "artifact", "utf8");
+    await writeFile(strayFile, "stray", "utf8");
 
     const safeFilesystem = createSafeFilesystem({
       allowedArtifacts: [{ artifactId: "artifact-1", path: artifactFile }],
@@ -55,6 +57,12 @@ describe("SafeFilesystem", () => {
     ).rejects.toMatchObject({
       code: "safe-filesystem.artifact-not-indexed",
       artifactId: "artifact-2"
+    } satisfies Partial<SafeFilesystemError>);
+    await expect(
+      safeFilesystem.readIndexedTextArtifact("artifact-1", strayFile)
+    ).rejects.toMatchObject({
+      code: "safe-filesystem.artifact-not-indexed",
+      artifactId: "artifact-1"
     } satisfies Partial<SafeFilesystemError>);
   });
 

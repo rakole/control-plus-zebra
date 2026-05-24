@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import {
+  createArchiveExportService,
+  type ArchiveExportService
+} from "../app/archive-export-service.js";
+import {
   createDiagnosticsViewModelService,
   type DiagnosticsViewModelService
 } from "../app/diagnostics-view-model-service.js";
@@ -27,8 +31,11 @@ import {
 import { createWorkbenchRuntime } from "../app/workbench-runtime.js";
 import { IPC_CHANNELS } from "./channels.js";
 import {
+  createArchiveRequestSchema,
+  createArchiveResponseSchema,
   addDataSourceRequestSchema,
   dataSourcesResponseSchema,
+  type CreateArchiveResponse,
   getOverviewRequestSchema,
   getOverviewResponseSchema,
   getSessionByIdRequestSchema,
@@ -66,6 +73,7 @@ export interface IpcMainLike {
 }
 
 export interface IpcServices {
+  archiveExportService: ArchiveExportService;
   dataSourcesService: DataSourcesViewModelService;
   diagnosticsService: DiagnosticsViewModelService;
   runAuditService: RunAuditViewModelService;
@@ -88,6 +96,23 @@ export function registerIpcHandlers(
     return shellStateViewModelSchema.parse(
       services.sessionService.getShellState()
     ) satisfies ShellStateViewModel;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.createArchive, async (_event, payload) => {
+    const request = createArchiveRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies CreateArchiveResponse;
+    }
+
+    try {
+      return createArchiveResponseSchema.parse({
+        ok: true,
+        archive: await services.archiveExportService.createArchive(request.data)
+      }) satisfies CreateArchiveResponse;
+    } catch {
+      return buildArchiveExportFailedError() satisfies CreateArchiveResponse;
+    }
   });
 
   ipcMain.handle(IPC_CHANNELS.getOverview, async (_event, payload) => {
@@ -286,6 +311,7 @@ function createDefaultIpcServices(): IpcServices {
   const runtime = createWorkbenchRuntime();
 
   return {
+    archiveExportService: createArchiveExportService({ runtime }),
     sessionService: createSessionViewModelService({ runtime }),
     sessionDetailService: createSessionDetailViewModelService({ runtime }),
     runAuditService: createRunAuditViewModelService({ runtime }),
@@ -334,6 +360,17 @@ function buildDataSourcesLoadFailedError(): IpcErrorResponse {
     error: {
       code: "data-sources-load-failed",
       message: "Data sources could not be loaded."
+    }
+  };
+}
+
+function buildArchiveExportFailedError(): IpcErrorResponse {
+  return {
+    ok: false,
+    error: {
+      code: "archive-export-failed",
+      message:
+        "Archive export could not complete. Check the archive destination, current source data, and privacy options, then try the export again."
     }
   };
 }

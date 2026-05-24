@@ -3,15 +3,25 @@ import { useEffect, useState } from "react";
 import { LoadingSkeleton } from "../components/LoadingSkeleton.js";
 import { TruthStateBadge } from "../components/triage/TruthStateBadge.js";
 
+type CreateArchiveResponse = Awaited<ReturnType<Window["agentWorkbench"]["createArchive"]>>;
 type ProjectsResponse = Awaited<ReturnType<Window["agentWorkbench"]["listProjects"]>>;
 type ProjectSummary = Extract<ProjectsResponse, { ok: true }>["projects"][number];
 
 const ERROR_COPY =
   "Projects could not load. Check the preload bridge and IPC handler, then reload triage data.";
+const EXPORT_ERROR_COPY =
+  "Archive export could not complete. Check the archive destination, current source data, and privacy options, then try the export again.";
+const PRIVACY_WARNING_BODY =
+  "Transcripts, sidecars, repo paths, and command output may contain sensitive local information. Export raw artifacts only when that data is intentionally shareable.";
 
 export function ProjectsRoute() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [includeRawArtifacts, setIncludeRawArtifacts] = useState(false);
+  const [isExportPanelOpen, setIsExportPanelOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -57,6 +67,48 @@ export function ProjectsRoute() {
   const selectedProject =
     projects.find((project) => project.projectId === selectedProjectId) ?? projects[0] ?? null;
 
+  async function handleExportProject() {
+    if (!selectedProject) {
+      return;
+    }
+
+    setExportError(null);
+    setExportMessage(null);
+    setIsExporting(true);
+
+    try {
+      const response: CreateArchiveResponse = await window.agentWorkbench.createArchive({
+        scope:
+          selectedProject.archiveExport.scopeKind === "project"
+            ? { kind: "project", projectId: selectedProject.archiveExport.scopeId }
+            : { kind: "session", sessionId: selectedProject.archiveExport.scopeId },
+        includeRawArtifacts,
+        privacyWarningAcknowledged: true
+      });
+
+      if (!response.ok) {
+        throw new Error(response.error.message);
+      }
+
+      if (response.archive.status === "exported") {
+        setExportMessage(`Archive saved to ${response.archive.archivePath}`);
+        setIsExportPanelOpen(false);
+      }
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : EXPORT_ERROR_COPY);
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  function resetExportState() {
+    setExportError(null);
+    setExportMessage(null);
+    setIncludeRawArtifacts(false);
+    setIsExportPanelOpen(false);
+    setIsExporting(false);
+  }
+
   return (
     <main className="route-shell" aria-labelledby="projects-title">
       <section className="route-header">
@@ -86,7 +138,10 @@ export function ProjectsRoute() {
                     <button
                       className={`session-row${selected ? " session-row-selected" : ""}`}
                       key={project.projectId}
-                      onClick={() => setSelectedProjectId(project.projectId)}
+                      onClick={() => {
+                        resetExportState();
+                        setSelectedProjectId(project.projectId);
+                      }}
                       type="button"
                     >
                       <div className="session-row-main">
@@ -117,6 +172,10 @@ export function ProjectsRoute() {
                       <div>
                         <p className="route-kicker">Repository context</p>
                         <h2>{selectedProject.projectName}</h2>
+                        <p className="detail-summary">
+                          {selectedProject.observedHarnesses.join(", ")} · {selectedProject.sessionCount}{" "}
+                          sessions
+                        </p>
                       </div>
                       <div className="state-row">
                         <TruthStateBadge state={selectedProject.gitStatus} />
@@ -175,6 +234,89 @@ export function ProjectsRoute() {
                         <dd>{selectedProject.reviewStatus.displayValue}</dd>
                       </div>
                     </dl>
+
+                    <section className="preview-section" aria-labelledby="project-archive-export">
+                      <div className="detail-heading">
+                        <div>
+                          <p className="route-kicker">Archive export</p>
+                          <h3 id="project-archive-export">Archive Export</h3>
+                        </div>
+                        <button
+                          className={isExportPanelOpen ? "secondary-button" : "primary-button"}
+                          onClick={() => setIsExportPanelOpen((current) => !current)}
+                          type="button"
+                        >
+                          Export Project Archive
+                        </button>
+                      </div>
+
+                      <p className="detail-summary">
+                        {selectedProject.archiveExport.scopeLabel} ·{" "}
+                        {selectedProject.archiveExport.sessionCount} session
+                        {selectedProject.archiveExport.sessionCount === 1 ? "" : "s"} across{" "}
+                        {selectedProject.archiveExport.sourceCount} source
+                        {selectedProject.archiveExport.sourceCount === 1 ? "" : "s"}.
+                      </p>
+
+                      {exportMessage ? <p className="detail-summary">{exportMessage}</p> : null}
+
+                      {isExportPanelOpen ? (
+                        <div className="export-panel">
+                          <div className="pill-list">
+                            <span className="metric-pill">Normalized Only</span>
+                            {selectedProject.archiveExport.rawArtifactsAvailable ? (
+                              <span className="metric-pill">
+                                {selectedProject.archiveExport.rawArtifactCount} indexed raw artifacts
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <label
+                            className={`export-checkbox-row${
+                              selectedProject.archiveExport.rawArtifactsAvailable
+                                ? ""
+                                : " export-checkbox-row-disabled"
+                            }`}
+                          >
+                            <input
+                              checked={includeRawArtifacts}
+                              disabled={!selectedProject.archiveExport.rawArtifactsAvailable}
+                              onChange={(event) => setIncludeRawArtifacts(event.target.checked)}
+                              type="checkbox"
+                            />
+                            <span>Include Raw Artifacts</span>
+                          </label>
+
+                          <p className="detail-helper">
+                            {selectedProject.archiveExport.rawArtifactsAvailable
+                              ? `${selectedProject.archiveExport.rawArtifactCount} indexed raw artifacts are available for this archive scope.`
+                              : selectedProject.archiveExport.rawArtifactsReason}
+                          </p>
+
+                          <section className="export-warning" aria-label="Export privacy warning">
+                            <h4>Raw artifacts may include sensitive local data</h4>
+                            <p>{PRIVACY_WARNING_BODY}</p>
+                          </section>
+
+                          {exportError ? (
+                            <div className="detail-alert" role="alert">
+                              <p>{exportError}</p>
+                            </div>
+                          ) : null}
+
+                          <div className="detail-actions">
+                            <button
+                              className="primary-button"
+                              disabled={isExporting}
+                              onClick={() => void handleExportProject()}
+                              type="button"
+                            >
+                              {isExporting ? "Exporting..." : "Export Project Archive"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </section>
                   </>
                 ) : null}
               </section>

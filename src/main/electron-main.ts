@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 
+import { createArchiveExportService } from "./app/archive-export-service.js";
 import { createDiagnosticsViewModelService } from "./app/diagnostics-view-model-service.js";
 import { createDataSourcesViewModelService } from "./app/data-sources-view-model-service.js";
 import { createRunAuditViewModelService } from "./app/run-audit-view-model-service.js";
@@ -18,6 +19,7 @@ async function bootstrap(): Promise<void> {
   });
 
   registerIpcHandlers(ipcMain, {
+    archiveExportService: createArchiveExportService({ runtime }),
     sessionService: createSessionViewModelService({ runtime }),
     sessionDetailService: createSessionDetailViewModelService({ runtime }),
     runAuditService: createRunAuditViewModelService({ runtime }),

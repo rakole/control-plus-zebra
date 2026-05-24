@@ -21,6 +21,7 @@ describe("triage view model service", () => {
     const projects = await triageService.listProjects();
     const gitBackedProject = projects.find((project) => project.projectName === "control-plus-zebra");
     const degradedProject = projects.find((project) => project.gitStatus.label === "Unknown");
+    const rawExportProject = projects.find((project) => project.archiveExport.rawArtifactsAvailable);
 
     expect(overview.metrics.totalSessions.numericValue).toBeGreaterThan(0);
     expect(overview.harnessFilters.map((filter) => filter.label)).toEqual(
@@ -36,6 +37,12 @@ describe("triage view model service", () => {
         remoteUrl: expect.objectContaining({
           displayValue: "https://github.com/example/control-plus-zebra.git"
         })
+      })
+    );
+    expect(rawExportProject?.archiveExport).toEqual(
+      expect.objectContaining({
+        rawArtifactsAvailable: true,
+        rawArtifactCount: expect.any(Number)
       })
     );
     expect(degradedProject?.gitStatus.label).toBe("Unknown");

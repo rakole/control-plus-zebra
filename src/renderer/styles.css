@@ -668,6 +668,62 @@ h3 {
   margin: 0;
 }
 
+.export-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.export-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.export-checkbox-row input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #2563EB;
+}
+
+.export-checkbox-row-disabled {
+  color: #64748B;
+}
+
+.export-warning {
+  padding: 12px 16px;
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  border-radius: 8px;
+}
+
+.export-warning h4,
+.export-warning p {
+  margin: 0;
+}
+
+.export-warning h4 {
+  color: #1D4ED8;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.export-warning p {
+  margin-top: 8px;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.export-action-row {
+  margin-top: 16px;
+}
+
 .diagnostic-list {
   display: flex;
   flex-direction: column;

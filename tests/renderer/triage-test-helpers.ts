@@ -77,6 +77,16 @@ export interface SessionDetailFixture {
 
 export interface RunAuditFixture {
   session: SessionPreviewFixture;
+  archiveExport: {
+    scopeKind: "project" | "session";
+    scopeId: string;
+    scopeLabel: string;
+    sessionCount: number;
+    sourceCount: number;
+    rawArtifactsAvailable: boolean;
+    rawArtifactCount: number;
+    rawArtifactsReason?: string;
+  };
   sections: Array<{
     id: string;
     title: string;
@@ -114,6 +124,16 @@ export interface ProjectFixture {
   pullRequest: { status: string; displayValue: string };
   checks: { status: string; displayValue: string };
   reviewStatus: { status: string; displayValue: string };
+  archiveExport: {
+    scopeKind: "project" | "session";
+    scopeId: string;
+    scopeLabel: string;
+    sessionCount: number;
+    sourceCount: number;
+    rawArtifactsAvailable: boolean;
+    rawArtifactCount: number;
+    rawArtifactsReason?: string;
+  };
 }
 
 export interface DiagnosticsFixture {
@@ -239,6 +259,15 @@ export function buildSessionDetail(overrides: Partial<SessionDetailFixture> = {}
 export function buildRunAudit(overrides: Partial<RunAuditFixture> = {}) {
   return {
     session: buildSessionPreview(),
+    archiveExport: {
+      scopeKind: "session" as const,
+      scopeId: "session-1",
+      scopeLabel: "Fixture session",
+      sessionCount: 1,
+      sourceCount: 1,
+      rawArtifactsAvailable: true,
+      rawArtifactCount: 2
+    },
     sections: [
       {
         id: "claim-vs-evidence",
@@ -327,6 +356,15 @@ export function buildProject(overrides: Partial<ProjectFixture> = {}) {
     pullRequest: { status: "value" as const, displayValue: "No Matching PR" },
     checks: { status: "value" as const, displayValue: "No Matching PR" },
     reviewStatus: { status: "value" as const, displayValue: "No Matching PR" },
+    archiveExport: {
+      scopeKind: "project" as const,
+      scopeId: "project-1",
+      scopeLabel: "control-plus-zebra",
+      sessionCount: 2,
+      sourceCount: 2,
+      rawArtifactsAvailable: true,
+      rawArtifactCount: 3
+    },
     ...overrides
   };
 }
@@ -385,6 +423,16 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
 
   const bridge = {
     getShellState: vi.fn(),
+    createArchive: vi.fn().mockResolvedValue({
+      ok: true,
+      archive: {
+        status: "exported",
+        archivePath: "/tmp/control-plus-zebra.awb-archive.json",
+        manifestVersion: 1,
+        rawArtifactsIncluded: false,
+        rawArtifactCount: 0
+      }
+    }),
     getOverview: vi.fn().mockResolvedValue({
       ok: true,
       overview: options.overview ?? buildOverview()

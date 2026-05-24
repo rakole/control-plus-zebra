@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { ArchiveExportService } from "../../../src/main/app/archive-export-service.js";
 import type { DiagnosticsViewModelService } from "../../../src/main/app/diagnostics-view-model-service.js";
 import type { DataSourcesViewModelService } from "../../../src/main/app/data-sources-view-model-service.js";
 import type { RunAuditViewModelService } from "../../../src/main/app/run-audit-view-model-service.js";
@@ -121,12 +122,21 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
     ...overrides
   };
 
+  const archiveExportService: ArchiveExportService = {
+    createArchive: vi.fn(async () => ({
+      status: "cancelled" as const,
+      rawArtifactsIncluded: false,
+      rawArtifactCount: 0
+    }))
+  };
+
   const sessionService: SessionViewModelService = {
     getShellState: vi.fn(() => ({
       appName: "Agent Workbench" as const,
       readOnly: true as const,
       allowedOperations: [
         IPC_CHANNELS.getShellState,
+        IPC_CHANNELS.createArchive,
         IPC_CHANNELS.getOverview,
         IPC_CHANNELS.listProjects,
         IPC_CHANNELS.listSessions,
@@ -191,6 +201,7 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
   };
 
   return {
+    archiveExportService,
     dataSourcesService,
     diagnosticsService,
     runAuditService,

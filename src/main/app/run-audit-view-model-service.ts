@@ -1,3 +1,4 @@
+import { ArchiveExporter } from "../core/archive/archive-exporter.js";
 import {
   getSessionByIdRequestSchema,
   runAuditViewModelSchema,
@@ -38,6 +39,11 @@ export function createRunAuditViewModelService(
   options: RunAuditViewModelServiceOptions = {}
 ): RunAuditViewModelService {
   const runtime = options.runtime ?? createWorkbenchRuntime(options);
+  const archiveExporter = new ArchiveExporter({
+    cacheStore: runtime.cacheStore,
+    rawArtifactIndex: runtime.rawArtifactIndex,
+    sourceRegistry: runtime.sourceRegistry
+  });
 
   return {
     async getRunAudit(request) {
@@ -80,9 +86,14 @@ export function createRunAuditViewModelService(
       const pullRequest = toGitHubPullRequestField(githubSnapshot);
       const checks = toGitHubSummaryField(githubSnapshot, (snapshot) => snapshot.checksSummary);
       const review = toGitHubSummaryField(githubSnapshot, (snapshot) => snapshot.reviewSummary);
+      const archiveExport = await archiveExporter.getScopeAvailability({
+        kind: "session",
+        sessionId: session.id
+      });
 
       return runAuditViewModelSchema.parse({
         session: preview,
+        archiveExport,
         sections: [
           {
             id: "claim-vs-evidence",

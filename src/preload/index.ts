@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "../main/ipc/channels.js";
 import type {
   AddDataSourceRequest,
+  CreateArchiveRequest,
   GetOverviewRequest,
   GetSessionByIdRequest,
   ListDiagnosticsRequest,
@@ -18,6 +19,9 @@ import type { AgentWorkbenchBridge } from "./types.js";
 const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
   getShellState() {
     return ipcRenderer.invoke(IPC_CHANNELS.getShellState);
+  },
+  createArchive(request: CreateArchiveRequest) {
+    return ipcRenderer.invoke(IPC_CHANNELS.createArchive, request);
   },
   getOverview(request: GetOverviewRequest = {}) {
     return ipcRenderer.invoke(IPC_CHANNELS.getOverview, request);

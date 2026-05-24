@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const operationChannelSchema = z.enum([
   "app:getShellState",
+  "export:createArchive",
   "overview:get",
   "projects:list",
   "sessions:list",
@@ -152,6 +153,20 @@ export const overviewViewModelSchema = z
   .strict();
 export type OverviewViewModel = z.infer<typeof overviewViewModelSchema>;
 
+export const archiveExportAvailabilitySchema = z
+  .object({
+    scopeKind: z.enum(["project", "session"]),
+    scopeId: z.string().min(1),
+    scopeLabel: z.string().min(1),
+    sessionCount: z.number().int().nonnegative(),
+    sourceCount: z.number().int().nonnegative(),
+    rawArtifactsAvailable: z.boolean(),
+    rawArtifactCount: z.number().int().nonnegative(),
+    rawArtifactsReason: z.string().min(1).optional()
+  })
+  .strict();
+export type ArchiveExportAvailability = z.infer<typeof archiveExportAvailabilitySchema>;
+
 export const projectSummaryViewModelSchema = z
   .object({
     projectId: z.string().min(1),
@@ -175,7 +190,8 @@ export const projectSummaryViewModelSchema = z
     remoteUrl: fieldValueViewModelSchema,
     pullRequest: fieldValueViewModelSchema,
     checks: fieldValueViewModelSchema,
-    reviewStatus: fieldValueViewModelSchema
+    reviewStatus: fieldValueViewModelSchema,
+    archiveExport: archiveExportAvailabilitySchema
   })
   .strict();
 export type ProjectSummaryViewModel = z.infer<typeof projectSummaryViewModelSchema>;
@@ -296,7 +312,8 @@ export type RunAuditSectionViewModel = z.infer<typeof runAuditSectionViewModelSc
 export const runAuditViewModelSchema = z
   .object({
     session: sessionPreviewViewModelSchema,
-    sections: z.array(runAuditSectionViewModelSchema)
+    sections: z.array(runAuditSectionViewModelSchema),
+    archiveExport: archiveExportAvailabilitySchema
   })
   .strict();
 export type RunAuditViewModel = z.infer<typeof runAuditViewModelSchema>;
@@ -459,6 +476,64 @@ export const getSessionByIdResponseSchema = z.discriminatedUnion("ok", [
     .strict()
 ]);
 export type GetSessionByIdResponse = z.infer<typeof getSessionByIdResponseSchema>;
+
+export const createArchiveRequestSchema = z
+  .object({
+    scope: z.discriminatedUnion("kind", [
+      z
+        .object({
+          kind: z.literal("project"),
+          projectId: z.string().min(1)
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal("session"),
+          sessionId: z.string().min(1)
+        })
+        .strict()
+    ]),
+    includeRawArtifacts: z.boolean().default(false),
+    privacyWarningAcknowledged: z.boolean()
+  })
+  .strict();
+export type CreateArchiveRequest = z.infer<typeof createArchiveRequestSchema>;
+
+export const createArchiveResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("cancelled"),
+      rawArtifactsIncluded: z.boolean(),
+      rawArtifactCount: z.number().int().nonnegative()
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("exported"),
+      archivePath: z.string().min(1),
+      manifestVersion: z.number().int().positive(),
+      rawArtifactsIncluded: z.boolean(),
+      rawArtifactCount: z.number().int().nonnegative()
+    })
+    .strict()
+]);
+export type CreateArchiveResult = z.infer<typeof createArchiveResultSchema>;
+
+export const createArchiveResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      archive: createArchiveResultSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type CreateArchiveResponse = z.infer<typeof createArchiveResponseSchema>;
 
 export const getSessionDetailResponseSchema = z.discriminatedUnion("ok", [
   z

@@ -1,4 +1,5 @@
 import type { HarnessDescriptor } from "../core/adapter-contract/index.js";
+import { ArchiveExporter } from "../core/archive/archive-exporter.js";
 import type {
   DerivedProjectCacheRecord,
   NormalizedCacheRecord
@@ -94,6 +95,11 @@ export function createTriageViewModelService(
   options: TriageViewModelServiceOptions = {}
 ): TriageViewModelService {
   const runtime = options.runtime ?? createWorkbenchRuntime(options);
+  const archiveExporter = new ArchiveExporter({
+    cacheStore: runtime.cacheStore,
+    rawArtifactIndex: runtime.rawArtifactIndex,
+    sourceRegistry: runtime.sourceRegistry
+  });
 
   return {
     async getOverview(request) {
@@ -148,8 +154,8 @@ export function createTriageViewModelService(
         groupedSessions.set(key, current);
       }
 
-      return [...groupedSessions.entries()]
-        .map(([key, projectSessions]) => {
+      const projects = await Promise.all(
+        [...groupedSessions.entries()].map(async ([key, projectSessions]) => {
           const project = projectSessions[0]?.projectId
             ? data.projectsById.get(projectSessions[0].projectId)
             : undefined;
@@ -166,6 +172,15 @@ export function createTriageViewModelService(
 
           const projectSnapshot = getProjectGitSnapshot(data, project);
           const githubSnapshot = getProjectGitHubSnapshot(data, project);
+          const archiveExport = project?.id
+            ? await archiveExporter.getScopeAvailability({
+                kind: "project",
+                projectId: project.id
+              })
+            : await archiveExporter.getScopeAvailability({
+                kind: "session",
+                sessionId: latestSession.id
+              });
 
           return projectSummaryViewModelSchema.parse({
             projectId: project?.id ?? key,
@@ -191,13 +206,15 @@ export function createTriageViewModelService(
             remoteUrl: toGitRemoteField(projectSnapshot),
             pullRequest: toGitHubPullRequestField(githubSnapshot),
             checks: toGitHubSummaryField(githubSnapshot, (snapshot) => snapshot.checksSummary),
-            reviewStatus: toGitHubSummaryField(githubSnapshot, (snapshot) => snapshot.reviewSummary)
+            reviewStatus: toGitHubSummaryField(githubSnapshot, (snapshot) => snapshot.reviewSummary),
+            archiveExport
           });
         })
+      );
+
+      return projects
         .filter((project): project is ProjectSummaryViewModel => project !== null)
-        .sort((left, right) =>
-          compareTimestampStrings(right.latestActivityAt, left.latestActivityAt)
-        );
+        .sort((left, right) => compareTimestampStrings(right.latestActivityAt, left.latestActivityAt));
     }
   };
 }
