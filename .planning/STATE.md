@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 7 plan 07-02 completed
-last_updated: "2026-05-24T07:39:00Z"
-last_activity: 2026-05-24 - Completed 07-02 shared GitHub snapshots with cached PR summary states and explicit No Matching PR handling
+stopped_at: Phase 7 plan 07-03 completed
+last_updated: "2026-05-24T08:05:07Z"
+last_activity: 2026-05-24 - Completed 07-03 archive export with normalized-only default, indexed raw opt-in, and typed Projects/Run Audit entrypoints
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 36
-  completed_plans: 34
+  completed_plans: 35
   percent: 75
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 ## Current Position
 
 Phase: 7 of 8 (Git, GitHub, Export, and Import)
-Plan: 07-02 complete; 07-03 is ready and 07-04 waits on export
+Plan: 07-03 complete; 07-04 remains pending
 Status: active
-Last activity: 2026-05-24 - Completed 07-02 cached GitHub snapshots, PR summary states, and No Matching PR rendering for Projects and Run Audit
+Last activity: 2026-05-24 - Completed 07-03 archive export with normalized-only default, indexed raw opt-in, and typed Projects/Run Audit entrypoints
 
 Progress: [███████---] 75%
 
@@ -36,9 +36,9 @@ Progress: [███████---] 75%
 
 **Velocity:**
 
-- Total plans completed: 34
+- Total plans completed: 35
 - Average duration: 6 min
-- Total execution time: 205 min
+- Total execution time: 212 min
 
 **By Phase:**
 
@@ -50,12 +50,12 @@ Progress: [███████---] 75%
 | 4. Gemini CLI Adapter End-to-End | 4/4 | 18 min | 5 min |
 | 5. Shared Shell, Verification, and Run Audit | 4/4 | 31 min | 8 min |
 | 6. Harness-Neutral Triage UI | 5/5 | 35 min | 7 min |
-| 7. Git, GitHub, Export, and Import | 2/4 | 14 min | 7 min |
+| 7. Git, GitHub, Export, and Import | 3/4 | 21 min | 7 min |
 
 **Recent Trend:**
 
-- Last 5 plans: 06-03, 06-04, 06-05, 07-01, 07-02
-- Trend: Phase 7 now surfaces both cached git and GitHub truth while keeping no-match PRs and provider failures explicit instead of treating them as success
+- Last 5 plans: 06-04, 06-05, 07-01, 07-02, 07-03
+- Trend: Phase 7 now pairs cached repo truth with portable archive export while keeping raw data opt-in, indexed, and explicitly warned
 
 *Updated after each plan completion*
 
@@ -131,12 +131,13 @@ Recent decisions affecting current work:
 - Phase 7 execution: Shared root-confidence gating now hard-stops inferred and unknown roots before any git command, validates observed roots against the repository top level, and degrades missing or timed-out git state to explicit Unknown or Unsupported fields plus diagnostics.
 - Phase 7 execution: Scanner-derived project git snapshots now persist branch, HEAD, dirty state, change counts, additions, deletions, and remote URL in shared derived cache records, and both Projects and Run Audit consume that same cached repo truth.
 - Phase 7 execution: Shared GitHub snapshots now run only after validated git context, reuse the project cache seam, and surface Available, No Matching PR, Unknown, or Unsupported PR summary states consistently across Projects and Run Audit.
+- Phase 7 execution: Archive export now builds a manifest-backed read-only bundle from shared cache, source metadata, and diagnostics, defaulting to normalized-only payloads instead of silent raw inclusion.
+- Phase 7 execution: Raw artifact export is now hard-gated to indexed allowlisted artifacts, and Projects plus Run Audit expose explicit export entrypoints with privacy warning copy and typed main-owned IPC.
 
 ### Pending Todos
 
-- Execute 07-03 harness-neutral archive export with normalized-only default and raw-artifact privacy warnings.
 - Execute 07-04 archive import as a persistent read-only source once export artifacts and metadata are fixed.
-- Preserve the Phase 6 through 07-02 truth-state guarantees while adding archive support.
+- Preserve the Phase 6 through 07-03 truth-state guarantees while adding archive import support.
 
 ### Blockers/Concerns
 
@@ -155,6 +156,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-24T07:39:00Z
-Stopped at: Phase 7 plan 07-02 complete
-Resume file: .planning/phases/07-git-github-export-and-import/07-03-PLAN.md
+Last session: 2026-05-24T08:05:07Z
+Stopped at: Phase 7 plan 07-03 complete
+Resume file: .planning/phases/07-git-github-export-and-import/07-04-PLAN.md

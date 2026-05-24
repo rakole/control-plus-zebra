@@ -188,7 +188,7 @@ Plans:
 - [x] 07-01: Implement read-only git provider and root-confidence gating.
 **Wave 2** *(blocked on Wave 1 completion)*
 - [x] 07-02: Implement optional read-only GitHub provider and failure semantics.
-- [ ] 07-03: Implement harness-neutral export archive with privacy warnings.
+- [x] 07-03: Implement harness-neutral export archive with privacy warnings.
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 07-04: Implement archive import as a read-only source.
 
