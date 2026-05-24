@@ -1,13 +1,13 @@
-import type { HarnessCapabilities } from "../model/capabilities.js";
 import type { AdapterId } from "../model/identifiers.js";
-import type { OutputArtifact } from "../model/entities.js";
 import type { WatchPlan } from "../watcher/watch-plan.js";
 import type {
+  AdapterCapabilities,
   AdapterContext,
   AdapterNormalizationInput,
   AdapterNormalizationResult,
   DiscoveredHarnessSource,
   LoadedOutputArtifact,
+  OutputArtifactRef,
   RawArtifactRef,
   RawHarnessEvent,
   SourceRootConfig,
@@ -24,13 +24,16 @@ export interface HarnessDescriptor {
   parserVersion?: string;
   supportedPlatforms: SupportedPlatform[];
   defaultRoots: SourceRootHint[];
-  capabilities: HarnessCapabilities;
+  capabilities: AdapterCapabilities;
 }
 
 export interface SessionSourceAdapter<
   TRawEvent extends RawHarnessEvent = RawHarnessEvent
 > {
   descriptor: HarnessDescriptor;
+  getDefaultSourceRoots(
+    context: AdapterContext
+  ): Promise<SourceRootHint[]>;
   validateSourceRoot(
     root: SourceRootConfig,
     context: AdapterContext
@@ -52,11 +55,11 @@ export interface SessionSourceAdapter<
     context: AdapterContext
   ): Promise<AdapterNormalizationResult>;
   loadOutputArtifact?(
-    artifact: OutputArtifact,
+    artifact: OutputArtifactRef,
     context: AdapterContext
   ): Promise<LoadedOutputArtifact>;
-  getWatchPlan?(
+  getWatchPlan(
     source: DiscoveredHarnessSource,
     context: AdapterContext
-  ): Promise<WatchPlan | null>;
+  ): Promise<WatchPlan>;
 }

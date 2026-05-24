@@ -16,12 +16,12 @@ describe("gemini-cli output artifact loading", () => {
   it("loads both plain-text and JSON-wrapped sidecars lazily through the artifact allowlist", async () => {
     const exercised = await exerciseAdapter(geminiCliAdapter, geminiFixtureRoot);
     const artifactContext = createGeminiArtifactContext(exercised.source.rootPath, exercised.artifacts);
-    const textArtifact = exercised.normalized.outputArtifacts.find((artifact) =>
-      artifact.nativeId.endsWith("read_file_read_file_1700000000000_0_a1b2c3.txt")
-    );
-    const jsonArtifact = exercised.normalized.outputArtifacts.find((artifact) =>
-      artifact.nativeId.endsWith("replace_replace_1700000002000_2_a4b5c6.json")
-    );
+	    const textArtifact = exercised.normalized.outputArtifacts.find((artifact) =>
+	      (artifact.nativeId ?? artifact.nativeRef ?? "").endsWith("read_file_read_file_1700000000000_0_a1b2c3.txt")
+	    );
+	    const jsonArtifact = exercised.normalized.outputArtifacts.find((artifact) =>
+	      (artifact.nativeId ?? artifact.nativeRef ?? "").endsWith("replace_replace_1700000002000_2_a4b5c6.json")
+	    );
 
     if (!textArtifact || !jsonArtifact || !geminiCliAdapter.loadOutputArtifact) {
       throw new Error("Expected Gemini output artifacts and lazy loader.");

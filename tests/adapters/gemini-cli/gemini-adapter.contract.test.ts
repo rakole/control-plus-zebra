@@ -29,8 +29,8 @@ runAdapterContractSuite({
     outputArtifacts: 4,
     fileMutations: 1
   },
-  assertExercisedAdapter(adapterRun) {
-    expect(adapterRun.validation.capabilities?.messageCapture.status).toBe("supported");
+	  assertExercisedAdapter(adapterRun) {
+	    expect(adapterRun.validation.capabilities?.replay.assistantMessages).toBe(true);
     expect(adapterRun.sources[0]?.metadata).toMatchObject({
       sourceKind: "gemini-project-directory",
       evidenceCount: 4
@@ -44,13 +44,13 @@ runAdapterContractSuite({
       adapterId: "gemini-cli",
       name: "alpha-project"
     });
-    expect(normalized.sessions.map((session) => session.lifecycleState)).toEqual([
+    expect(normalized.sessions.map((session) => session.lifecycleStatus)).toEqual([
       "completed",
       "cancelled"
     ]);
-    expect(normalized.shellCommands[0]).toMatchObject({
-      command: "npm run typecheck",
-      outputSource: "combined"
-    });
+	    expect(normalized.shellCommands[0]).toMatchObject({
+	      command: "npm run typecheck",
+	      outputInline: "Typecheck passed"
+	    });
   }
 });

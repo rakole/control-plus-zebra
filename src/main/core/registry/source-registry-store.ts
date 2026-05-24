@@ -24,6 +24,7 @@ const importedArchiveMetadataSchema = z
 const confidenceSchema = z
   .object({
     level: z.enum(["high", "medium", "low", "unknown"]),
+    normalizedLevel: z.enum(["confirmed", "observed", "inferred", "unknown"]).optional(),
     reason: z.string().optional(),
     evidence: z.array(z.string()).optional()
   })

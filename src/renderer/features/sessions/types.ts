@@ -15,7 +15,8 @@ export type SessionPreviewView = NonNullable<
   Extract<GetSessionByIdResponse, { ok: true }>["session"]
 >;
 
-export type SessionCapability = SessionPreviewView["capabilityBadges"][number];
+export type SessionCapabilityGroup = SessionPreviewView["capabilityGroups"][number];
+export type SessionCapability = SessionCapabilityGroup["capabilities"][number];
 
 export type GetSessionDetailResponse = Awaited<ReturnType<typeof getSessionDetail>>;
 export type SessionDetailView = NonNullable<
@@ -28,3 +29,9 @@ export type RunAuditView = NonNullable<
   Extract<GetRunAuditResponse, { ok: true }>["runAudit"]
 >;
 export type RunAuditSection = RunAuditView["sections"][number];
+
+export function flattenSessionCapabilities(
+  capabilityGroups: SessionCapabilityGroup[]
+): SessionCapability[] {
+  return capabilityGroups.flatMap((group) => group.capabilities);
+}

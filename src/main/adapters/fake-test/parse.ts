@@ -1,6 +1,6 @@
 import type { AdapterContext, RawArtifactRef } from "../../core/adapter-contract/types.js";
+import { adapterReadTextFile } from "../../core/adapter-contract/context-helpers.js";
 import type { RawHarnessEvent } from "../../core/adapter-contract/index.js";
-import { createSafeFilesystem } from "../../core/security/safe-filesystem.js";
 import { fakeHarnessFixtureSchema, type FakeParsedPayload } from "./types.js";
 
 export type FakeRawEvent = RawHarnessEvent<FakeParsedPayload>;
@@ -17,6 +17,18 @@ function buildParseDiagnosticEvent(
     sourceId: artifact.sourceId,
     artifactId: artifact.id,
     kind: "fake.parse-diagnostic",
+    nativeType: "parse-diagnostic",
+    raw: {
+      code: `fake-test.parse.${suffix}`,
+      message,
+      nativeId
+    },
+    source: {
+      rawArtifactId: artifact.id,
+      artifactPath: artifact.path,
+      nativeRef: artifact.nativeRef ?? artifact.nativeId
+    },
+    diagnostics: [],
     payload: {
       kind: "parse-diagnostic",
       diagnostic: {
@@ -34,15 +46,20 @@ export async function* parseFakeTestArtifact(
   context: AdapterContext
 ): AsyncIterable<FakeRawEvent> {
   let fixtureText: string;
-  const safeFilesystem =
-    context.safeFilesystem ??
-    createSafeFilesystem({
-      allowedArtifactPaths: [artifact.path],
-      allowedRootPaths: [artifact.path]
-    });
 
   try {
-    fixtureText = await safeFilesystem.readTextFile(artifact.path);
+    if (!artifact.path) {
+      throw new Error("Fake fixture artifact is missing a readable path.");
+    }
+
+    fixtureText = await adapterReadTextFile(
+      {
+        ...context,
+        allowedRoots: context.allowedRoots ?? [artifact.path]
+      },
+      artifact.path,
+      artifact.id
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown read error";
     yield buildParseDiagnosticEvent(
@@ -93,6 +110,14 @@ export async function* parseFakeTestArtifact(
     sourceId: artifact.sourceId,
     artifactId: artifact.id,
     kind: "fake.fixture-metadata",
+    nativeType: "fixture-metadata",
+    raw: fixture,
+    source: {
+      rawArtifactId: artifact.id,
+      artifactPath: artifact.path,
+      nativeRef: artifact.nativeRef ?? artifact.nativeId
+    },
+    diagnostics: [],
     payload: {
       kind: "fixture-metadata",
       fixture
@@ -106,7 +131,16 @@ export async function* parseFakeTestArtifact(
       sourceId: artifact.sourceId,
       artifactId: artifact.id,
       kind: `fake.${event.kind}`,
+      nativeType: event.kind,
+      nativeId: event.id,
       timestamp: event.timestamp,
+      raw: event,
+      source: {
+        rawArtifactId: artifact.id,
+        artifactPath: artifact.path,
+        nativeRef: artifact.nativeRef ?? artifact.nativeId
+      },
+      diagnostics: [],
       payload: {
         kind: "timeline-event",
         event

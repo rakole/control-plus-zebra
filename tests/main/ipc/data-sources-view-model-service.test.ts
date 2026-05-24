@@ -119,7 +119,7 @@ describe("data sources view model service", () => {
         cacheStatus: "Cached",
         watchSupport: "Watch Unsupported",
         diagnosticCount: 0,
-        capabilityBadges: [],
+        capabilityGroups: [],
         diagnostics: []
       })
     ).toThrow();
@@ -130,7 +130,7 @@ describe("data sources view model service", () => {
     const service = createDataSourcesViewModelService({ runtime });
     const triageService = createTriageViewModelService({ runtime });
     const projectId = (await triageService.listProjects()).find(
-      (project) => project.projectName === "control-plus-zebra"
+      (project) => project.projectDisplayName === "control-plus-zebra"
     )?.projectId;
 
     expect(projectId).toBeDefined();

@@ -35,7 +35,7 @@ describe("Diagnostics route", () => {
                 adapterDisplayName: "Fake Test Harness",
                 sessionId: "session-1",
                 sessionTitle: "Fixture session",
-                projectName: "Control Plus Zebra",
+                projectDisplayName: "Control Plus Zebra",
                 message: "Git Context Capture is Unsupported. Git evidence is unavailable."
               }
             ]
@@ -53,7 +53,7 @@ describe("Diagnostics route", () => {
                 sourceArea: "cache",
                 adapterId: "fake-test",
                 adapterDisplayName: "Fake Test Harness",
-                projectName: "Control Plus Zebra",
+                projectDisplayName: "Control Plus Zebra",
                 message: "Cache metadata could not be read."
               }
             ]

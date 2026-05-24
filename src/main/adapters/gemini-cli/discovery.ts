@@ -28,6 +28,39 @@ export const GEMINI_LOGS_ARTIFACT_TYPE = "gemini-logs";
 export const GEMINI_CHAT_ARTIFACT_TYPE = "gemini-chat";
 export const GEMINI_TOOL_OUTPUT_ARTIFACT_TYPE = "gemini-tool-output";
 
+function toArtifactKind(artifactType: string): RawArtifactRef["artifactKind"] {
+  switch (artifactType) {
+    case GEMINI_PROJECT_ROOT_ARTIFACT_TYPE:
+      return "project-root-map";
+    case GEMINI_LOGS_ARTIFACT_TYPE:
+      return "history";
+    case GEMINI_CHAT_ARTIFACT_TYPE:
+      return "session-log";
+    case GEMINI_TOOL_OUTPUT_ARTIFACT_TYPE:
+      return "output-artifact";
+    default:
+      return "unknown";
+  }
+}
+
+function toParseStrategy(
+  artifactType: string,
+  mediaType?: string
+): RawArtifactRef["parseStrategy"] {
+  switch (artifactType) {
+    case GEMINI_CHAT_ARTIFACT_TYPE:
+      return "stream-jsonl";
+    case GEMINI_PROJECT_ROOT_ARTIFACT_TYPE:
+      return "text";
+    case GEMINI_LOGS_ARTIFACT_TYPE:
+      return "json";
+    case GEMINI_TOOL_OUTPUT_ARTIFACT_TYPE:
+      return mediaType === "application/json" ? "json" : "text";
+    default:
+      return "unknown";
+  }
+}
+
 export async function validateGeminiCliSourceRoot(
   root: SourceRootConfig,
   context: AdapterContext
@@ -274,12 +307,17 @@ function buildArtifact(
     }),
     adapterId: source.adapterId,
     sourceId: source.id,
+    nativeRef: input.nativeId,
     nativeId: input.nativeId,
     path: input.path,
+    artifactKind: toArtifactKind(input.artifactType),
+    parseStrategy: toParseStrategy(input.artifactType, input.mediaType),
     artifactType: input.artifactType,
     ...(input.mediaType ? { mediaType: input.mediaType } : {}),
+    ...(input.stat.byteLength !== undefined ? { sizeBytes: input.stat.byteLength } : {}),
     ...(input.stat.byteLength !== undefined ? { byteLength: input.stat.byteLength } : {}),
-    ...(input.stat.inode !== undefined ? { inode: input.stat.inode } : {}),
+    ...(input.stat.inode !== undefined ? { inode: String(input.stat.inode) } : {}),
+    mtime: new Date(input.stat.mtimeMs).toISOString(),
     mtimeMs: input.stat.mtimeMs
   };
 }

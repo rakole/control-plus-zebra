@@ -235,7 +235,7 @@ export class ArchiveExporter {
       (
         scope.kind === "project"
           ? [
-              ...(selectedProject ? [selectedProject.sourceId] : []),
+              ...(selectedProject?.sourceId ? [selectedProject.sourceId] : []),
               ...merged.sessions
                 .filter((session) => session.projectId === selectedProject?.id)
                 .map((session) => session.sourceId)
@@ -243,7 +243,7 @@ export class ArchiveExporter {
           : selectedSession
             ? [selectedSession.sourceId]
             : []
-      ).filter((value) => value.length > 0)
+      ).filter((value): value is string => Boolean(value && value.length > 0))
     );
 
     const relevantSourceRecords = sourceRecords.filter((source) =>
@@ -261,7 +261,7 @@ export class ArchiveExporter {
       scopeId: scope.kind === "project" ? scope.projectId : scope.sessionId,
       scopeLabel:
         scope.kind === "project"
-          ? selectedProject?.name ?? "Project Archive"
+          ? selectedProject?.displayName ?? selectedProject?.name ?? "Project Archive"
           : selectedSession?.title ?? selectedSession?.nativeId ?? "Session Archive",
       sessionCount: sessionIds.length,
       sourceCount: relevantSourceRecords.length,
@@ -340,8 +340,8 @@ function filterCacheRecord(
   const shellCommands = normalized.shellCommands.filter((shellCommand) =>
     scope.sessionIds.includes(shellCommand.sessionId)
   );
-  const outputArtifacts = normalized.outputArtifacts.filter((artifact) =>
-    scope.sessionIds.includes(artifact.sessionId)
+  const outputArtifacts = normalized.outputArtifacts.filter(
+    (artifact) => artifact.sessionId !== undefined && scope.sessionIds.includes(artifact.sessionId)
   );
   const fileMutations = normalized.fileMutations.filter((mutation) =>
     scope.sessionIds.includes(mutation.sessionId)

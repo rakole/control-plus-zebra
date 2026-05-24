@@ -406,15 +406,15 @@ class DefaultGitCommandRunner implements GitCommandRunner {
 
 function buildProjectDiagnostic(project: Project, code: string, message: string): Diagnostic {
   return buildDiagnostic(
-    project.adapterId,
+    project.adapterId ?? "unknown-adapter",
     code,
     message,
     "warning",
     "project",
     code === "git.binary.missing" ? HIGH_CONFIDENCE : MEDIUM_CONFIDENCE,
     {
-      sourceId: project.sourceId,
-      nativeId: `${project.nativeId}:${code}`,
+      ...(project.sourceId ? { sourceId: project.sourceId } : {}),
+      nativeId: `${project.nativeId ?? project.id}:${code}`,
       relatedEntityIds: [project.id]
     }
   );

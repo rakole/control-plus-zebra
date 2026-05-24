@@ -4,34 +4,43 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { fakeTestAdapter } from "../../../src/main/adapters/fake-test/index.js";
 import { FileBackedCacheStore } from "../../../src/main/core/cache/index.js";
 import { exerciseAdapter } from "../../contract/run-adapter-contract.js";
-import { fakeTestAdapter } from "../../../src/main/adapters/fake-test/index.js";
 
-const fixturePath = path.resolve(
-  "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json"
-);
+const fixturePath = path.resolve("src/main/adapters/fake-test/fixtures/phase1-session.fixture.json");
 
 describe("FileBackedCacheStore", () => {
   it("writes and reloads normalized cache records", async () => {
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-cache-store-"));
-    const store = new FileBackedCacheStore(path.join(tempDir, "normalized-cache.json"));
-    const exercised = await exerciseAdapter(fakeTestAdapter, fixturePath);
+	    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-cache-store-"));
+	    const store = new FileBackedCacheStore(path.join(tempDir, "normalized-cache.json"));
+	    const { normalized } = await exerciseAdapter(fakeTestAdapter, fixturePath);
     const record = {
       cacheKey: "cache-proof",
-      adapterId: exercised.normalized.adapterId,
-      sourceId: exercised.normalized.sourceId,
+      adapterId: normalized.adapterId,
+      sourceId: normalized.sourceId,
       artifactFingerprint: "fingerprint-proof",
       createdAt: "2026-05-23T00:00:00.000Z",
       updatedAt: "2026-05-23T00:00:00.000Z",
-      normalized: exercised.normalized
+      normalized,
+      derived: {
+        sessions: [],
+        projects: []
+      }
     };
 
     await store.writeRecord(record);
 
     const loaded = await store.getLatestSourceRecord(record.sourceId);
 
-    expect(loaded).toEqual(record);
+    expect(loaded).toEqual({
+      ...record,
+      derived: {
+        version: 1,
+        sessions: [],
+        projects: []
+      }
+    });
   });
 
   it("does not treat malformed cache files as a successful load", async () => {

@@ -1,5 +1,5 @@
 import type { HarnessDescriptor } from "../core/adapter-contract/index.js";
-import type { CapabilityState, CapabilityStatus, HarnessCapabilities } from "../core/model/capabilities.js";
+import type { CapabilityStatus } from "../core/model/capabilities.js";
 import { createSourceId } from "../core/model/identifiers.js";
 import type { Diagnostic } from "../core/diagnostics/diagnostic.js";
 import type {
@@ -24,7 +24,6 @@ import {
   type UpdateDataSourceRequest,
   validateDataSourceRequestSchema,
   type ValidateDataSourceRequest,
-  type CapabilityBadgeLabel,
   type DataSourceAdapterViewModel,
   type DataSourceDiagnosticViewModel,
   type DataSourceViewModel,
@@ -35,22 +34,7 @@ import {
   type WorkbenchRuntime,
   type WorkbenchRuntimeOptions
 } from "./workbench-runtime.js";
-
-const capabilityKeys = [
-  "sessionDiscovery",
-  "liveSessionObservation",
-  "eventStreaming",
-  "messageCapture",
-  "toolCallCapture",
-  "shellCommandCapture",
-  "outputArtifactCapture",
-  "fileMutationCapture",
-  "sourceValidation",
-  "watchPlans",
-  "gitContextCapture",
-  "githubContextCapture",
-  "verificationSignals"
-] as const satisfies readonly (keyof HarnessCapabilities)[];
+import { toCapabilityGroups } from "./capability-view-models.js";
 
 const settingsChangedReason = "Source settings changed. Validate again before scanning.";
 const importedArchiveReadOnlyReason =
@@ -183,9 +167,7 @@ function toAdapterViewModel(descriptor: HarnessDescriptor): DataSourceAdapterVie
   return {
     adapterId: descriptor.id,
     displayName: descriptor.displayName,
-    capabilityBadges: capabilityKeys.map((key) =>
-      toCapabilityBadge(key, descriptor.capabilities[key])
-    ),
+    capabilityGroups: toCapabilityGroups(descriptor.capabilities),
     defaultRoots: descriptor.defaultRoots.map((root) => ({
       path: root.path,
       label: root.label,
@@ -231,9 +213,7 @@ function toSourceViewModel(
     ...(source.watch.strategy ? { watchStrategy: source.watch.strategy } : {}),
     ...(source.watch.reason ? { watchReason: source.watch.reason } : {}),
     diagnosticCount: diagnostics.length,
-    capabilityBadges: descriptor
-      ? capabilityKeys.map((key) => toCapabilityBadge(key, descriptor.capabilities[key]))
-      : [],
+    capabilityGroups: descriptor ? toCapabilityGroups(descriptor.capabilities) : [],
     diagnostics
   };
 }
@@ -328,26 +308,6 @@ function toAddedByLabel(source: SourceRecord): "Configured" | "Import" {
   return source.addedBy === "import" ? "Import" : "Configured";
 }
 
-function toCapabilityBadge(key: keyof HarnessCapabilities, state: CapabilityState) {
-  return {
-    key,
-    label: humanizeCapabilityKey(key),
-    state: toCapabilityLabel(state.status),
-    ...(state.reason ? { reason: state.reason } : {})
-  };
-}
-
-function toCapabilityLabel(status: CapabilityState["status"]): CapabilityBadgeLabel {
-  switch (status) {
-    case "supported":
-      return "Supported";
-    case "unsupported":
-      return "Unsupported";
-    case "unknown":
-      return "Unknown";
-  }
-}
-
 function toValidationStatusLabel(status: SourceValidationStatus): DataSourceValidationStatus {
   switch (status) {
     case "not-validated":
@@ -395,8 +355,4 @@ function toWatchSupportLabel(status: CapabilityStatus): WatchSupportStatus {
     case "unknown":
       return "Watch Unknown";
   }
-}
-
-function humanizeCapabilityKey(key: keyof HarnessCapabilities): string {
-  return key.replace(/([A-Z])/gu, " $1").replace(/^./u, (first) => first.toUpperCase());
 }

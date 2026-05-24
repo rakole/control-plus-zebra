@@ -26,14 +26,14 @@ describe("gemini-cli normalization", () => {
       name: "alpha-project",
       rootPath: "/workspaces/alpha-project"
     });
-    expect(normalized.sessions.map((session) => session.lifecycleState)).toEqual([
+    expect(normalized.sessions.map((session) => session.lifecycleStatus)).toEqual([
       "completed",
       "cancelled"
     ]);
     expect(normalized.messages.map((message) => message.role)).toEqual(
       expect.arrayContaining(["assistant", "system", "user"])
     );
-    expect(normalized.toolCalls.map((toolCall) => toolCall.toolName)).toEqual(
+    expect(normalized.toolCalls.map((toolCall) => toolCall.name)).toEqual(
       expect.arrayContaining([
         "read_file",
         "run_shell_command",
@@ -41,10 +41,10 @@ describe("gemini-cli normalization", () => {
         "update_topic"
       ])
     );
-    expect(normalized.shellCommands[0]).toMatchObject({
-      command: "npm run typecheck",
-      outputSource: "combined"
-    });
+	    expect(normalized.shellCommands[0]).toMatchObject({
+	      command: "npm run typecheck",
+	      outputInline: "Typecheck passed"
+	    });
     expect(normalized.outputArtifacts.map((artifact) => artifact.nativeId)).toEqual(
       expect.arrayContaining([
         "tool-outputs/session-11111111-1111-4111-8111-111111111111/read_file_read_file_1700000000000_0_a1b2c3.txt",
@@ -78,7 +78,7 @@ describe("gemini-cli normalization", () => {
       createGeminiAdapterContext(betaSource.rootPath)
     );
 
-    expect(normalized.sessions[0]?.lifecycleState).toBe("active");
+    expect(normalized.sessions[0]?.lifecycleStatus).toBe("active");
     expect(normalized.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
       "gemini-cli.normalize.missing-sidecar"
     );
@@ -105,7 +105,7 @@ describe("gemini-cli normalization", () => {
       createGeminiAdapterContext(gammaSource.rootPath)
     );
 
-    expect(normalized.sessions[0]?.lifecycleState).toBe("completed");
+    expect(normalized.sessions[0]?.lifecycleStatus).toBe("completed");
     expect(normalized.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
       expect.arrayContaining([
         "gemini-cli.parse.chat-json-line",
@@ -162,9 +162,9 @@ describe("gemini-cli normalization", () => {
       );
 
       expect(toolCall).toMatchObject({
-        toolName: "read_file"
+        name: "read_file"
       });
-      expect(toolCall?.outputSummary).toBeUndefined();
+      expect(toolCall?.resultPreview).toBeUndefined();
     } finally {
       await cleanupTempGeminiFixtureRoot(tempDir);
     }

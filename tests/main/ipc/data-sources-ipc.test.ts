@@ -128,7 +128,7 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
       {
         adapterId: "fake-test",
         displayName: "Fake Test Harness",
-        capabilityBadges: [],
+        capabilityGroups: [],
         defaultRoots: []
       }
     ],

@@ -3,22 +3,7 @@ import type {
   AdapterNormalizationResult
 } from "../../core/adapter-contract/index.js";
 import { buildDiagnostic } from "../../core/diagnostics/diagnostic.js";
-import type {
-  CapabilityEnvelope,
-  CapabilityState,
-  HarnessCapabilities
-} from "../../core/model/capabilities.js";
-import { HIGH_CONFIDENCE, MEDIUM_CONFIDENCE } from "../../core/model/confidence.js";
-import type {
-  FileMutationEvidence,
-  OutputArtifact,
-  Project,
-  Session,
-  SessionEvent,
-  SessionMessage,
-  ShellCommandEvidence,
-  ToolCall
-} from "../../core/model/entities.js";
+import { HIGH_CONFIDENCE } from "../../core/model/confidence.js";
 import {
   createFileMutationEvidenceId,
   createOutputArtifactId,
@@ -33,81 +18,16 @@ import { fakeTestDescriptor } from "./descriptor.js";
 import type { FakeParseDiagnostic, FakeTimelineEvent } from "./types.js";
 import type { FakeRawEvent } from "./parse.js";
 
-function buildCapabilityEnvelope(
-  capabilities: HarnessCapabilities,
-  sourceId?: string,
-  sessionId?: string
-): CapabilityEnvelope {
+const CONFIRMED = "confirmed";
+const UNKNOWN = "unknown";
+
+function buildCapabilityEnvelope(sourceId?: string, sessionId?: string) {
   return {
     adapterId: fakeTestDescriptor.id,
     ...(sourceId ? { sourceId } : {}),
     ...(sessionId ? { sessionId } : {}),
-    capabilities
+    capabilities: fakeTestDescriptor.capabilities
   };
-}
-
-function buildSessionCapabilityEnvelope(
-  capabilities: HarnessCapabilities,
-  sourceId: string,
-  sessionId: string
-): CapabilityEnvelope & { sessionId: string } {
-  return {
-    adapterId: fakeTestDescriptor.id,
-    sourceId,
-    sessionId,
-    capabilities
-  };
-}
-
-function toCapabilityState(state: {
-  status: CapabilityState["status"];
-  reason?: string | undefined;
-  details?: string | undefined;
-}): CapabilityState {
-  return {
-    status: state.status,
-    ...(state.reason !== undefined ? { reason: state.reason } : {}),
-    ...(state.details !== undefined ? { details: state.details } : {})
-  };
-}
-
-function toHarnessCapabilities(capabilities: {
-  [K in keyof HarnessCapabilities]: {
-    status: CapabilityState["status"];
-    reason?: string | undefined;
-    details?: string | undefined;
-  };
-}): HarnessCapabilities {
-  return {
-    sessionDiscovery: toCapabilityState(capabilities.sessionDiscovery),
-    liveSessionObservation: toCapabilityState(capabilities.liveSessionObservation),
-    eventStreaming: toCapabilityState(capabilities.eventStreaming),
-    messageCapture: toCapabilityState(capabilities.messageCapture),
-    toolCallCapture: toCapabilityState(capabilities.toolCallCapture),
-    shellCommandCapture: toCapabilityState(capabilities.shellCommandCapture),
-    outputArtifactCapture: toCapabilityState(capabilities.outputArtifactCapture),
-    fileMutationCapture: toCapabilityState(capabilities.fileMutationCapture),
-    sourceValidation: toCapabilityState(capabilities.sourceValidation),
-    watchPlans: toCapabilityState(capabilities.watchPlans),
-    gitContextCapture: toCapabilityState(capabilities.gitContextCapture),
-    githubContextCapture: toCapabilityState(capabilities.githubContextCapture),
-    verificationSignals: toCapabilityState(capabilities.verificationSignals)
-  };
-}
-
-function summarizeTimelineEvent(event: FakeTimelineEvent): string {
-  switch (event.kind) {
-    case "lifecycle":
-      return event.summary ?? `Lifecycle changed to ${event.state}`;
-    case "message":
-      return `${event.role} message`;
-    case "tool-call":
-      return `${event.toolName} ${event.status}`;
-    case "shell-command":
-      return event.command;
-    case "output-artifact":
-      return event.summary ?? `Output artifact ${event.artifactId}`;
-  }
 }
 
 function buildParseDiagnostic(
@@ -130,6 +50,102 @@ function buildParseDiagnostic(
   );
 }
 
+function buildOrderKey(order: number, nativeId: string): string {
+  return `${String(order).padStart(6, "0")}:${nativeId}`;
+}
+
+function buildRawPointer(
+  rawEvent: FakeRawEvent | undefined,
+  pointer: string,
+  eventId?: string
+): Record<string, string> {
+  return {
+    ...(rawEvent?.artifactId ? { artifactId: rawEvent.artifactId } : {}),
+    ...(rawEvent?.source?.artifactPath ? { path: rawEvent.source.artifactPath } : {}),
+    ...(eventId ? { eventId } : {}),
+    pointer
+  };
+}
+
+function summarizeTimelineEvent(event: FakeTimelineEvent): string {
+  switch (event.kind) {
+    case "lifecycle":
+      return event.summary ?? `Session ${event.state}`;
+    case "message":
+      return `${event.role} message`;
+    case "tool-call":
+      return `${event.toolName} ${event.status}`;
+    case "shell-command":
+      return event.command;
+    case "output-artifact":
+      return event.summary ?? `Output artifact ${event.artifactId}`;
+  }
+}
+
+function mapToolKind(name: string) {
+  switch (name) {
+    case "read_file":
+      return "read";
+    case "search_file":
+    case "grep":
+      return "search";
+    case "create_file":
+    case "write_file":
+      return "write";
+    case "replace":
+    case "edit_file":
+      return "replace";
+    case "run_shell_command":
+      return "shell";
+    case "update_topic":
+      return "topic";
+    default:
+      return "unknown";
+  }
+}
+
+function mapToolStatus(status: string) {
+  switch (status) {
+    case "started":
+      return "pending";
+    case "succeeded":
+      return "completed";
+    case "failed":
+    case "cancelled":
+      return "failed";
+    default:
+      return "unknown";
+  }
+}
+
+function mapArtifactShape(artifact: {
+  kind: "image" | "json" | "text" | "trace" | "unknown";
+  path?: string | undefined;
+  mediaType?: string | undefined;
+}) {
+  if (artifact.kind === "image") {
+    return { kind: "screenshot", contentKind: "binary" };
+  }
+
+  if (artifact.kind === "json" || artifact.mediaType === "application/json") {
+    return { kind: "sidecar", contentKind: "json-output-wrapper" };
+  }
+
+  if (artifact.kind === "trace") {
+    return { kind: "raw-log", contentKind: "plain-text" };
+  }
+
+  if (artifact.kind === "text") {
+    return { kind: "sidecar", contentKind: "plain-text" };
+  }
+
+  if (artifact.path?.endsWith(".json")) {
+    return { kind: "sidecar", contentKind: "json-output-wrapper" };
+  }
+
+  return { kind: "unknown", contentKind: "unknown" };
+}
+
 export async function normalizeFakeTestEvents(
   input: AdapterNormalizationInput<FakeRawEvent>
 ): Promise<AdapterNormalizationResult> {
@@ -140,7 +156,7 @@ export async function normalizeFakeTestEvents(
       (event): event is FakeRawEvent & { payload: { kind: "parse-diagnostic" } } =>
         event.payload.kind === "parse-diagnostic"
     )
-    .map((event) => buildParseDiagnostic(sourceId, event.payload.diagnostic, [event.artifactId]));
+    .map((event) => buildParseDiagnostic(sourceId, event.payload.diagnostic, [event.artifactId ?? event.id ?? "parse-diagnostic"]));
   const metadataEvent = input.rawEvents.find(
     (event): event is FakeRawEvent & { payload: { kind: "fixture-metadata" } } =>
       event.payload.kind === "fixture-metadata"
@@ -151,8 +167,8 @@ export async function normalizeFakeTestEvents(
       adapterId,
       sourceId,
       capabilities: {
-        adapter: buildCapabilityEnvelope(fakeTestDescriptor.capabilities),
-        source: buildCapabilityEnvelope(fakeTestDescriptor.capabilities, sourceId),
+        adapter: buildCapabilityEnvelope(),
+        source: buildCapabilityEnvelope(sourceId),
         sessions: []
       },
       projects: [],
@@ -180,11 +196,10 @@ export async function normalizeFakeTestEvents(
                 }
               )
             ]
-    };
+    } as unknown as AdapterNormalizationResult;
   }
 
   const fixture = metadataEvent.payload.fixture;
-  const fixtureCapabilities = toHarnessCapabilities(fixture.capabilities);
   const projectId = createProjectId({
     adapterId,
     sourceId,
@@ -196,35 +211,6 @@ export async function normalizeFakeTestEvents(
     nativeId: fixture.session.id
   });
 
-  const projects: Project[] = [
-    {
-      kind: "project",
-      id: projectId,
-      adapterId,
-      sourceId,
-      nativeId: fixture.project.id,
-      name: fixture.project.name,
-      ...(fixture.project.rootPath ? { rootPath: fixture.project.rootPath } : {}),
-      confidence: HIGH_CONFIDENCE
-    }
-  ];
-
-  const sessions: Session[] = [
-    {
-      kind: "session",
-      id: sessionId,
-      adapterId,
-      sourceId,
-      nativeId: fixture.session.id,
-      projectId,
-      ...(fixture.session.title ? { title: fixture.session.title } : {}),
-      startedAt: fixture.session.startedAt,
-      ...(fixture.session.endedAt ? { endedAt: fixture.session.endedAt } : {}),
-      lifecycleState: fixture.session.lifecycleState,
-      confidence: HIGH_CONFIDENCE
-    }
-  ];
-
   const diagnostics = [
     ...parseDiagnostics,
     ...fixture.diagnostics.map((diagnostic, index) =>
@@ -234,74 +220,85 @@ export async function normalizeFakeTestEvents(
         diagnostic.message,
         diagnostic.severity,
         "source",
-        MEDIUM_CONFIDENCE,
+        HIGH_CONFIDENCE,
         {
           sourceId,
-          nativeId: `${fixture.session.id}:diagnostic:${index}`
+          nativeId: `${fixture.session.id}:diagnostic:${index + 1}`
         }
       )
     )
   ];
 
-  const artifactDefinitions = new Map(
-    fixture.artifacts.map((artifact) => [artifact.id, artifact] as const)
-  );
-  const outputArtifactsByNativeId = new Map<string, OutputArtifact>();
-  const fileMutations: FileMutationEvidence[] = [];
-  const messages: SessionMessage[] = [];
-  const toolCalls: ToolCall[] = [];
-  const shellCommands: ShellCommandEvidence[] = [];
-  const events: SessionEvent[] = [];
+  const rawArtifactRefs = fixture.artifacts.map((artifact) => ({
+    id: `raw:output-artifact:${artifact.id}`,
+    adapterId,
+    sourceId,
+    ...(artifact.path ? { path: artifact.path } : {}),
+    nativeRef: artifact.path ?? artifact.id,
+    artifactKind: "output-artifact",
+    ...(artifact.byteLength !== undefined ? { sizeBytes: artifact.byteLength } : {}),
+    parseStrategy:
+      artifact.kind === "json" ? "json" : artifact.kind === "text" || artifact.kind === "trace" ? "text" : "unknown"
+  }));
 
-  const ensureOutputArtifact = (
-    nativeArtifactId: string,
-    eventId?: string
-  ): OutputArtifact | undefined => {
-    const existing = outputArtifactsByNativeId.get(nativeArtifactId);
-
-    if (existing) {
-      if (!existing.eventId && eventId) {
-        existing.eventId = eventId;
-      }
-      return existing;
-    }
-
-    const artifactDefinition = artifactDefinitions.get(nativeArtifactId);
-
-    if (!artifactDefinition) {
-      return undefined;
-    }
-
-    const outputArtifact: OutputArtifact = {
-      kind: "output-artifact",
-      id: createOutputArtifactId({
-        adapterId,
-        sourceId,
-        nativeId: nativeArtifactId
-      }),
-      adapterId,
-      sourceId,
-      sessionId,
-      nativeId: artifactDefinition.id,
-      artifactKind: artifactDefinition.kind,
-      ...(artifactDefinition.path ? { path: artifactDefinition.path } : {}),
-      ...(artifactDefinition.uri ? { uri: artifactDefinition.uri } : {}),
-      ...(artifactDefinition.mediaType ? { mediaType: artifactDefinition.mediaType } : {}),
-      ...(artifactDefinition.byteLength !== undefined
-        ? { byteLength: artifactDefinition.byteLength }
-        : {}),
-      ...(eventId ? { eventId } : {}),
-      confidence: HIGH_CONFIDENCE
-    };
-
-    outputArtifactsByNativeId.set(nativeArtifactId, outputArtifact);
-    return outputArtifact;
-  };
+  const outputArtifactsByNativeId = new Map<string, Record<string, unknown>>();
+  const messages: Record<string, unknown>[] = [];
+  const events: Record<string, unknown>[] = [];
+  const toolCalls: Record<string, unknown>[] = [];
+  const shellCommands: Record<string, unknown>[] = [];
+  const fileMutations: Record<string, unknown>[] = [];
 
   const timelineEvents = input.rawEvents.filter(
     (event): event is FakeRawEvent & { payload: { kind: "timeline-event" } } =>
       event.payload.kind === "timeline-event"
   );
+
+  const ensureOutputArtifact = (
+    nativeArtifactId: string,
+    rawEvent?: FakeRawEvent
+  ): string | undefined => {
+    const existing = outputArtifactsByNativeId.get(nativeArtifactId);
+
+    if (existing) {
+      return existing.id as string;
+    }
+
+    const artifactDefinition = fixture.artifacts.find((artifact) => artifact.id === nativeArtifactId);
+
+    if (!artifactDefinition) {
+      return undefined;
+    }
+
+    const artifactId = createOutputArtifactId({
+      adapterId,
+      sourceId,
+      nativeId: nativeArtifactId
+    });
+    const shape = mapArtifactShape(artifactDefinition);
+
+	    outputArtifactsByNativeId.set(nativeArtifactId, {
+	      id: artifactId,
+	      adapterId,
+	      sourceId,
+	      sessionId,
+	      nativeId: nativeArtifactId,
+	      nativeRef: artifactDefinition.path ?? artifactDefinition.id,
+      ...(artifactDefinition.path ? { path: artifactDefinition.path } : {}),
+      kind: shape.kind,
+      contentKind: shape.contentKind,
+	      ...(artifactDefinition.byteLength !== undefined ? { sizeBytes: artifactDefinition.byteLength } : {}),
+	      ...(artifactDefinition.mediaType ? { mediaType: artifactDefinition.mediaType } : {}),
+	      ...(artifactDefinition.byteLength !== undefined ? { byteLength: artifactDefinition.byteLength } : {}),
+	      loaded: false,
+      source: buildRawPointer(
+        rawEvent,
+        `artifact:${artifactDefinition.path ?? artifactDefinition.id}`
+      ),
+      diagnostics: []
+    });
+
+    return artifactId;
+  };
 
   for (const [index, rawEvent] of timelineEvents.entries()) {
     const timelineEvent = rawEvent.payload.event;
@@ -310,19 +307,27 @@ export async function normalizeFakeTestEvents(
       sourceId,
       nativeId: timelineEvent.id
     });
-
-    const sessionEvent: SessionEvent = {
-      kind: "session-event",
-      id: eventId,
-      adapterId,
-      sourceId,
-      sessionId,
-      nativeId: timelineEvent.id,
-      eventKind: timelineEvent.kind,
-      timestamp: timelineEvent.timestamp,
-      ordinal: index + 1,
-      summary: summarizeTimelineEvent(timelineEvent),
-      confidence: HIGH_CONFIDENCE
+    const orderKey = buildOrderKey(index + 1, timelineEvent.id);
+    const title = summarizeTimelineEvent(timelineEvent);
+	    const sessionEvent: Record<string, unknown> = {
+	      id: eventId,
+	      sessionId,
+	      adapterId,
+	      sourceId,
+	      nativeId: timelineEvent.id,
+	      kind: timelineEvent.kind === "output-artifact" ? "tool-result" : timelineEvent.kind,
+	      timestamp: timelineEvent.timestamp,
+	      orderKey,
+      actor:
+        timelineEvent.kind === "message"
+          ? timelineEvent.role
+          : timelineEvent.kind === "tool-call"
+            ? "tool"
+            : "harness",
+      title,
+      text: title,
+      raw: buildRawPointer(rawEvent, `event:${timelineEvent.id}`, eventId),
+      diagnostics: []
     };
 
     if (timelineEvent.kind === "message") {
@@ -332,23 +337,21 @@ export async function normalizeFakeTestEvents(
         nativeId: timelineEvent.id
       });
 
-      const message: SessionMessage = {
-        kind: "session-message",
-        id: messageId,
-        adapterId,
-        sourceId,
-        sessionId,
-        nativeId: timelineEvent.id,
-        role: timelineEvent.role,
-        content: timelineEvent.text,
-        ordinal: index + 1,
-        timestamp: timelineEvent.timestamp,
-        eventId,
-        confidence: HIGH_CONFIDENCE
-      };
-
-      messages.push(message);
-      sessionEvent.messageId = messageId;
+	      messages.push({
+	        id: messageId,
+	        sessionId,
+	        adapterId,
+	        sourceId,
+	        nativeId: timelineEvent.id,
+	        kind: "session-message",
+	        role: timelineEvent.role,
+	        timestamp: timelineEvent.timestamp,
+	        text: timelineEvent.text,
+	        toolCallIds: [],
+	        eventIds: [eventId],
+        source: buildRawPointer(rawEvent, `message:${timelineEvent.id}`, eventId),
+        confidence: CONFIRMED
+      });
     }
 
     if (timelineEvent.kind === "tool-call") {
@@ -357,67 +360,59 @@ export async function normalizeFakeTestEvents(
         sourceId,
         nativeId: timelineEvent.id
       });
-
-      const outputArtifactIds = timelineEvent.artifactIds
-        .map((artifactId) => ensureOutputArtifact(artifactId, eventId))
-        .filter((artifact): artifact is OutputArtifact => artifact !== undefined)
-        .map((artifact) => artifact.id);
-
-      const fileMutationIds = timelineEvent.fileMutations.map((fileMutation) => {
+      const outputArtifactIds = timelineEvent.artifactIds.flatMap((artifactId) => {
+        const normalizedArtifactId = ensureOutputArtifact(artifactId, rawEvent);
+        return normalizedArtifactId ? [normalizedArtifactId] : [];
+      });
+      const mutationIds = timelineEvent.fileMutations.map((mutation) => {
         const fileMutationId = createFileMutationEvidenceId({
           adapterId,
           sourceId,
-          nativeId: fileMutation.id
+          nativeId: mutation.id
         });
 
         fileMutations.push({
-          kind: "file-mutation",
-          id: fileMutationId,
-          adapterId,
-          sourceId,
-          sessionId,
-          nativeId: fileMutation.id,
-          path: fileMutation.path,
-          mutationKind: fileMutation.mutationKind,
-          eventId,
-          toolCallId,
-          confidence: HIGH_CONFIDENCE
+	        id: fileMutationId,
+	        sessionId,
+	        adapterId,
+	        sourceId,
+	        nativeId: mutation.id,
+	        kind: "file-mutation",
+	        path: mutation.path,
+          mutationKind: mutation.mutationKind,
+	        toolCallId,
+          source: buildRawPointer(
+            rawEvent,
+            `file:${timelineEvent.id}:${mutation.path}`,
+            eventId
+          ),
+          confidence: CONFIRMED,
+          diagnostics: []
         });
 
         return fileMutationId;
       });
 
       toolCalls.push({
-        kind: "tool-call",
-        id: toolCallId,
-        adapterId,
-        sourceId,
-        sessionId,
-        nativeId: timelineEvent.id,
-        toolName: timelineEvent.toolName,
-        status: timelineEvent.status,
-        startedAt: timelineEvent.timestamp,
-        ...(timelineEvent.inputSummary ? { inputSummary: timelineEvent.inputSummary } : {}),
-        ...(timelineEvent.outputSummary ? { outputSummary: timelineEvent.outputSummary } : {}),
-        eventId,
-        ...(outputArtifactIds.length > 0 ? { artifactIds: outputArtifactIds } : {}),
-        ...(fileMutationIds.length > 0 ? { fileMutationIds } : {}),
-        confidence: HIGH_CONFIDENCE
+	        id: toolCallId,
+	        sessionId,
+	        adapterId,
+	        sourceId,
+	        nativeId: timelineEvent.id,
+	        kind: "tool-call",
+	        nativeToolCallId: timelineEvent.id,
+	        name: timelineEvent.toolName,
+	        normalizedKind: mapToolKind(timelineEvent.toolName),
+	        statusRaw: timelineEvent.status,
+	        statusNormalized: mapToolStatus(timelineEvent.status),
+	        ...(timelineEvent.inputSummary ? { argsPreview: timelineEvent.inputSummary } : {}),
+	        ...(timelineEvent.outputSummary ? { resultPreview: timelineEvent.outputSummary } : {}),
+	        outputArtifactIds,
+	        ...(mutationIds[0] ? { fileMutationId: mutationIds[0] } : {}),
+        source: buildRawPointer(rawEvent, `tool:${timelineEvent.id}`, eventId),
+        confidence: CONFIRMED,
+        diagnostics: []
       });
-
-      sessionEvent.toolCallId = toolCallId;
-
-      const firstFileMutationId = fileMutationIds[0];
-
-      if (firstFileMutationId) {
-        sessionEvent.fileMutationId = firstFileMutationId;
-      }
-
-      const firstOutputArtifactId = outputArtifactIds[0];
-
-      if (firstOutputArtifactId) {
-        sessionEvent.outputArtifactId = firstOutputArtifactId;
-      }
     }
 
     if (timelineEvent.kind === "shell-command") {
@@ -428,19 +423,12 @@ export async function normalizeFakeTestEvents(
       });
 
       shellCommands.push({
-        kind: "shell-command",
-        id: shellCommandId,
-        adapterId,
-        sourceId,
-        sessionId,
-        nativeId: timelineEvent.id,
-        command: timelineEvent.command,
-        outputSource: timelineEvent.outputSource,
-        ...(timelineEvent.cwd ? { cwd: timelineEvent.cwd } : {}),
-        ...(timelineEvent.exitCode !== undefined ? { exitCode: timelineEvent.exitCode } : {}),
-        startedAt: timelineEvent.timestamp,
-        ...(timelineEvent.outputSummary ? { outputSummary: timelineEvent.outputSummary } : {}),
-        eventId,
+	        id: shellCommandId,
+	        sessionId,
+	        adapterId,
+	        sourceId,
+	        nativeId: timelineEvent.id,
+	        kind: "shell-command",
         ...(timelineEvent.toolCallId
           ? {
               toolCallId: createToolCallId({
@@ -450,27 +438,24 @@ export async function normalizeFakeTestEvents(
               })
             }
           : {}),
-        ...(timelineEvent.artifactIds.length > 0
-          ? {
-              artifactIds: timelineEvent.artifactIds
-                .map((artifactId) => ensureOutputArtifact(artifactId, eventId))
-                .filter((artifact): artifact is OutputArtifact => artifact !== undefined)
-                .map((artifact) => artifact.id)
-            }
-          : {}),
-        ...(timelineEvent.rawToolStatus ? { rawToolStatus: timelineEvent.rawToolStatus } : {}),
-        confidence: HIGH_CONFIDENCE
+	        command: timelineEvent.command,
+        ...(timelineEvent.cwd ? { cwd: timelineEvent.cwd } : {}),
+	        ...(timelineEvent.outputSummary ? { outputInline: timelineEvent.outputSummary } : {}),
+	        outputArtifactIds: timelineEvent.artifactIds.flatMap((artifactId) => {
+	          const normalizedArtifactId = ensureOutputArtifact(artifactId, rawEvent);
+	          return normalizedArtifactId ? [normalizedArtifactId] : [];
+	        }),
+	        ...(timelineEvent.rawToolStatus ? { rawStatus: timelineEvent.rawToolStatus } : {}),
+	        ...(timelineEvent.exitCode !== undefined ? { rawExitCode: timelineEvent.exitCode } : {}),
+        source: buildRawPointer(rawEvent, `shell:${timelineEvent.id}`, eventId),
+        confidence: CONFIRMED
       });
-
-      sessionEvent.shellCommandId = shellCommandId;
     }
 
     if (timelineEvent.kind === "output-artifact") {
-      const outputArtifact = ensureOutputArtifact(timelineEvent.artifactId, eventId);
+      const outputArtifactId = ensureOutputArtifact(timelineEvent.artifactId, rawEvent);
 
-      if (outputArtifact) {
-        sessionEvent.outputArtifactId = outputArtifact.id;
-      } else {
+      if (!outputArtifactId) {
         diagnostics.push(
           buildDiagnostic(
             adapterId,
@@ -492,16 +477,85 @@ export async function normalizeFakeTestEvents(
     events.push(sessionEvent);
   }
 
-  return {
+  const firstUserPrompt = messages.find((message) => message.role === "user")?.text as string | undefined;
+  const latestUserPrompt =
+    [...messages].reverse().find((message) => message.role === "user")?.text as string | undefined;
+  const latestTimelineTimestamp = [...timelineEvents]
+    .reverse()
+    .find((event) => typeof event.timestamp === "string")?.timestamp;
+  const result = {
     adapterId,
     sourceId,
     capabilities: {
-      adapter: buildCapabilityEnvelope(fakeTestDescriptor.capabilities),
-      source: buildCapabilityEnvelope(fixtureCapabilities, sourceId),
-      sessions: [buildSessionCapabilityEnvelope(fixtureCapabilities, sourceId, sessionId)]
+      adapter: buildCapabilityEnvelope(),
+      source: buildCapabilityEnvelope(sourceId),
+      sessions: [buildCapabilityEnvelope(sourceId, sessionId)]
     },
-    projects,
-    sessions,
+    projects: [
+      {
+	        id: projectId,
+	        adapterId,
+	        sourceId,
+	        nativeId: fixture.project.id,
+	        kind: "project",
+	        displayName: fixture.project.name,
+	        name: fixture.project.name,
+	        ...(fixture.project.rootPath ? { primaryRootPath: fixture.project.rootPath } : {}),
+	        ...(fixture.project.rootPath ? { rootPath: fixture.project.rootPath } : {}),
+	        rootConfidence: CONFIRMED,
+	        confidence: HIGH_CONFIDENCE,
+        harnessRefs: [
+          {
+            adapterId,
+            sourceId,
+            nativeProjectId: fixture.project.id,
+            ...(fixture.project.rootPath ? { nativeProjectPath: fixture.project.rootPath } : {}),
+            ...(fixture.project.rootPath ? { projectRootPath: fixture.project.rootPath } : {}),
+            projectRootConfidence: CONFIRMED,
+            rawArtifactRefs
+          }
+        ],
+        sessionIds: [sessionId],
+        ...(latestTimelineTimestamp ? { latestActivityAt: latestTimelineTimestamp } : {}),
+        ...(latestUserPrompt ? { latestPrompt: latestUserPrompt } : {}),
+        diagnostics: []
+      }
+    ],
+    sessions: [
+      {
+	        id: sessionId,
+	        adapterId,
+	        sourceId,
+	        nativeId: fixture.session.id,
+	        nativeSessionId: fixture.session.id,
+	        kind: "session",
+        projectId,
+	        ...(fixture.session.title ? { title: fixture.session.title } : {}),
+        ...(firstUserPrompt ? { firstUserPrompt } : {}),
+        ...(latestUserPrompt ? { latestUserPrompt } : {}),
+	        startedAt: fixture.session.startedAt,
+        ...(latestTimelineTimestamp ? { lastUpdatedAt: latestTimelineTimestamp } : {}),
+        ...(fixture.session.endedAt
+          ? {
+              durationMs:
+                Date.parse(fixture.session.endedAt) - Date.parse(fixture.session.startedAt)
+            }
+          : {}),
+	        lifecycleStatus: fixture.session.lifecycleState,
+	        capabilities: fakeTestDescriptor.capabilities,
+	        parseConfidence: CONFIRMED,
+        messageIds: messages.map((message) => message.id as string),
+        eventIds: events.map((event) => event.id as string),
+        toolCallIds: toolCalls.map((toolCall) => toolCall.id as string),
+        fileMutationIds: fileMutations.map((mutation) => mutation.id as string),
+        shellCommandIds: shellCommands.map((command) => command.id as string),
+        outputArtifactIds: [...outputArtifactsByNativeId.values()].map((artifact) => artifact.id as string),
+	        usage: {},
+	        confidence: HIGH_CONFIDENCE,
+	        rawArtifactRefs,
+        diagnostics: []
+      }
+    ],
     events,
     messages,
     toolCalls,
@@ -510,4 +564,6 @@ export async function normalizeFakeTestEvents(
     fileMutations,
     diagnostics
   };
+
+  return result as unknown as AdapterNormalizationResult;
 }

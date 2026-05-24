@@ -12,6 +12,9 @@ import type { WatchPlan } from "../../core/watcher/watch-plan.js";
 
 export const fakeTestAdapter: SessionSourceAdapter<FakeRawEvent> = {
   descriptor: fakeTestDescriptor,
+  async getDefaultSourceRoots() {
+    return fakeTestDescriptor.defaultRoots;
+  },
   validateSourceRoot: validateFakeTestSourceRoot,
   discoverSources: discoverFakeTestSources,
   discoverArtifacts: discoverFakeTestArtifacts,
@@ -21,12 +24,10 @@ export const fakeTestAdapter: SessionSourceAdapter<FakeRawEvent> = {
     return {
       adapterId: fakeTestDescriptor.id,
       sourceId: source.id,
-      status: fakeTestDescriptor.capabilities.watchPlans.status,
+      status: "unsupported",
       scopePaths: [],
       strategy: "none",
-      ...(fakeTestDescriptor.capabilities.watchPlans.reason
-        ? { reason: fakeTestDescriptor.capabilities.watchPlans.reason }
-        : {})
+      reason: "The fake-test fixture adapter is static and does not watch artifacts."
     };
   }
 };

@@ -13,6 +13,12 @@ export interface CapabilityBadgeFixture {
   reason?: string;
 }
 
+export interface CapabilityGroupFixture {
+  key: string;
+  label: string;
+  capabilities: CapabilityBadgeFixture[];
+}
+
 export interface MetricFixture {
   status: "value" | "unknown" | "unsupported" | "not-run";
   displayValue: string;
@@ -31,9 +37,9 @@ export interface SessionSummaryFixture {
   lifecycleState: TruthStateFixture;
   startedAt: string;
   endedAt: string;
-  projectName: string;
-  firstPrompt: string;
-  capabilityBadges: CapabilityBadgeFixture[];
+  projectDisplayName: string;
+  firstUserPrompt: string;
+  capabilityGroups: CapabilityGroupFixture[];
   diagnosticWarningCount: number;
   verificationState: TruthStateFixture;
   runAuditState: TruthStateFixture;
@@ -103,8 +109,8 @@ export interface OverviewFixture {
 
 export interface ProjectFixture {
   projectId: string;
-  projectName: string;
-  repoPath: { status: string; displayValue: string; rawValue?: string };
+  projectDisplayName: string;
+  primaryRootPath: { status: string; displayValue: string; rawValue?: string };
   validatedRepoRoot: { status: string; displayValue: string; rawValue?: string; reason?: string };
   observedHarnesses: string[];
   latestActivityAt: string;
@@ -153,7 +159,7 @@ export interface DiagnosticsFixture {
       adapterDisplayName: string;
       sessionId?: string;
       sessionTitle?: string;
-      projectName?: string;
+      projectDisplayName?: string;
       message: string;
     }>;
   }>;
@@ -173,19 +179,31 @@ export function buildSessionSummary(
     lifecycleState: { label: "Completed", tone: "positive" },
     startedAt: "2026-05-23T10:00:00.000Z",
     endedAt: "2026-05-23T10:08:00.000Z",
-    projectName: "Control Plus Zebra",
-    firstPrompt: "Define the shared contracts and keep them harness-neutral.",
-    capabilityBadges: [
+    projectDisplayName: "Control Plus Zebra",
+    firstUserPrompt: "Define the shared contracts and keep them harness-neutral.",
+    capabilityGroups: [
       {
-        key: "messageCapture",
-        label: "Message Capture",
-        state: "Supported"
+        key: "replay",
+        label: "Replay",
+        capabilities: [
+          {
+            key: "replay.transcriptReplay",
+            label: "Transcript Replay",
+            state: "Supported"
+          }
+        ]
       },
       {
-        key: "gitContextCapture",
-        label: "Git Context Capture",
-        state: "Unsupported",
-        reason: "Git evidence is unavailable."
+        key: "audit",
+        label: "Audit",
+        capabilities: [
+          {
+            key: "audit.gitContext",
+            label: "Git Context",
+            state: "Unsupported",
+            reason: "Git evidence is unavailable."
+          }
+        ]
       }
     ],
     diagnosticWarningCount: 1,
@@ -324,8 +342,8 @@ export function buildOverview(overrides: Partial<OverviewFixture> = {}) {
 export function buildProject(overrides: Partial<ProjectFixture> = {}) {
   return {
     projectId: "project-1",
-    projectName: "control-plus-zebra",
-    repoPath: {
+    projectDisplayName: "control-plus-zebra",
+    primaryRootPath: {
       status: "value" as const,
       displayValue: "/workspace/control-plus-zebra",
       rawValue: "/workspace/control-plus-zebra"
@@ -393,7 +411,7 @@ export function buildDiagnostics(overrides: Partial<DiagnosticsFixture> = {}) {
             adapterDisplayName: "Fake Test Harness",
             sessionId: "session-1",
             sessionTitle: "Fixture session",
-            projectName: "Control Plus Zebra",
+            projectDisplayName: "Control Plus Zebra",
             message: "Git Context Capture is Unsupported. Git evidence is unavailable."
           }
         ]

@@ -15,6 +15,9 @@ import {
 
 export const archiveReaderAdapter: SessionSourceAdapter<ArchiveReaderRawEvent> = {
   descriptor: archiveReaderDescriptor,
+  async getDefaultSourceRoots() {
+    return archiveReaderDescriptor.defaultRoots;
+  },
   validateSourceRoot: validateArchiveReaderSourceRoot,
   discoverSources: discoverArchiveReaderSources,
   discoverArtifacts: discoverArchiveReaderArtifacts,

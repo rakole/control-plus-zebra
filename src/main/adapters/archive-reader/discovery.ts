@@ -7,10 +7,10 @@ import type {
   SourceRootConfig,
   SourceRootValidation
 } from "../../core/adapter-contract/types.js";
+import { adapterReadTextFile, adapterStatFile } from "../../core/adapter-contract/context-helpers.js";
 import { buildDiagnostic } from "../../core/diagnostics/diagnostic.js";
 import { HIGH_CONFIDENCE } from "../../core/model/confidence.js";
 import { createRawArtifactId, createSourceId } from "../../core/model/identifiers.js";
-import { createSafeFilesystem } from "../../core/security/safe-filesystem.js";
 import { archiveDocumentSchema } from "../../core/archive/archive-manifest.js";
 import { archiveReaderCapabilities, archiveReaderDescriptor } from "./descriptor.js";
 
@@ -19,14 +19,15 @@ export async function validateArchiveReaderSourceRoot(
   context: AdapterContext
 ): Promise<SourceRootValidation> {
   const resolvedPath = path.resolve(root.rootPath);
-  const safeFilesystem =
-    context.safeFilesystem ??
-    createSafeFilesystem({
-      allowedRootPaths: [resolvedPath]
-    });
 
   try {
-    const fileStat = await safeFilesystem.statPath(resolvedPath);
+    const fileStat = await adapterStatFile(
+      {
+        ...context,
+        allowedRoots: context.allowedRoots ?? [resolvedPath]
+      },
+      resolvedPath
+    );
 
     if (fileStat.kind !== "file") {
       return invalidArchiveResult(
@@ -36,7 +37,13 @@ export async function validateArchiveReaderSourceRoot(
       );
     }
 
-    const source = await safeFilesystem.readTextFile(resolvedPath);
+    const source = await adapterReadTextFile(
+      {
+        ...context,
+        allowedRoots: context.allowedRoots ?? [resolvedPath]
+      },
+      resolvedPath
+    );
     archiveDocumentSchema.parse(JSON.parse(source));
   } catch {
     return invalidArchiveResult(
@@ -81,12 +88,13 @@ export async function* discoverArchiveReaderArtifacts(
   source: DiscoveredHarnessSource,
   context: AdapterContext
 ): AsyncIterable<RawArtifactRef> {
-  const safeFilesystem =
-    context.safeFilesystem ??
-    createSafeFilesystem({
-      allowedRootPaths: [source.rootPath]
-    });
-  const fileStat = await safeFilesystem.statPath(source.rootPath);
+  const fileStat = await adapterStatFile(
+    {
+      ...context,
+      allowedRoots: context.allowedRoots ?? [source.rootPath]
+    },
+    source.rootPath
+  );
 
   yield {
     id: createRawArtifactId({
@@ -96,13 +104,18 @@ export async function* discoverArchiveReaderArtifacts(
     }),
     adapterId: source.adapterId,
     sourceId: source.id,
+    nativeRef: source.rootPath,
     nativeId: source.rootPath,
     path: source.rootPath,
+    artifactKind: "metadata",
+    parseStrategy: "json",
     artifactType: "archive-document",
     mediaType: "application/json",
+    ...(fileStat.sizeBytes !== undefined ? { sizeBytes: fileStat.sizeBytes } : {}),
     ...(fileStat.byteLength !== undefined ? { byteLength: fileStat.byteLength } : {}),
-    ...(fileStat.inode !== undefined ? { inode: fileStat.inode } : {}),
-    mtimeMs: fileStat.mtimeMs
+    ...(fileStat.inode !== undefined ? { inode: String(fileStat.inode) } : {}),
+    ...(fileStat.mtime ? { mtime: fileStat.mtime } : {}),
+    ...(fileStat.mtimeMs !== undefined ? { mtimeMs: fileStat.mtimeMs } : {})
   };
 }
 

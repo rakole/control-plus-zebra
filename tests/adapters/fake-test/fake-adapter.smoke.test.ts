@@ -76,8 +76,6 @@ describe("fake-test adapter smoke proof", () => {
     expect(normalized.events[0]?.sourceId).toBe(source.id);
     expect(normalized.toolCalls[0]).not.toHaveProperty("verificationState");
     expect(normalized.sessions[0]).not.toHaveProperty("runAuditStatus");
-    expect(normalized.capabilities.source.capabilities.shellCommandCapture.status).toBe(
-      "supported"
-    );
+	    expect(normalized.capabilities.source.capabilities.tools.shellCommands).toBe(true);
   });
 });

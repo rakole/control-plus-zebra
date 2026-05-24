@@ -42,63 +42,45 @@ export function createSessionDetailViewModelService(
         return null;
       }
 
+      const sessionEvents = (data.eventsBySessionId.get(session.id) ?? [])
+        .slice()
+        .sort(compareEventsForTimeline);
+      const sessionMessages = data.messagesBySessionId.get(session.id) ?? [];
+      const sessionToolCalls = data.toolCallsBySessionId.get(session.id) ?? [];
+      const sessionShellCommands = data.shellCommandsBySessionId.get(session.id) ?? [];
+      const sessionOutputArtifacts = data.outputArtifactsBySessionId.get(session.id) ?? [];
+      const sessionFileMutations = data.fileMutationsBySessionId.get(session.id) ?? [];
+      const messagesByEventId = buildEntityByEventId(sessionMessages, (message) => message.eventIds ?? []);
+      const toolCallsByEventId = buildEntityBySourceEventId(sessionToolCalls);
+      const shellCommandsByEventId = buildEntityBySourceEventId(sessionShellCommands);
+      const outputArtifactsByEventId = buildEntityBySourceEventId(sessionOutputArtifacts);
+      const fileMutationsByEventId = buildEntityBySourceEventId(sessionFileMutations);
+
       const detail = {
         session: buildSessionPreviewViewModel(data, session),
-        timeline: (data.eventsBySessionId.get(session.id) ?? [])
-          .slice()
-          .sort((left, right) => {
-            const leftStamp = left.timestamp ?? "";
-            const rightStamp = right.timestamp ?? "";
-
-            if (leftStamp !== rightStamp) {
-              return leftStamp.localeCompare(rightStamp);
-            }
-
-            return left.ordinal - right.ordinal;
-          })
-          .map((event) => {
-            const message = event.messageId
-              ? (data.messagesBySessionId.get(session.id) ?? []).find(
-                  (candidate) => candidate.id === event.messageId
-                )
-              : undefined;
-            const toolCall = event.toolCallId
-              ? (data.toolCallsBySessionId.get(session.id) ?? []).find(
-                  (candidate) => candidate.id === event.toolCallId
-                )
-              : undefined;
-            const shellCommand = event.shellCommandId
-              ? (data.shellCommandsBySessionId.get(session.id) ?? []).find(
-                  (candidate) => candidate.id === event.shellCommandId
-                )
-              : undefined;
-            const derivedCommand = event.shellCommandId
+        timeline: sessionEvents.map((event) => {
+            const message = messagesByEventId.get(event.id);
+            const toolCall = toolCallsByEventId.get(event.id);
+            const shellCommand = shellCommandsByEventId.get(event.id);
+            const derivedCommand = shellCommand
               ? getDerivedSession(data, session.id)?.shellCommands.find(
-                  (candidate) => candidate.shellCommandId === event.shellCommandId
+                  (candidate) => candidate.shellCommandId === shellCommand.id
                 )
               : undefined;
-            const outputArtifact = event.outputArtifactId
-              ? (data.outputArtifactsBySessionId.get(session.id) ?? []).find(
-                  (candidate) => candidate.id === event.outputArtifactId
-                )
-              : undefined;
-            const fileMutation = event.fileMutationId
-              ? (data.fileMutationsBySessionId.get(session.id) ?? []).find(
-                  (candidate) => candidate.id === event.fileMutationId
-                )
-              : undefined;
+            const outputArtifact = outputArtifactsByEventId.get(event.id);
+            const fileMutation = fileMutationsByEventId.get(event.id);
 
-            switch (event.eventKind) {
+            switch (event.kind) {
               case "message":
                 return {
                   id: event.id,
                   kind: "message" as const,
                   timestamp: event.timestamp,
                   title: `${humanizeMessageRole(message?.role)} message`,
-                  summary: message ? truncate(message.content, 220) : event.summary,
+                  summary: truncate(message?.text ?? event.text ?? event.title ?? "", 220),
                   metadata: [
                     { label: "Role", value: humanizeMessageRole(message?.role) },
-                    { label: "Ordinal", value: String(message?.ordinal ?? event.ordinal) }
+                    { label: "Order Key", value: event.orderKey ?? "Unknown" }
                   ]
                 };
               case "lifecycle":
@@ -106,25 +88,25 @@ export function createSessionDetailViewModelService(
                   id: event.id,
                   kind: "lifecycle" as const,
                   timestamp: event.timestamp,
-                  title: event.summary ?? "Lifecycle event",
-                  summary: "Chronological lifecycle evidence",
-                  metadata: [{ label: "Ordinal", value: String(event.ordinal) }]
+                  title: event.title ?? "Lifecycle event",
+                  summary: event.text ?? "Chronological lifecycle evidence",
+                  metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
                 };
               case "tool-call":
                 return {
                   id: event.id,
                   kind: "tool-call" as const,
                   timestamp: event.timestamp,
-                  title: toolCall?.toolName ?? "Tool call",
-                  summary: toolCall?.outputSummary ?? toolCall?.inputSummary ?? event.summary,
+                  title: toolCall?.name ?? event.title ?? "Tool call",
+                  summary: toolCall?.resultPreview ?? toolCall?.argsPreview ?? event.text,
                   metadata: [
                     {
                       label: "Status",
-                      value: humanizeToolStatus(toolCall?.status)
+                      value: humanizeToolCallStatus(toolCall)
                     },
                     {
                       label: "Artifacts",
-                      value: String(toolCall?.artifactIds?.length ?? 0)
+                      value: String(toolCall?.outputArtifactIds?.length ?? 0)
                     }
                   ]
                 };
@@ -133,8 +115,8 @@ export function createSessionDetailViewModelService(
                   id: event.id,
                   kind: "shell-command" as const,
                   timestamp: event.timestamp,
-                  title: shellCommand?.command ?? event.summary ?? "Shell command",
-                  summary: shellCommand?.outputSummary ?? undefined,
+                  title: shellCommand?.command ?? event.title ?? "Shell command",
+                  summary: shellCommand?.outputInline ?? event.text,
                   metadata: [
                     {
                       label: "Intent",
@@ -147,37 +129,37 @@ export function createSessionDetailViewModelService(
                     {
                       label: "Exit Code",
                       value:
-                        shellCommand?.exitCode !== undefined
-                          ? String(shellCommand.exitCode)
+                        shellCommand?.rawExitCode !== undefined
+                          ? String(shellCommand.rawExitCode)
                           : "Unknown"
                     }
                   ]
                 };
-              case "output-artifact":
+              case "tool-result":
                 return {
                   id: event.id,
                   kind: "output-artifact" as const,
                   timestamp: event.timestamp,
                   title: "Output artifact",
-                  summary: event.summary ?? summarizeArtifact(outputArtifact),
+                  summary: summarizeArtifact(outputArtifact) ?? event.text ?? "Output artifact",
                   metadata: [
                     {
                       label: "Kind",
-                      value: outputArtifact?.artifactKind ?? "unknown"
+                      value: summarizeArtifactKind(outputArtifact)
                     },
                     {
                       label: "Reference",
-                      value: summarizeArtifact(outputArtifact)
+                      value: summarizeArtifact(outputArtifact) ?? "Unknown"
                     }
                   ]
                 };
-              case "file-mutation":
+              case "file-event":
                 return {
                   id: event.id,
                   kind: "file-mutation" as const,
                   timestamp: event.timestamp,
                   title: summarizeFileMutation(fileMutation),
-                  summary: fileMutation?.path ?? event.summary,
+                  summary: fileMutation?.path ?? event.text,
                   metadata: [
                     {
                       label: "Mutation",
@@ -191,8 +173,17 @@ export function createSessionDetailViewModelService(
                   kind: "unknown" as const,
                   timestamp: event.timestamp,
                   title: "Unknown evidence marker",
-                  summary: event.summary ?? "Metadata evidence is available only as a safe marker.",
-                  metadata: [{ label: "Ordinal", value: String(event.ordinal) }]
+                  summary: event.text ?? "Metadata evidence is available only as a safe marker.",
+                  metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
+                };
+              default:
+                return {
+                  id: event.id,
+                  kind: "unknown" as const,
+                  timestamp: event.timestamp,
+                  title: event.title ?? "Unknown evidence marker",
+                  summary: event.text ?? "Timeline evidence is available as a safe marker.",
+                  metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
                 };
             }
           })
@@ -238,7 +229,14 @@ function humanizeMutationKind(kind?: string): string {
   return kind.replace(/^./u, (letter) => letter.toUpperCase());
 }
 
-function humanizeToolStatus(status?: string): string {
+function humanizeToolCallStatus(
+  toolCall?: {
+    statusNormalized?: string;
+    statusRaw?: string;
+  }
+): string {
+  const status = toolCall?.statusNormalized ?? toolCall?.statusRaw;
+
   if (!status) {
     return "Unknown";
   }
@@ -247,17 +245,33 @@ function humanizeToolStatus(status?: string): string {
 }
 
 function summarizeArtifact(
-  artifact?: { path?: string; artifactKind?: string; mediaType?: string }
-): string {
+  artifact?: {
+    path?: string;
+    nativeRef?: string;
+    kind?: string;
+    contentKind?: string;
+    mediaType?: string;
+  }
+): string | undefined {
   if (!artifact) {
-    return "Unknown";
+    return undefined;
   }
 
   if (artifact.path) {
     return path.basename(artifact.path);
   }
 
-  return artifact.mediaType ?? artifact.artifactKind ?? "Unknown";
+  return artifact.nativeRef ?? artifact.mediaType ?? artifact.contentKind ?? artifact.kind;
+}
+
+function summarizeArtifactKind(
+  artifact?: { kind?: string; contentKind?: string }
+): string {
+  if (!artifact) {
+    return "unknown";
+  }
+
+  return artifact.contentKind ?? artifact.kind ?? "unknown";
 }
 
 function summarizeFileMutation(
@@ -278,4 +292,57 @@ function truncate(value: string, limit: number): string {
   }
 
   return `${collapsed.slice(0, limit - 1)}...`;
+}
+
+function compareEventsForTimeline(
+  left: { orderKey?: string; timestamp?: string },
+  right: { orderKey?: string; timestamp?: string }
+): number {
+  const leftOrder = left.orderKey ?? "";
+  const rightOrder = right.orderKey ?? "";
+
+  if (leftOrder !== rightOrder) {
+    return leftOrder.localeCompare(rightOrder);
+  }
+
+  return (left.timestamp ?? "").localeCompare(right.timestamp ?? "");
+}
+
+function buildEntityByEventId<TItem extends { id: string }>(
+  items: readonly TItem[],
+  selectEventIds: (item: TItem) => readonly string[]
+): Map<string, TItem> {
+  const map = new Map<string, TItem>();
+
+  for (const item of items) {
+    for (const eventId of selectEventIds(item)) {
+      if (!map.has(eventId)) {
+        map.set(eventId, item);
+      }
+    }
+  }
+
+  return map;
+}
+
+function buildEntityBySourceEventId<
+  TItem extends {
+    source?:
+      | { eventId?: string | undefined; rawEvent?: { eventId?: string | undefined } | undefined }
+      | undefined;
+  }
+>(
+  items: readonly TItem[]
+): Map<string, TItem> {
+  const map = new Map<string, TItem>();
+
+  for (const item of items) {
+    const eventId = item.source?.eventId ?? item.source?.rawEvent?.eventId;
+
+    if (eventId && !map.has(eventId)) {
+      map.set(eventId, item);
+    }
+  }
+
+  return map;
 }

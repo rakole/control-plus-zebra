@@ -104,7 +104,14 @@ export class Scanner {
       rootPath: normalizedPath
     });
     nextSource = await this.#sourceRegistry.saveValidationSummary(nextSource.sourceId, {
-      status: toValidationStatus(validation.ok, validation.capabilities?.sourceValidation.status),
+      status: toValidationStatus(
+        validation.ok,
+        validation.capabilities
+          ? validation.capabilities.discovery.defaultRoots
+            ? "supported"
+            : "unsupported"
+          : undefined
+      ),
       diagnostics: validation.diagnostics,
       ...(validation.normalizedPath ? { normalizedPath: validation.normalizedPath } : {})
     });
@@ -573,11 +580,14 @@ async function collectRawEvents(
 
 export function applySafeArtifactMetadata<
   TArtifact extends {
-    byteLength?: number;
-    inode?: number;
-    mtimeMs?: number;
+    byteLength?: number | undefined;
+    inode?: number | string | undefined;
+    mtimeMs?: number | undefined;
   }
->(artifact: TArtifact, fileStat: { byteLength?: number; inode?: number; mtimeMs: number }): TArtifact {
+>(
+  artifact: TArtifact,
+  fileStat: { byteLength?: number; inode?: number | string; mtimeMs: number }
+): TArtifact {
   return {
     ...artifact,
     ...(artifact.byteLength !== undefined
@@ -591,7 +601,7 @@ export function applySafeArtifactMetadata<
         ? { inode: fileStat.inode }
         : {}),
     ...(artifact.mtimeMs !== undefined ? { mtimeMs: artifact.mtimeMs } : { mtimeMs: fileStat.mtimeMs })
-  };
+  } as TArtifact;
 }
 
 function createDiagnosticsHash(diagnostics: Array<{ code: string; message: string; severity: string }>) {
@@ -619,9 +629,9 @@ async function deriveShellSessions(args: {
     const shellCommands = args.normalized.shellCommands
       .filter((shellCommand) => shellCommand.sessionId === session.id)
       .sort((left, right) => {
-        const leftTime = left.startedAt ?? left.endedAt ?? "";
-        const rightTime = right.startedAt ?? right.endedAt ?? "";
-        return leftTime.localeCompare(rightTime);
+        const leftPointer = left.source?.eventId ?? left.id;
+        const rightPointer = right.source?.eventId ?? right.id;
+        return leftPointer.localeCompare(rightPointer);
       });
     const parsedShellCommands = [];
 
@@ -666,7 +676,7 @@ async function loadShellArtifacts(args: {
   outputArtifactsById: Map<string, Awaited<ReturnType<SessionSourceAdapter["normalize"]>>["outputArtifacts"][number]>;
   shellCommand: Awaited<ReturnType<SessionSourceAdapter["normalize"]>>["shellCommands"][number];
 }): Promise<LoadedArtifactDiagnostics> {
-  if (!args.adapter.loadOutputArtifact || !args.shellCommand.artifactIds?.length) {
+  if (!args.adapter.loadOutputArtifact || !args.shellCommand.outputArtifactIds?.length) {
     return {
       diagnostics: [],
       loadedArtifacts: []
@@ -676,7 +686,7 @@ async function loadShellArtifacts(args: {
   const diagnostics: Diagnostic[] = [];
   const loadedArtifacts = [];
 
-  for (const artifactId of args.shellCommand.artifactIds) {
+  for (const artifactId of args.shellCommand.outputArtifactIds) {
     const artifact = args.outputArtifactsById.get(artifactId);
 
     if (!artifact) {
@@ -690,7 +700,7 @@ async function loadShellArtifacts(args: {
           HIGH_CONFIDENCE,
           {
             sourceId: args.shellCommand.sourceId,
-            nativeId: args.shellCommand.nativeId,
+            ...(args.shellCommand.nativeId ? { nativeId: args.shellCommand.nativeId } : {}),
             relatedEntityIds: [
               args.shellCommand.id,
               artifactId,
@@ -723,7 +733,7 @@ async function loadShellArtifacts(args: {
           HIGH_CONFIDENCE,
           {
             sourceId: args.shellCommand.sourceId,
-            nativeId: args.shellCommand.nativeId,
+            ...(args.shellCommand.nativeId ? { nativeId: args.shellCommand.nativeId } : {}),
             relatedEntityIds: [
               args.shellCommand.id,
               artifactId,
@@ -748,7 +758,7 @@ function getRelatedDiagnostics(
   const relatedIds = new Set([
     shellCommand.id,
     ...(shellCommand.toolCallId ? [shellCommand.toolCallId] : []),
-    ...(shellCommand.artifactIds ?? [])
+    ...(shellCommand.outputArtifactIds ?? [])
   ]);
 
   return diagnostics.filter((diagnostic) =>

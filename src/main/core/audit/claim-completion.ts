@@ -6,10 +6,10 @@ import type {
 
 import type { CompletionClaim } from "./types.js";
 
-const activityEventKinds = new Set<SessionEvent["eventKind"]>([
+const activityEventKinds = new Set<SessionEvent["kind"]>([
   "tool-call",
   "shell-command",
-  "file-mutation"
+  "file-event"
 ]);
 
 export function deriveCompletionClaim(args: {
@@ -19,10 +19,10 @@ export function deriveCompletionClaim(args: {
 }): CompletionClaim {
   const orderedMessages = args.sessionMessages
     .filter((message) => message.sessionId === args.session.id)
-    .sort((left, right) => left.ordinal - right.ordinal);
+    .sort(compareMessages);
   const lastAssistantMessage = [...orderedMessages]
     .reverse()
-    .find((message) => message.role === "assistant" && message.content.trim().length > 0);
+    .find((message) => message.role === "assistant" && (message.text ?? "").trim().length > 0);
 
   if (!lastAssistantMessage) {
     return {
@@ -32,11 +32,11 @@ export function deriveCompletionClaim(args: {
   }
 
   const messageEvent = args.sessionEvents.find(
-    (event) => event.messageId === lastAssistantMessage.id
+    (event) => lastAssistantMessage.eventIds?.includes(event.id) === true
   );
   const orderedEvents = args.sessionEvents
     .filter((event) => event.sessionId === args.session.id)
-    .sort((left, right) => left.ordinal - right.ordinal);
+    .sort(compareEvents);
 
   if (!messageEvent && !lastAssistantMessage.timestamp) {
     return {
@@ -46,12 +46,12 @@ export function deriveCompletionClaim(args: {
   }
 
   const postClaimEvents = orderedEvents.filter((event) => {
-    if (!activityEventKinds.has(event.eventKind)) {
+    if (!activityEventKinds.has(event.kind)) {
       return false;
     }
 
     if (messageEvent) {
-      return event.ordinal > messageEvent.ordinal;
+      return compareEvents(event, messageEvent) > 0;
     }
 
     if (!lastAssistantMessage.timestamp || !event.timestamp) {
@@ -67,4 +67,33 @@ export function deriveCompletionClaim(args: {
     messageId: lastAssistantMessage.id,
     postClaimEventIds: postClaimEvents.map((event) => event.id)
   };
+}
+
+function compareEvents(left: SessionEvent, right: SessionEvent): number {
+  const leftOrder = left.orderKey ?? "";
+  const rightOrder = right.orderKey ?? "";
+
+  if (leftOrder !== rightOrder) {
+    return leftOrder.localeCompare(rightOrder);
+  }
+
+  return (left.timestamp ?? "").localeCompare(right.timestamp ?? "");
+}
+
+function compareMessages(left: SessionMessage, right: SessionMessage): number {
+  const leftTimestamp = left.timestamp ?? "";
+  const rightTimestamp = right.timestamp ?? "";
+
+  if (leftTimestamp !== rightTimestamp) {
+    return leftTimestamp.localeCompare(rightTimestamp);
+  }
+
+  const leftEventId = left.eventIds?.[0] ?? "";
+  const rightEventId = right.eventIds?.[0] ?? "";
+
+  if (leftEventId !== rightEventId) {
+    return leftEventId.localeCompare(rightEventId);
+  }
+
+  return left.id.localeCompare(right.id);
 }

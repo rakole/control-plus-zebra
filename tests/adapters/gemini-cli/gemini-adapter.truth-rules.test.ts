@@ -40,36 +40,11 @@ function findForbiddenKeys(value: unknown, pathPrefix = "$", hits: string[] = []
 }
 
 function assertTruthStates(snapshot: CapabilityEnvelope) {
-  expect(snapshot.capabilities.liveSessionObservation).toEqual(
-    expect.objectContaining({
-      status: "unsupported"
-    })
-  );
-  expect(snapshot.capabilities.eventStreaming).toEqual(
-    expect.objectContaining({
-      status: "unsupported"
-    })
-  );
-  expect(snapshot.capabilities.watchPlans).toEqual(
-    expect.objectContaining({
-      status: "unsupported"
-    })
-  );
-  expect(snapshot.capabilities.gitContextCapture).toEqual(
-    expect.objectContaining({
-      status: "unsupported"
-    })
-  );
-  expect(snapshot.capabilities.githubContextCapture).toEqual(
-    expect.objectContaining({
-      status: "unsupported"
-    })
-  );
-  expect(snapshot.capabilities.verificationSignals).toEqual(
-    expect.objectContaining({
-      status: "unknown"
-    })
-  );
+  expect(snapshot.capabilities.live.activeSessionDetection).toBe("none");
+  expect(snapshot.capabilities.live.watchableArtifacts).toBe(false);
+  expect(snapshot.capabilities.replay.transcriptReplay).toBe(true);
+  expect(snapshot.capabilities.tools.shellCommands).toBe(true);
+  expect(snapshot.capabilities.audit.verificationCommandEvidence).toBe(true);
 }
 
 describe("gemini-cli adapter truth rules", () => {

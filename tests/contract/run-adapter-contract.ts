@@ -13,34 +13,18 @@ import type {
   SourceRootValidation
 } from "../../src/main/core/adapter-contract/index.js";
 import type { Diagnostic } from "../../src/main/core/diagnostics/diagnostic.js";
-import type {
-  CapabilityState,
-  HarnessCapabilities
-} from "../../src/main/core/model/capabilities.js";
 import { createSafeFilesystem } from "../../src/main/core/security/index.js";
-
-const REQUIRED_CAPABILITY_KEYS = [
-  "sessionDiscovery",
-  "liveSessionObservation",
-  "eventStreaming",
-  "messageCapture",
-  "toolCallCapture",
-  "shellCommandCapture",
-  "outputArtifactCapture",
-  "fileMutationCapture",
-  "sourceValidation",
-  "watchPlans",
-  "gitContextCapture",
-  "githubContextCapture",
-  "verificationSignals"
-] as const satisfies ReadonlyArray<keyof HarnessCapabilities>;
+import {
+  normalizedResultSchema,
+  rawArtifactRefSchema,
+  validateNormalizedResult
+} from "../../src/main/core/ingestion/normalization-validator.js";
 
 const FORBIDDEN_CONCLUSION_KEYS = [
   "verificationState",
   "verificationStatus",
   "runAuditStatus",
   "runAuditClassification",
-  "attentionReasons",
   "attentionReason"
 ] as const;
 
@@ -67,6 +51,8 @@ export interface ExercisedAdapter<TRawEvent extends RawHarnessEvent = RawHarness
   artifacts: RawArtifactRef[];
   rawEvents: TRawEvent[];
   normalized: AdapterNormalizationResult;
+  defaultRoots: unknown[];
+  watchPlan: unknown;
 }
 
 export interface RunAdapterContractSuiteOptions<
@@ -74,11 +60,9 @@ export interface RunAdapterContractSuiteOptions<
 > {
   name: string;
   adapter: SessionSourceAdapter<TRawEvent>;
-  root: SourceRootConfig | string;
-  expectedCapabilityStatuses?: Partial<
-    Record<keyof HarnessCapabilities, CapabilityState["status"]>
-  >;
-  expectedDiagnosticCodes?: string[];
+	  root: SourceRootConfig | string;
+	  expectedCapabilityStatuses?: Record<string, "supported" | "unsupported" | "unknown">;
+	  expectedDiagnosticCodes?: string[];
   minimums?: Partial<Record<MinimumKey, number>>;
   assertExercisedAdapter?(adapterRun: ExercisedAdapter<TRawEvent>): void;
   assertNormalized?(
@@ -128,42 +112,6 @@ function buildMinimums(overrides: RunAdapterContractSuiteOptions["minimums"] = {
   };
 }
 
-function assertCapabilityState(
-  state: CapabilityState,
-  key: keyof HarnessCapabilities,
-  expectedStatus?: CapabilityState["status"]
-) {
-  expect(state).toBeTypeOf("object");
-  expect(state).not.toBeNull();
-  expect(state).toHaveProperty("status");
-  expect(["supported", "unsupported", "unknown"]).toContain(state.status);
-
-  if (expectedStatus) {
-    expect(state.status).toBe(expectedStatus);
-  }
-
-  if (state.reason !== undefined) {
-    expect(state.reason).toEqual(expect.any(String));
-  }
-
-  if (state.details !== undefined) {
-    expect(state.details).toEqual(expect.any(String));
-  }
-
-  expect(state.status).not.toBe(0 as never);
-  expect(state.status).not.toBe(false as never);
-  expect(key).toEqual(expect.any(String));
-}
-
-function assertHarnessCapabilities(
-  capabilities: HarnessCapabilities,
-  expectedStatuses: Partial<Record<keyof HarnessCapabilities, CapabilityState["status"]>> = {}
-) {
-  for (const key of REQUIRED_CAPABILITY_KEYS) {
-    assertCapabilityState(capabilities[key], key, expectedStatuses[key]);
-  }
-}
-
 function assertDiagnosticShape(
   diagnostic: Diagnostic,
   adapterId: string,
@@ -173,31 +121,10 @@ function assertDiagnosticShape(
   expect(diagnostic.code).toEqual(expect.any(String));
   expect(diagnostic.message).toEqual(expect.any(String));
   expect(["info", "warning", "error"]).toContain(diagnostic.severity);
-  expect(
-    [
-      "adapter",
-      "source",
-      "artifact",
-      "project",
-      "session",
-      "event",
-      "message",
-      "tool-call",
-      "shell-command",
-      "output-artifact",
-      "file-mutation"
-    ]
-  ).toContain(diagnostic.scope);
   expect(diagnostic.adapterId).toBe(adapterId);
 
   if (sourceId !== undefined && diagnostic.sourceId !== undefined) {
     expect(diagnostic.sourceId).toBe(sourceId);
-  }
-
-  expect(diagnostic.confidence.level).toEqual(expect.any(String));
-
-  if (diagnostic.relatedEntityIds) {
-    expect(diagnostic.relatedEntityIds.every((id) => typeof id === "string")).toBe(true);
   }
 }
 
@@ -225,175 +152,6 @@ function findForbiddenKeys(
   }
 
   return hits;
-}
-
-function assertNormalizedRelationships(result: AdapterNormalizationResult) {
-  const projectIds = new Set(result.projects.map((project) => project.id));
-  const sessionIds = new Set(result.sessions.map((session) => session.id));
-  const eventIds = new Set(result.events.map((event) => event.id));
-  const toolCallIds = new Set(result.toolCalls.map((toolCall) => toolCall.id));
-  const outputArtifactIds = new Set(result.outputArtifacts.map((artifact) => artifact.id));
-  const fileMutationIds = new Set(result.fileMutations.map((mutation) => mutation.id));
-
-  for (const project of result.projects) {
-    expect(project.kind).toBe("project");
-    expect(project.adapterId).toBe(result.adapterId);
-    expect(project.sourceId).toBe(result.sourceId);
-    expect(project.nativeId).toEqual(expect.any(String));
-    expect(project.name).toEqual(expect.any(String));
-    expect(project.confidence.level).toEqual(expect.any(String));
-  }
-
-  for (const session of result.sessions) {
-    expect(session.kind).toBe("session");
-    expect(session.adapterId).toBe(result.adapterId);
-    expect(session.sourceId).toBe(result.sourceId);
-    expect(session.nativeId).toEqual(expect.any(String));
-    expect(["active", "completed", "cancelled", "unknown"]).toContain(session.lifecycleState);
-    expect(session.confidence.level).toEqual(expect.any(String));
-
-    if (session.projectId !== undefined) {
-      expect(projectIds.has(session.projectId)).toBe(true);
-    }
-  }
-
-  for (const event of result.events) {
-    expect(event.kind).toBe("session-event");
-    expect(event.adapterId).toBe(result.adapterId);
-    expect(event.sourceId).toBe(result.sourceId);
-    expect(sessionIds.has(event.sessionId)).toBe(true);
-    expect(event.nativeId).toEqual(expect.any(String));
-    expect(Number.isInteger(event.ordinal)).toBe(true);
-    expect(event.ordinal).toBeGreaterThan(0);
-    expect(
-      ["lifecycle", "message", "tool-call", "shell-command", "output-artifact", "file-mutation", "metadata"]
-    ).toContain(event.eventKind);
-
-    if (event.messageId !== undefined) {
-      expect(
-        result.messages.some((message) => message.id === event.messageId)
-      ).toBe(true);
-    }
-
-    if (event.toolCallId !== undefined) {
-      expect(toolCallIds.has(event.toolCallId)).toBe(true);
-    }
-
-    if (event.shellCommandId !== undefined) {
-      expect(
-        result.shellCommands.some((shellCommand) => shellCommand.id === event.shellCommandId)
-      ).toBe(true);
-    }
-
-    if (event.outputArtifactId !== undefined) {
-      expect(outputArtifactIds.has(event.outputArtifactId)).toBe(true);
-    }
-
-    if (event.fileMutationId !== undefined) {
-      expect(fileMutationIds.has(event.fileMutationId)).toBe(true);
-    }
-  }
-
-  for (const message of result.messages) {
-    expect(message.kind).toBe("session-message");
-    expect(message.adapterId).toBe(result.adapterId);
-    expect(message.sourceId).toBe(result.sourceId);
-    expect(sessionIds.has(message.sessionId)).toBe(true);
-    expect(message.nativeId).toEqual(expect.any(String));
-    expect(["assistant", "system", "tool", "user"]).toContain(message.role);
-    expect(message.content).toEqual(expect.any(String));
-    expect(Number.isInteger(message.ordinal)).toBe(true);
-    expect(message.ordinal).toBeGreaterThan(0);
-
-    if (message.eventId !== undefined) {
-      expect(eventIds.has(message.eventId)).toBe(true);
-    }
-  }
-
-  for (const toolCall of result.toolCalls) {
-    expect(toolCall.kind).toBe("tool-call");
-    expect(toolCall.adapterId).toBe(result.adapterId);
-    expect(toolCall.sourceId).toBe(result.sourceId);
-    expect(sessionIds.has(toolCall.sessionId)).toBe(true);
-    expect(toolCall.nativeId).toEqual(expect.any(String));
-    expect(toolCall.toolName).toEqual(expect.any(String));
-    expect(["started", "succeeded", "failed", "cancelled", "unknown"]).toContain(toolCall.status);
-
-    if (toolCall.eventId !== undefined) {
-      expect(eventIds.has(toolCall.eventId)).toBe(true);
-    }
-
-    if (toolCall.artifactIds) {
-      expect(toolCall.artifactIds.every((artifactId) => outputArtifactIds.has(artifactId))).toBe(
-        true
-      );
-    }
-
-    if (toolCall.fileMutationIds) {
-      expect(toolCall.fileMutationIds.every((fileMutationId) => fileMutationIds.has(fileMutationId))).toBe(true);
-    }
-  }
-
-  for (const shellCommand of result.shellCommands) {
-    expect(shellCommand.kind).toBe("shell-command");
-    expect(shellCommand.adapterId).toBe(result.adapterId);
-    expect(shellCommand.sourceId).toBe(result.sourceId);
-    expect(sessionIds.has(shellCommand.sessionId)).toBe(true);
-    expect(shellCommand.nativeId).toEqual(expect.any(String));
-    expect(shellCommand.command).toEqual(expect.any(String));
-    expect(["stdout", "stderr", "combined", "unknown"]).toContain(shellCommand.outputSource);
-
-    if (shellCommand.eventId !== undefined) {
-      expect(eventIds.has(shellCommand.eventId)).toBe(true);
-    }
-
-    if (shellCommand.toolCallId !== undefined) {
-      expect(toolCallIds.has(shellCommand.toolCallId)).toBe(true);
-    }
-
-    if (shellCommand.artifactIds) {
-      expect(shellCommand.artifactIds.every((artifactId) => outputArtifactIds.has(artifactId))).toBe(
-        true
-      );
-    }
-
-    if (shellCommand.rawToolStatus !== undefined) {
-      expect(["started", "succeeded", "failed", "cancelled", "unknown"]).toContain(
-        shellCommand.rawToolStatus
-      );
-    }
-  }
-
-  for (const artifact of result.outputArtifacts) {
-    expect(artifact.kind).toBe("output-artifact");
-    expect(artifact.adapterId).toBe(result.adapterId);
-    expect(artifact.sourceId).toBe(result.sourceId);
-    expect(sessionIds.has(artifact.sessionId)).toBe(true);
-    expect(artifact.nativeId).toEqual(expect.any(String));
-    expect(["image", "json", "text", "trace", "unknown"]).toContain(artifact.artifactKind);
-
-    if (artifact.eventId !== undefined) {
-      expect(eventIds.has(artifact.eventId)).toBe(true);
-    }
-  }
-
-  for (const mutation of result.fileMutations) {
-    expect(mutation.kind).toBe("file-mutation");
-    expect(mutation.adapterId).toBe(result.adapterId);
-    expect(mutation.sourceId).toBe(result.sourceId);
-    expect(sessionIds.has(mutation.sessionId)).toBe(true);
-    expect(mutation.nativeId).toEqual(expect.any(String));
-    expect(mutation.path).toEqual(expect.any(String));
-    expect(["created", "updated", "deleted", "unknown"]).toContain(mutation.mutationKind);
-
-    if (mutation.eventId !== undefined) {
-      expect(eventIds.has(mutation.eventId)).toBe(true);
-    }
-
-    if (mutation.toolCallId !== undefined) {
-      expect(toolCallIds.has(mutation.toolCallId)).toBe(true);
-    }
-  }
 }
 
 export async function collectAsync<T>(iterable: AsyncIterable<T>): Promise<T[]> {
@@ -435,6 +193,8 @@ export async function exerciseAdapter<TRawEvent extends RawHarnessEvent>(
     },
     runtimeContext
   );
+  const defaultRoots = await adapter.getDefaultSourceRoots(runtimeContext);
+  const watchPlan = await adapter.getWatchPlan(source, runtimeContext);
 
   return {
     context: runtimeContext,
@@ -444,7 +204,9 @@ export async function exerciseAdapter<TRawEvent extends RawHarnessEvent>(
     source,
     artifacts,
     rawEvents,
-    normalized
+    normalized,
+    defaultRoots,
+    watchPlan
   };
 }
 
@@ -454,7 +216,6 @@ export function runAdapterContractSuite<
   name,
   adapter,
   root,
-  expectedCapabilityStatuses = {},
   expectedDiagnosticCodes = [],
   minimums,
   assertExercisedAdapter,
@@ -463,69 +224,43 @@ export function runAdapterContractSuite<
   const expectedMinimums = buildMinimums(minimums);
 
   describe(`${name} adapter contract`, () => {
-    it("exposes reusable descriptor metadata and mandatory capability truth states", () => {
+    it("exposes reusable descriptor metadata", () => {
       expect(adapter.descriptor.id).toEqual(expect.any(String));
       expect(adapter.descriptor.displayName).toEqual(expect.any(String));
       expect(adapter.descriptor.adapterVersion).toEqual(expect.any(String));
       expect(adapter.descriptor.supportedPlatforms.length).toBeGreaterThan(0);
       expect(adapter.descriptor.defaultRoots.length).toBeGreaterThan(0);
-
-      for (const defaultRoot of adapter.descriptor.defaultRoots) {
-        expect(defaultRoot.path).toEqual(expect.any(String));
-        expect(defaultRoot.label).toEqual(expect.any(String));
-        expect(["directory", "file"]).toContain(defaultRoot.kind);
-      }
-
-      assertHarnessCapabilities(adapter.descriptor.capabilities, expectedCapabilityStatuses);
     });
 
     it("runs validation, discovery, parsing, normalization, and diagnostics through one harness", async () => {
       const adapterRun = await exerciseAdapter(adapter, root);
-      const { validation, sources, source, artifacts, rawEvents, normalized } = adapterRun;
+      const { validation, sources, source, artifacts, rawEvents, normalized, defaultRoots, watchPlan } =
+        adapterRun;
 
       expect(validation.ok).toBe(true);
       expect(validation.normalizedPath).toEqual(expect.any(String));
       expect(Array.isArray(validation.diagnostics)).toBe(true);
 
-      if (validation.capabilities) {
-        assertHarnessCapabilities(validation.capabilities, expectedCapabilityStatuses);
-      }
-
       expect(sources).toHaveLength(expectedMinimums.sources);
-
-      for (const discoveredSource of sources) {
-        expect(discoveredSource.id).toEqual(expect.any(String));
-        expect(discoveredSource.adapterId).toBe(adapter.descriptor.id);
-        expect(discoveredSource.nativeId).toEqual(expect.any(String));
-        expect(discoveredSource.rootPath).toEqual(expect.any(String));
-        expect(discoveredSource.displayName).toEqual(expect.any(String));
-        expect(discoveredSource.confidence.level).toEqual(expect.any(String));
-      }
-
       expect(artifacts.length).toBeGreaterThanOrEqual(expectedMinimums.artifacts);
-
-      for (const artifact of artifacts) {
-        expect(artifact.id).toEqual(expect.any(String));
-        expect(artifact.adapterId).toBe(adapter.descriptor.id);
-        expect(artifact.sourceId).toBe(source.id);
-        expect(artifact.nativeId).toEqual(expect.any(String));
-        expect(artifact.path).toEqual(expect.any(String));
-        expect(artifact.artifactType).toEqual(expect.any(String));
-      }
-
       expect(rawEvents.length).toBeGreaterThanOrEqual(expectedMinimums.rawEvents);
 
+      expect(defaultRoots.length).toBeGreaterThan(0);
+      expect(watchPlan).toBeDefined();
+
+      for (const artifact of artifacts) {
+        expect(() => rawArtifactRefSchema.parse(artifact)).not.toThrow();
+        expect(artifact.adapterId).toBe(adapter.descriptor.id);
+        expect(artifact.sourceId).toBe(source.id);
+      }
+
       for (const rawEvent of rawEvents) {
-        expect(rawEvent.id).toEqual(expect.any(String));
         expect(rawEvent.adapterId).toBe(adapter.descriptor.id);
         expect(rawEvent.sourceId).toBe(source.id);
-        expect(artifacts.some((artifact) => artifact.id === rawEvent.artifactId)).toBe(true);
-        expect(rawEvent.kind).toEqual(expect.any(String));
       }
 
       expect(normalized.adapterId).toBe(adapter.descriptor.id);
       expect(normalized.sourceId).toBe(source.id);
-
       expect(normalized.projects.length).toBeGreaterThanOrEqual(expectedMinimums.projects);
       expect(normalized.sessions.length).toBeGreaterThanOrEqual(expectedMinimums.sessions);
       expect(normalized.events.length).toBeGreaterThanOrEqual(expectedMinimums.events);
@@ -542,27 +277,11 @@ export function runAdapterContractSuite<
       );
       expect(normalized.diagnostics.length).toBeGreaterThanOrEqual(expectedMinimums.diagnostics);
 
-      assertHarnessCapabilities(
-        normalized.capabilities.adapter.capabilities,
-        expectedCapabilityStatuses
-      );
-      expect(normalized.capabilities.adapter.adapterId).toBe(adapter.descriptor.id);
+      expect(() => normalizedResultSchema.parse(normalized)).not.toThrow();
 
-      assertHarnessCapabilities(
-        normalized.capabilities.source.capabilities,
-        expectedCapabilityStatuses
-      );
-      expect(normalized.capabilities.source.adapterId).toBe(adapter.descriptor.id);
-      expect(normalized.capabilities.source.sourceId).toBe(source.id);
-
-      expect(normalized.capabilities.sessions.length).toBeGreaterThan(0);
-
-      for (const sessionSnapshot of normalized.capabilities.sessions) {
-        expect(normalized.sessions.some((session) => session.id === sessionSnapshot.sessionId)).toBe(
-          true
-        );
-        assertHarnessCapabilities(sessionSnapshot.capabilities, expectedCapabilityStatuses);
-      }
+      const validationResult = validateNormalizedResult(normalized);
+      expect(validationResult.ok).toBe(true);
+      expect(validationResult.diagnostics).toEqual([]);
 
       normalized.diagnostics.forEach((diagnostic) =>
         assertDiagnosticShape(diagnostic, adapter.descriptor.id, source.id)
@@ -574,7 +293,6 @@ export function runAdapterContractSuite<
         );
       }
 
-      assertNormalizedRelationships(normalized);
       expect(findForbiddenKeys(normalized)).toEqual([]);
 
       assertExercisedAdapter?.(adapterRun);

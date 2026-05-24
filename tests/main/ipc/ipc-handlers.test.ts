@@ -152,13 +152,19 @@ function createFakeServices(): {
     },
     startedAt: "2026-05-23T10:00:00.000Z",
     endedAt: "2026-05-23T10:00:01.000Z",
-    projectName: "control-plus-zebra",
-    firstPrompt: "Define the shared contracts.",
-    capabilityBadges: [
+    projectDisplayName: "control-plus-zebra",
+    firstUserPrompt: "Define the shared contracts.",
+    capabilityGroups: [
       {
-        key: "sessionDiscovery",
-        label: "Session discovery",
-        state: "Supported"
+        key: "discovery",
+        label: "Discovery",
+        capabilities: [
+          {
+            key: "discovery.sessionDiscovery",
+            label: "Session discovery",
+            state: "Supported"
+          }
+        ]
       }
     ],
     diagnosticWarningCount: 0,
@@ -189,7 +195,6 @@ function createFakeServices(): {
   };
   const preview: SessionPreviewViewModel = {
     ...summary,
-    projectName: "control-plus-zebra",
     diagnostics: []
   };
   const dataSourcesViewModel = {
@@ -197,7 +202,7 @@ function createFakeServices(): {
       {
         adapterId: "fake-test",
         displayName: "Fake Test Harness",
-        capabilityBadges: [],
+        capabilityGroups: [],
         defaultRoots: []
       }
     ],
@@ -323,8 +328,8 @@ function createFakeServices(): {
       return [
         {
           projectId: "project-1",
-          projectName: "control-plus-zebra",
-          repoPath: {
+          projectDisplayName: "control-plus-zebra",
+          primaryRootPath: {
             status: "value",
             displayValue: "/workspace/control-plus-zebra",
             rawValue: "/workspace/control-plus-zebra"

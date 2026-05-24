@@ -1,6 +1,6 @@
 import type { SessionSourceAdapter } from "../../core/adapter-contract/session-source-adapter.js";
 import type { LoadedOutputArtifact } from "../../core/adapter-contract/types.js";
-import { createSafeFilesystem } from "../../core/security/safe-filesystem.js";
+import { adapterReadTextFile } from "../../core/adapter-contract/context-helpers.js";
 import type { WatchPlan } from "../../core/watcher/watch-plan.js";
 
 import { geminiCliDescriptor } from "./descriptor.js";
@@ -16,6 +16,9 @@ const outputArtifactBindings = new Map<string, GeminiOutputArtifactBinding>();
 
 export const geminiCliAdapter: SessionSourceAdapter<GeminiRawEvent> = {
   descriptor: geminiCliDescriptor,
+  async getDefaultSourceRoots() {
+    return geminiCliDescriptor.defaultRoots;
+  },
   validateSourceRoot: validateGeminiCliSourceRoot,
   discoverSources: discoverGeminiCliSources,
   discoverArtifacts: discoverGeminiCliArtifacts,
@@ -38,19 +41,12 @@ export const geminiCliAdapter: SessionSourceAdapter<GeminiRawEvent> = {
       return { artifact };
     }
 
-    const safeFilesystem =
-      context.safeFilesystem ??
-      createSafeFilesystem({
-        allowedArtifacts: [
-          {
-            artifactId: binding.rawArtifactId,
-            path: binding.path
-          }
-        ],
-        allowedRootPaths: []
-      });
-    const rawText = await safeFilesystem.readIndexedTextArtifact(binding.rawArtifactId, binding.path);
-    const mediaType = artifact.mediaType ?? "text/plain";
+    const rawText = await adapterReadTextFile(context, binding.path, binding.rawArtifactId);
+	    const mediaType =
+	      artifact.mediaType ??
+	      (artifact.contentKind === "json" || artifact.contentKind === "json-output-wrapper"
+	        ? "application/json"
+	        : "text/plain");
 
     if (mediaType === "application/json") {
       try {
@@ -81,12 +77,10 @@ export const geminiCliAdapter: SessionSourceAdapter<GeminiRawEvent> = {
     return {
       adapterId: geminiCliDescriptor.id,
       sourceId: source.id,
-      status: geminiCliDescriptor.capabilities.watchPlans.status,
+      status: "unsupported",
       scopePaths: [],
       strategy: "none",
-      ...(geminiCliDescriptor.capabilities.watchPlans.reason
-        ? { reason: geminiCliDescriptor.capabilities.watchPlans.reason }
-        : {})
+      reason: "Gemini CLI artifact watching is not supported in this Wave 2 adapter contract slice."
     };
   }
 };

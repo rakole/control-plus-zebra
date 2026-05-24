@@ -40,7 +40,9 @@ export function deriveRunAuditForSession(args: {
     sessionMessages: args.sessionMessages
   });
   const attentionReasons = new Set<AttentionReasonCode>();
-  const pendingToolCalls = args.sessionToolCalls.filter((toolCall) => toolCall.status === "started");
+  const pendingToolCalls = args.sessionToolCalls.filter(
+    (toolCall) => toolCall.statusNormalized === "pending"
+  );
 
   if (args.verification.status === "failed") {
     attentionReasons.add("failed-verification");
@@ -86,7 +88,7 @@ export function deriveRunAuditForSession(args: {
     completionClaimStatus: completionClaim.status,
     hasPendingToolCalls: pendingToolCalls.length > 0,
     hasPostClaimActivity: completionClaim.postClaimEventIds.length > 0,
-    sessionLifecycleState: args.session.lifecycleState,
+    sessionLifecycleState: args.session.lifecycleStatus,
     verificationStatus: args.verification.status
   });
   const diagnosticIds = dedupeStrings(args.diagnostics.map((diagnostic) => diagnostic.id));
@@ -109,7 +111,7 @@ function deriveStatus(args: {
   completionClaimStatus: "claimed" | "not-claimed" | "unknown";
   hasPendingToolCalls: boolean;
   hasPostClaimActivity: boolean;
-  sessionLifecycleState: Session["lifecycleState"];
+  sessionLifecycleState: Session["lifecycleStatus"];
   verificationStatus: VerificationResult["status"];
 }): RunAuditStatus {
   if (args.sessionLifecycleState === "active") {

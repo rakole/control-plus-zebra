@@ -133,7 +133,7 @@ export class RawArtifactIndex {
 
 export function createRawArtifactIndexEntries(input: {
   adapterVersion: string;
-  artifacts: Array<RawArtifactRef & { inode?: number }>;
+  artifacts: RawArtifactRef[];
   diagnosticsHash: string;
   parserVersion: string;
   schemaVersion?: string;
@@ -142,13 +142,13 @@ export function createRawArtifactIndexEntries(input: {
     id: artifact.id,
     adapterId: artifact.adapterId,
     sourceId: artifact.sourceId,
-    nativeId: artifact.nativeId,
+    nativeId: artifact.nativeId ?? artifact.nativeRef ?? artifact.id,
     ...(artifact.path ? { path: artifact.path } : {}),
-    artifactType: artifact.artifactType,
+    artifactType: artifact.artifactType ?? artifact.artifactKind ?? "unknown",
     ...(artifact.mediaType ? { mediaType: artifact.mediaType } : {}),
     ...(artifact.byteLength !== undefined ? { byteLength: artifact.byteLength } : {}),
     ...(artifact.mtimeMs !== undefined ? { mtimeMs: artifact.mtimeMs } : {}),
-    ...(artifact.inode !== undefined ? { inode: artifact.inode } : {}),
+    ...(typeof artifact.inode === "number" ? { inode: artifact.inode } : {}),
     parserVersion: input.parserVersion,
     adapterVersion: input.adapterVersion,
     schemaVersion: input.schemaVersion ?? RAW_ARTIFACT_SCHEMA_VERSION,

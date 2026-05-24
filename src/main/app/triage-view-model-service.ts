@@ -7,10 +7,6 @@ import type {
 import type { Diagnostic } from "../core/diagnostics/diagnostic.js";
 import { mergeNormalizedResults } from "../core/ingestion/index.js";
 import type {
-  CapabilityState,
-  HarnessCapabilities
-} from "../core/model/capabilities.js";
-import type {
   FileMutationEvidence,
   OutputArtifact,
   Project,
@@ -27,8 +23,6 @@ import {
   projectSummaryViewModelSchema,
   sessionPreviewViewModelSchema,
   sessionSummaryViewModelSchema,
-  type CapabilityBadgeLabel,
-  type CapabilityBadgeViewModel,
   type FieldValueViewModel,
   type GetOverviewRequest,
   type ListProjectsRequest,
@@ -40,26 +34,14 @@ import {
   type TruthStateViewModel
 } from "../ipc/view-models.js";
 import {
+  getGroupedCapabilityState,
+  toCapabilityGroups
+} from "./capability-view-models.js";
+import {
   createWorkbenchRuntime,
   type WorkbenchRuntime,
   type WorkbenchRuntimeOptions
 } from "./workbench-runtime.js";
-
-const capabilityKeys = [
-  "sessionDiscovery",
-  "liveSessionObservation",
-  "eventStreaming",
-  "messageCapture",
-  "toolCallCapture",
-  "shellCommandCapture",
-  "outputArtifactCapture",
-  "fileMutationCapture",
-  "sourceValidation",
-  "watchPlans",
-  "gitContextCapture",
-  "githubContextCapture",
-  "verificationSignals"
-] as const satisfies readonly (keyof HarnessCapabilities)[];
 
 type DerivedSession = NonNullable<NormalizedCacheRecord["derived"]>["sessions"][number];
 type DerivedProject = NonNullable<
@@ -122,7 +104,8 @@ export function createTriageViewModelService(
               .length
           ),
           cancelledSessions: toMetricValue(
-            sessions.filter((session) => session.lifecycleState === "cancelled").length
+            sessions.filter((session) => getSessionLifecycleStatus(session) === "cancelled")
+              .length
           ),
           needsAttentionSessions: toMetricValue(
             sessions.filter((session) => needsAttention(getRunAuditState(data, session))).length
@@ -182,10 +165,13 @@ export function createTriageViewModelService(
                 sessionId: latestSession.id
               });
 
+          const projectDisplayName = getProjectDisplayName(project) ?? "Unknown Project";
+
           return projectSummaryViewModelSchema.parse({
             projectId: project?.id ?? key,
-            projectName: project?.name ?? "Unknown Project",
-            repoPath: toFieldValue(project?.rootPath),
+            projectDisplayName,
+            projectName: projectDisplayName,
+            primaryRootPath: toFieldValue(getProjectPrimaryRootPath(project)),
             validatedRepoRoot: toGitValidatedRootField(projectSnapshot),
             observedHarnesses,
             latestActivityAt: getSessionActivityTimestamp(latestSession),
@@ -247,7 +233,10 @@ export async function loadTriageData(
     messagesBySessionId: groupBy(messages, (message) => message.sessionId),
     toolCallsBySessionId: groupBy(toolCalls, (toolCall) => toolCall.sessionId),
     shellCommandsBySessionId: groupBy(shellCommands, (shellCommand) => shellCommand.sessionId),
-    outputArtifactsBySessionId: groupBy(outputArtifacts, (artifact) => artifact.sessionId),
+    outputArtifactsBySessionId: groupBy(
+      outputArtifacts.filter((artifact) => Boolean(artifact.sessionId)),
+      (artifact) => artifact.sessionId ?? ""
+    ),
     fileMutationsBySessionId: groupBy(fileMutations, (mutation) => mutation.sessionId),
     diagnosticsBySessionId: buildDiagnosticsBySession(records, sessions),
     derivedBySessionId: buildDerivedBySession(records),
@@ -324,6 +313,15 @@ export function getCapabilityEnvelope(
   data: LoadedTriageData,
   session: Session
 ) {
+  if (hasSessionCapabilities(session)) {
+    return {
+      adapterId: session.adapterId,
+      sourceId: session.sourceId,
+      sessionId: session.id,
+      capabilities: session.capabilities
+    };
+  }
+
   for (const record of data.records) {
     const sessionCapability = record.normalized.capabilities.sessions.find(
       (candidate) => candidate.sessionId === session.id
@@ -349,11 +347,16 @@ export function getVerificationState(
   session: Session
 ): TruthStateViewModel {
   const derived = getDerivedSession(data, session.id);
-  const capability =
-    getCapabilityEnvelope(data, session)?.capabilities.verificationSignals.status ?? "unknown";
+  const sessionVerification = getSessionVerification(session);
+  const verification = sessionVerification ?? derived?.verification;
+  const capability = getGroupedCapabilityState(
+    getCapabilityEnvelope(data, session)?.capabilities,
+    "audit",
+    "verificationCommandEvidence"
+  )?.status;
 
-  if (derived?.verification) {
-    switch (derived.verification.status) {
+  if (verification) {
+    switch (verification.status) {
       case "passed":
         return { label: "Passed", tone: "positive" };
       case "failed":
@@ -362,19 +365,19 @@ export function getVerificationState(
         return {
           label: "Not Run",
           tone: "warning",
-          reason: toReasonText(derived.verification.reasonCodes)
+          reason: toReasonText(verification.reasonCodes)
         };
       case "unknown":
         return {
           label: "Unknown",
           tone: "neutral",
-          reason: toReasonText(derived.verification.reasonCodes)
+          reason: toReasonText(verification.reasonCodes)
         };
       case "unsupported":
         return {
           label: "Unsupported",
           tone: "neutral",
-          reason: toReasonText(derived.verification.reasonCodes)
+          reason: toReasonText(verification.reasonCodes)
         };
     }
   }
@@ -383,14 +386,22 @@ export function getVerificationState(
     return {
       label: "Unsupported",
       tone: "neutral",
-      reason: getCapabilityEnvelope(data, session)?.capabilities.verificationSignals.reason
+      reason: getGroupedCapabilityState(
+        getCapabilityEnvelope(data, session)?.capabilities,
+        "audit",
+        "verificationCommandEvidence"
+      )?.reason
     };
   }
 
   return {
     label: "Unknown",
     tone: "neutral",
-    reason: getCapabilityEnvelope(data, session)?.capabilities.verificationSignals.reason
+    reason: getGroupedCapabilityState(
+      getCapabilityEnvelope(data, session)?.capabilities,
+      "audit",
+      "verificationCommandEvidence"
+    )?.reason
   };
 }
 
@@ -399,37 +410,38 @@ export function getRunAuditState(
   session: Session
 ): TruthStateViewModel {
   const derived = getDerivedSession(data, session.id);
+  const runAudit = getSessionRunAudit(session) ?? derived?.audit;
 
-  if (!derived?.audit) {
+  if (!runAudit) {
     return { label: "Unknown", tone: "neutral" };
   }
 
-  switch (derived.audit.status) {
+  switch (runAudit.status) {
     case "active":
       return { label: "Active", tone: "info" };
     case "cancelled":
       return {
         label: "Cancelled",
         tone: "warning",
-        reason: toReasonText(derived.audit.attentionReasons)
+        reason: toReasonText(runAudit.attentionReasons)
       };
     case "verification-failed":
       return {
         label: "Failed Verification",
         tone: "danger",
-        reason: toReasonText(derived.audit.attentionReasons)
+        reason: toReasonText(runAudit.attentionReasons)
       };
     case "incomplete":
       return {
         label: "Incomplete",
         tone: "warning",
-        reason: toReasonText(derived.audit.attentionReasons)
+        reason: toReasonText(runAudit.attentionReasons)
       };
     case "needs-review":
       return {
         label: "Needs Review",
         tone: "warning",
-        reason: toReasonText(derived.audit.attentionReasons)
+        reason: toReasonText(runAudit.attentionReasons)
       };
     case "clean":
       return { label: "Clean", tone: "positive" };
@@ -437,13 +449,13 @@ export function getRunAuditState(
       return {
         label: "Unknown",
         tone: "neutral",
-        reason: toReasonText(derived.audit.attentionReasons)
+        reason: toReasonText(runAudit.attentionReasons)
       };
   }
 }
 
 export function getLifecycleState(session: Session): TruthStateViewModel {
-  switch (session.lifecycleState) {
+  switch (getSessionLifecycleStatus(session)) {
     case "active":
       return { label: "Active", tone: "info" };
     case "completed":
@@ -453,18 +465,6 @@ export function getLifecycleState(session: Session): TruthStateViewModel {
     case "unknown":
       return { label: "Unknown", tone: "neutral" };
   }
-}
-
-export function toCapabilityBadge(
-  key: keyof HarnessCapabilities,
-  state: CapabilityState
-): CapabilityBadgeViewModel {
-  return {
-    key,
-    label: humanizeCapabilityKey(key),
-    state: toCapabilityLabel(state.status),
-    ...(state.reason ? { reason: state.reason } : {})
-  };
 }
 
 export function toMetricValue(value: number): MetricStateViewModel {
@@ -724,33 +724,41 @@ function buildSessionBaseViewModel(
   const descriptor = data.descriptors.get(session.adapterId);
   const capabilityEnvelope = getCapabilityEnvelope(data, session);
   const diagnostics = getDiagnosticsForSession(data, session);
-  const shellCapability = capabilityEnvelope?.capabilities.shellCommandCapture;
+  const shellCapability = getGroupedCapabilityState(
+    capabilityEnvelope?.capabilities,
+    "tools",
+    "shellCommands"
+  );
+  const tokenCountCapability = getGroupedCapabilityState(
+    capabilityEnvelope?.capabilities,
+    "usage",
+    "tokenCounts"
+  );
   const derived = getDerivedSession(data, session.id);
-  const firstPrompt = getFirstPrompt(data, session.id);
+  const firstUserPrompt =
+    getSessionFirstUserPrompt(session) ?? getFirstPrompt(data, session.id);
+  const projectDisplayName = getProjectDisplayName(getProjectForSession(data, session));
+  const capabilityGroups = toCapabilityGroups(capabilityEnvelope?.capabilities);
 
   return {
     adapterId: session.adapterId,
     adapterDisplayName: descriptor?.displayName ?? session.adapterId,
     sourceId: session.sourceId,
     sessionId: session.id,
-    nativeSessionId: session.nativeId,
-    title: session.title ?? session.nativeId,
-    lifecycleStatus: session.lifecycleState,
+    nativeSessionId: getSessionNativeSessionId(session),
+    title: session.title ?? getSessionNativeSessionId(session),
+    lifecycleStatus: getSessionLifecycleStatus(session),
     lifecycleState: getLifecycleState(session),
     ...(session.startedAt ? { startedAt: session.startedAt } : {}),
-    ...(session.endedAt ? { endedAt: session.endedAt } : {}),
-    ...(getProjectForSession(data, session)?.name
-      ? { projectName: getProjectForSession(data, session)?.name }
-      : {}),
-    ...(firstPrompt ? { firstPrompt } : {}),
-    capabilityBadges: capabilityKeys.map((key) =>
-      toCapabilityBadge(key, capabilityEnvelope?.capabilities[key] ?? { status: "unknown" })
-    ),
+    ...(getSessionEndedAt(session) ? { endedAt: getSessionEndedAt(session) } : {}),
+    ...(projectDisplayName ? { projectDisplayName } : {}),
+    ...(firstUserPrompt ? { firstUserPrompt } : {}),
+    capabilityGroups,
     diagnosticWarningCount: diagnostics.filter((diagnostic) => diagnostic.severity === "warning")
       .length,
     verificationState: getVerificationState(data, session),
     runAuditState: getRunAuditState(data, session),
-    attentionReasons: derived?.audit?.attentionReasons.map(humanizeAttentionReason) ?? [],
+    attentionReasons: getAttentionReasons(session, derived),
     evidenceSummary: {
       messages: data.messagesBySessionId.get(session.id)?.length ?? 0,
       toolCalls: data.toolCallsBySessionId.get(session.id)?.length ?? 0,
@@ -772,11 +780,7 @@ function buildSessionBaseViewModel(
               derived?.shellCommands.filter((command) => command.result === "failed").length ?? 0
             )
           : toMetricStateFromCapability(shellCapability),
-      tokenCount: toMetricState(
-        "unsupported",
-        "Unsupported",
-        "Token accounting is not captured by the current shared evidence model."
-      )
+      tokenCount: toTokenCountMetric(session, tokenCountCapability)
     }
   };
 }
@@ -928,10 +932,12 @@ function abbreviateSha(value: string): string {
 
 function getFirstPrompt(data: LoadedTriageData, sessionId: string): string | undefined {
   const firstUserMessage = [...(data.messagesBySessionId.get(sessionId) ?? [])]
-    .sort((left, right) => left.ordinal - right.ordinal)
+    .sort((left, right) => getMessageOrderKey(data, sessionId, left).localeCompare(getMessageOrderKey(data, sessionId, right)))
     .find((message) => message.role === "user");
 
-  return firstUserMessage ? truncate(sanitizeText(firstUserMessage.content), 140) : undefined;
+  return firstUserMessage
+    ? truncate(sanitizeText(getMessageText(firstUserMessage) ?? ""), 140)
+    : undefined;
 }
 
 function getLatestTimestamp(sessions: Session[]): string | undefined {
@@ -942,7 +948,7 @@ function getLatestTimestamp(sessions: Session[]): string | undefined {
 }
 
 function getSessionActivityTimestamp(session: Session): string | undefined {
-  return session.endedAt ?? session.startedAt;
+  return getSessionEndedAt(session) ?? session.startedAt;
 }
 
 function groupBy<TItem>(
@@ -968,12 +974,8 @@ function humanizeAttentionReason(reason: string): string {
     .replace(/\b\w/gu, (letter) => letter.toUpperCase());
 }
 
-function humanizeCapabilityKey(key: keyof HarnessCapabilities): string {
-  return key.replace(/([A-Z])/gu, " $1").replace(/^./u, (first) => first.toUpperCase());
-}
-
 function isSessionActiveOrRecent(session: Session, latestTimestamp?: string): boolean {
-  if (session.lifecycleState === "active") {
+  if (getSessionLifecycleStatus(session) === "active") {
     return true;
   }
 
@@ -992,19 +994,8 @@ function isSessionActiveOrRecent(session: Session, latestTimestamp?: string): bo
   return Number.isFinite(currentTime) && latest - currentTime <= 24 * 60 * 60 * 1000;
 }
 
-function toCapabilityLabel(status: CapabilityState["status"]): CapabilityBadgeLabel {
-  switch (status) {
-    case "supported":
-      return "Supported";
-    case "unsupported":
-      return "Unsupported";
-    case "unknown":
-      return "Unknown";
-  }
-}
-
 function toMetricStateFromCapability(
-  state?: CapabilityState
+  state?: { status: "supported" | "unsupported" | "unknown"; reason?: string }
 ): MetricStateViewModel {
   if (state?.status === "unsupported") {
     return toMetricState("unsupported", "Unsupported", state.reason);
@@ -1045,4 +1036,140 @@ function getGitHubUnavailableReason(githubSnapshot?: DerivedProject["github"]): 
     githubSnapshot?.reason ??
     "GitHub context is unavailable because the shared read-only `gh` snapshot could not be collected for this project."
   );
+}
+
+function hasSessionCapabilities(session: Session): session is Session & {
+  adapterId: string;
+  sourceId: string;
+  capabilities: NonNullable<Session["capabilities"]>;
+} {
+  return Boolean(session.adapterId && session.sourceId && session.capabilities);
+}
+
+export function getProjectDisplayName(project?: Project): string | undefined {
+  if (!project) {
+    return undefined;
+  }
+
+  return project.displayName;
+}
+
+function getProjectPrimaryRootPath(project?: Project): string | undefined {
+  return project?.primaryRootPath;
+}
+
+function getSessionNativeSessionId(session: Session): string | undefined {
+  return session.nativeSessionId;
+}
+
+function getSessionLifecycleStatus(
+  session: Session
+): "active" | "completed" | "cancelled" | "unknown" {
+  return session.lifecycleStatus ?? "unknown";
+}
+
+function getSessionEndedAt(session: Session): string | undefined {
+  return session.lastUpdatedAt;
+}
+
+function getSessionFirstUserPrompt(session: Session): string | undefined {
+  const candidate = session as Session & {
+    firstUserPrompt?: string;
+  };
+
+  return candidate.firstUserPrompt;
+}
+
+function getSessionVerification(session: Session): {
+  status: "passed" | "failed" | "not-run" | "unknown" | "unsupported";
+  reasonCodes?: string[];
+} | undefined {
+  const verification = session.verification;
+  const status = verification?.status;
+
+  return status
+    ? {
+        status,
+        ...(verification?.reasonCodes ? { reasonCodes: verification.reasonCodes } : {})
+      }
+    : undefined;
+}
+
+function getSessionRunAudit(session: Session): {
+  status:
+    | "active"
+    | "cancelled"
+    | "verification-failed"
+    | "incomplete"
+    | "needs-review"
+    | "clean"
+    | "unknown";
+  attentionReasons: string[];
+} | undefined {
+  const runAudit = session.runAudit;
+  const status = runAudit?.status;
+
+  return status
+    ? {
+        status,
+        attentionReasons: runAudit?.attentionReasons ?? []
+      }
+    : undefined;
+}
+
+function getAttentionReasons(session: Session, derived?: DerivedSession): string[] {
+  const candidate = session as Session & { attentionReasons?: string[] };
+  const reasons = candidate.attentionReasons ?? derived?.audit?.attentionReasons ?? [];
+
+  return reasons.map(humanizeAttentionReason);
+}
+
+function getMessageOrderKey(
+  data: LoadedTriageData,
+  sessionId: string,
+  message: SessionMessage
+): string {
+  const eventsById = new Map(
+    (data.eventsBySessionId.get(sessionId) ?? []).map((event) => [event.id, event] as const)
+  );
+  const orderKeys = (message.eventIds ?? [])
+    .map((eventId) => eventsById.get(eventId)?.orderKey)
+    .filter((orderKey): orderKey is string => Boolean(orderKey))
+    .sort((left, right) => left.localeCompare(right));
+
+  return orderKeys[0] ?? message.timestamp ?? "";
+}
+
+function getMessageText(message: SessionMessage): string | undefined {
+  return message.text;
+}
+
+function toTokenCountMetric(
+  session: Session,
+  capability?: { status: "supported" | "unsupported" | "unknown"; reason?: string }
+): MetricStateViewModel {
+  const tokenCount = getUsageTokenCount(session);
+
+  if (typeof tokenCount === "number") {
+    return toMetricValue(tokenCount);
+  }
+
+  if (capability?.status === "supported") {
+    return toMetricState("unknown", "Unknown", "Token counts were expected but not observed.");
+  }
+
+  return toMetricStateFromCapability(capability);
+}
+
+function getUsageTokenCount(session: Session): number | undefined {
+  const candidate = session as Session & {
+    usage?: {
+      totalTokens?: number;
+      tokenCounts?: {
+        total?: number;
+      };
+    };
+  };
+
+  return candidate.usage?.totalTokens ?? candidate.usage?.tokenCounts?.total;
 }

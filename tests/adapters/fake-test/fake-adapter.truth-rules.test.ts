@@ -42,40 +42,15 @@ function findForbiddenKeys(value: unknown, pathPrefix = "$", hits: string[] = []
 }
 
 function assertTruthStates(snapshot: CapabilityEnvelope) {
-  expect(snapshot.capabilities.liveSessionObservation).toEqual(
-    expect.objectContaining({
-      status: "unsupported"
-    })
-  );
-  expect(snapshot.capabilities.eventStreaming).toEqual(
-    expect.objectContaining({
-      status: "unsupported"
-    })
-  );
-  expect(snapshot.capabilities.watchPlans).toEqual(
-    expect.objectContaining({
-      status: "unsupported"
-    })
-  );
-  expect(snapshot.capabilities.gitContextCapture).toEqual(
-    expect.objectContaining({
-      status: "unsupported"
-    })
-  );
-  expect(snapshot.capabilities.githubContextCapture).toEqual(
-    expect.objectContaining({
-      status: "unsupported"
-    })
-  );
-  expect(snapshot.capabilities.verificationSignals).toEqual(
-    expect.objectContaining({
-      status: "unknown"
-    })
-  );
+  expect(snapshot.capabilities.live.activeSessionDetection).toBe("none");
+  expect(snapshot.capabilities.live.watchableArtifacts).toBe(false);
+  expect(snapshot.capabilities.replay.transcriptReplay).toBe(true);
+  expect(snapshot.capabilities.tools.shellCommands).toBe(true);
+  expect(snapshot.capabilities.audit.verificationCommandEvidence).toBe(true);
 
-  expect(snapshot.capabilities.liveSessionObservation).not.toBe(0 as never);
-  expect(snapshot.capabilities.eventStreaming).not.toBe(0 as never);
-  expect(snapshot.capabilities.verificationSignals).not.toBe("clean" as never);
+  expect(snapshot.capabilities.live.activeSessionDetection).not.toBe(0 as never);
+  expect(snapshot.capabilities.live.watchableArtifacts).not.toBe(0 as never);
+  expect(snapshot.capabilities.audit.verificationCommandEvidence).not.toBe("clean" as never);
 }
 
 describe("fake-test adapter truth rules", () => {
@@ -96,7 +71,7 @@ describe("fake-test adapter truth rules", () => {
     expect(normalized.shellCommands[0]).not.toHaveProperty("verificationState");
     expect(normalized.shellCommands[0]).toMatchObject({
       command: "npm run typecheck",
-      exitCode: 0
+      rawExitCode: 0
     });
   });
 });
