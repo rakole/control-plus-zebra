@@ -14,20 +14,11 @@ export const IPC_CHANNELS = {
   createArchive: "export:createArchive",
   openArchive: "import:openArchive",
   getDashboardStats: "dashboard:getStats",
-  // TODO(Wave 5): Remove this compatibility alias once renderer/preload
-  // callers migrate to `dashboard:getStats`.
-  getOverview: "overview:get",
   listProjects: "projects:list",
   getProject: "projects:get",
   listSessions: "sessions:list",
   getSession: "sessions:get",
   getSessionTimeline: "sessions:getTimeline",
-  // TODO(Wave 5): Remove this compatibility alias once renderer/preload
-  // callers migrate to `sessions:get`.
-  getSessionById: "sessions:getById",
-  // TODO(Wave 5): Remove this compatibility alias once renderer/preload
-  // callers migrate to `sessions:get` plus `sessions:getTimeline`.
-  getSessionDetail: "sessions:getDetail",
   getEvents: "events:get",
   getToolCalls: "toolCalls:get",
   getShellCommands: "shellCommands:get",
@@ -38,14 +29,6 @@ export const IPC_CHANNELS = {
   getGitSnapshot: "git:getSnapshot",
   getGitHubSnapshot: "github:getSnapshot",
   listDiagnostics: "diagnostics:list",
-  // TODO(Wave 5): Remove these compatibility aliases once renderer bridge
-  // callers migrate to the Wave 4 `sources:*` public contract names.
-  listDataSources: "dataSources:list",
-  addDataSource: "dataSources:add",
-  updateDataSource: "dataSources:update",
-  setDataSourceEnabled: "dataSources:setEnabled",
-  validateDataSource: "dataSources:validate",
-  scanDataSource: "dataSources:scan",
   getThemeState: "theme:getState",
   setThemePreference: "theme:setPreference",
   themeStateChanged: "theme:stateChanged"
@@ -69,14 +52,11 @@ export const ALLOWED_IPC_CHANNELS = [
   IPC_CHANNELS.createArchive,
   IPC_CHANNELS.openArchive,
   IPC_CHANNELS.getDashboardStats,
-  IPC_CHANNELS.getOverview,
   IPC_CHANNELS.listProjects,
   IPC_CHANNELS.getProject,
   IPC_CHANNELS.listSessions,
   IPC_CHANNELS.getSession,
   IPC_CHANNELS.getSessionTimeline,
-  IPC_CHANNELS.getSessionById,
-  IPC_CHANNELS.getSessionDetail,
   IPC_CHANNELS.getEvents,
   IPC_CHANNELS.getToolCalls,
   IPC_CHANNELS.getShellCommands,
@@ -87,12 +67,6 @@ export const ALLOWED_IPC_CHANNELS = [
   IPC_CHANNELS.getGitSnapshot,
   IPC_CHANNELS.getGitHubSnapshot,
   IPC_CHANNELS.listDiagnostics,
-  IPC_CHANNELS.listDataSources,
-  IPC_CHANNELS.addDataSource,
-  IPC_CHANNELS.updateDataSource,
-  IPC_CHANNELS.setDataSourceEnabled,
-  IPC_CHANNELS.validateDataSource,
-  IPC_CHANNELS.scanDataSource,
   IPC_CHANNELS.getThemeState,
   IPC_CHANNELS.setThemePreference
 ] as const satisfies readonly IpcChannel[];

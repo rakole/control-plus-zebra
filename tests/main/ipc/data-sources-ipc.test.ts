@@ -11,7 +11,7 @@ import type { SessionDetailViewModelService } from "../../../src/main/app/sessio
 import type { ThemeService } from "../../../src/main/theme/theme-service.js";
 import type { TriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import { IPC_CHANNELS, registerIpcHandlers } from "../../../src/main/ipc/index.js";
-import { dataSourcesResponseSchema } from "../../../src/main/ipc/view-models.js";
+import { sourcesResponseSchema } from "../../../src/main/ipc/view-models.js";
 
 describe("data sources IPC handlers", () => {
   it("routes validate and scan through separate named service methods", async () => {
@@ -20,10 +20,10 @@ describe("data sources IPC handlers", () => {
 
     registerIpcHandlers(collector, services);
 
-    const validate = await collector.invoke(IPC_CHANNELS.validateDataSource, {
+    const validate = await collector.invoke(IPC_CHANNELS.validateSource, {
       sourceId: "source-1"
     });
-    const scan = await collector.invoke(IPC_CHANNELS.scanDataSource, {
+    const scan = await collector.invoke(IPC_CHANNELS.rescanSource, {
       sourceId: "source-1"
     });
 
@@ -33,8 +33,8 @@ describe("data sources IPC handlers", () => {
     expect(services.dataSourcesService.scanDataSource).toHaveBeenCalledWith({
       sourceId: "source-1"
     });
-    expect(() => dataSourcesResponseSchema.parse(validate)).not.toThrow();
-    expect(() => dataSourcesResponseSchema.parse(scan)).not.toThrow();
+    expect(() => sourcesResponseSchema.parse(validate)).not.toThrow();
+    expect(() => sourcesResponseSchema.parse(scan)).not.toThrow();
   });
 
   it("routes archive import through the dedicated import service", async () => {
@@ -63,7 +63,7 @@ describe("data sources IPC handlers", () => {
 
     registerIpcHandlers(collector, createServices());
 
-    const result = await collector.invoke(IPC_CHANNELS.addDataSource, {
+    const result = await collector.invoke(IPC_CHANNELS.addSource, {
       adapterId: "",
       rootPath: ""
     });
@@ -88,7 +88,7 @@ describe("data sources IPC handlers", () => {
 
     registerIpcHandlers(collector, services);
 
-    const result = await collector.invoke(IPC_CHANNELS.scanDataSource, {
+    const result = await collector.invoke(IPC_CHANNELS.rescanSource, {
       sourceId: "source-1"
     });
 
@@ -168,19 +168,19 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
         IPC_CHANNELS.getShellState,
         IPC_CHANNELS.createArchive,
         IPC_CHANNELS.openArchive,
-        IPC_CHANNELS.getOverview,
+        IPC_CHANNELS.getDashboardStats,
         IPC_CHANNELS.listProjects,
         IPC_CHANNELS.listSessions,
-        IPC_CHANNELS.getSessionById,
-        IPC_CHANNELS.getSessionDetail,
+        IPC_CHANNELS.getSession,
+        IPC_CHANNELS.getSessionTimeline,
         IPC_CHANNELS.getRunAudit,
         IPC_CHANNELS.listDiagnostics,
-        IPC_CHANNELS.listDataSources,
-        IPC_CHANNELS.addDataSource,
-        IPC_CHANNELS.updateDataSource,
-        IPC_CHANNELS.setDataSourceEnabled,
-        IPC_CHANNELS.validateDataSource,
-        IPC_CHANNELS.scanDataSource,
+        IPC_CHANNELS.listSources,
+        IPC_CHANNELS.addSource,
+        IPC_CHANNELS.updateSource,
+        IPC_CHANNELS.disableSource,
+        IPC_CHANNELS.validateSource,
+        IPC_CHANNELS.rescanSource,
         IPC_CHANNELS.getThemeState,
         IPC_CHANNELS.setThemePreference
       ],

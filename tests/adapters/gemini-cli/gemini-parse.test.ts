@@ -61,6 +61,7 @@ describe("gemini-cli parsing", () => {
       "user",
       "gemini",
       "gemini",
+      "gemini",
       "gemini"
     ]);
     expect(

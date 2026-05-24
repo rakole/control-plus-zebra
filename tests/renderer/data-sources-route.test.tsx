@@ -197,7 +197,7 @@ describe("Data Sources route", () => {
         ])
       )
     );
-    setDataSourceEnabled.mockImplementation(({ sourceId, enabled }) =>
+    setDataSourceEnabled.mockImplementation(({ sourceId, enabled = false }) =>
       Promise.resolve(
         buildSourcesResponse([
           buildSource({
@@ -275,19 +275,12 @@ describe("Data Sources route", () => {
         getShellState: vi.fn(),
         openArchive: openArchiveBridge,
         listSessions: vi.fn(),
-        getSessionById: vi.fn(),
         listSources: listDataSources,
         addSource: addDataSource,
         updateSource: updateDataSource,
         disableSource: setDataSourceEnabled,
         validateSource: validateDataSource,
-        rescanSource: scanDataSource,
-        listDataSources,
-        addDataSource,
-        updateDataSource,
-        setDataSourceEnabled,
-        validateDataSource,
-        scanDataSource
+        rescanSource: scanDataSource
       }
     });
   });
@@ -527,7 +520,7 @@ describe("Data Sources route", () => {
       ).toBeInTheDocument();
     });
 
-    it("persists existing source enabled toggles through the dedicated preload method", async () => {
+    it("persists existing source enabled toggles through the sources preload contract", async () => {
       const user = userEvent.setup();
       renderDataSourcesRoute();
 

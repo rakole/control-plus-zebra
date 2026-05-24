@@ -170,6 +170,29 @@
       "nativeId": "project-01",
       "displayName": "control-plus-zebra",
       "primaryRootPath": "/workspace/control-plus-zebra",
+      "rootConfidence": "confirmed",
+      "harnessRefs": [
+        {
+          "adapterId": "fake-test",
+          "sourceId": "source:fixture-source-01",
+          "nativeProjectId": "project-01",
+          "nativeProjectPath": "/workspace/control-plus-zebra",
+          "projectRootPath": "/workspace/control-plus-zebra",
+          "projectRootConfidence": "confirmed",
+          "rawArtifactRefs": [
+            {
+              "nativeRef": "artifacts/implementation-note.txt",
+              "artifactKind": "output-artifact",
+              "parseStrategy": "text"
+            }
+          ]
+        }
+      ],
+      "sessionIds": [
+        "session:session-01"
+      ],
+      "latestActivityAt": "2026-05-23T10:00:06.000Z",
+      "latestPrompt": "Define the shared contracts and keep them harness-neutral.",
       "confidence": {
         "level": "high",
         "normalizedLevel": "confirmed"
@@ -187,7 +210,42 @@
       "title": "Phase 1 architecture proof",
       "startedAt": "2026-05-23T10:00:00.000Z",
       "lastUpdatedAt": "2026-05-23T10:00:06.000Z",
+      "durationMs": 6000,
       "lifecycleStatus": "completed",
+      "parseConfidence": "confirmed",
+      "messageIds": [
+        "session-message:evt-02",
+        "session-message:evt-03"
+      ],
+      "eventIds": [
+        "session-event:evt-01",
+        "session-event:evt-02",
+        "session-event:evt-03",
+        "session-event:evt-04",
+        "session-event:evt-05",
+        "session-event:evt-06",
+        "session-event:evt-07"
+      ],
+      "toolCallIds": [
+        "tool-call:evt-04"
+      ],
+      "fileMutationIds": [
+        "file-mutation:mutation-01"
+      ],
+      "shellCommandIds": [
+        "shell-command:evt-05"
+      ],
+      "outputArtifactIds": [
+        "output-artifact:artifact-01"
+      ],
+      "usage": {},
+      "rawArtifactRefs": [
+        {
+          "nativeRef": "artifacts/implementation-note.txt",
+          "artifactKind": "output-artifact",
+          "parseStrategy": "text"
+        }
+      ],
       "confidence": {
         "level": "high",
         "normalizedLevel": "confirmed"
@@ -206,7 +264,12 @@
       "orderKey": "000001:evt-01",
       "actor": "harness",
       "title": "Session started",
-      "text": "Session started"
+      "text": "Session started",
+      "raw": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "eventId": "session-event:evt-01",
+        "pointer": "event:evt-01"
+      }
     },
     {
       "kind": "message",
@@ -219,7 +282,12 @@
       "orderKey": "000002:evt-02",
       "actor": "user",
       "title": "user message",
-      "text": "user message"
+      "text": "user message",
+      "raw": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "eventId": "session-event:evt-02",
+        "pointer": "event:evt-02"
+      }
     },
     {
       "kind": "message",
@@ -232,7 +300,12 @@
       "orderKey": "000003:evt-03",
       "actor": "assistant",
       "title": "assistant message",
-      "text": "assistant message"
+      "text": "assistant message",
+      "raw": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "eventId": "session-event:evt-03",
+        "pointer": "event:evt-03"
+      }
     },
     {
       "kind": "tool-call",
@@ -245,7 +318,12 @@
       "orderKey": "000004:evt-04",
       "actor": "tool",
       "title": "write_file succeeded",
-      "text": "write_file succeeded"
+      "text": "write_file succeeded",
+      "raw": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "eventId": "session-event:evt-04",
+        "pointer": "event:evt-04"
+      }
     },
     {
       "kind": "shell-command",
@@ -258,7 +336,12 @@
       "orderKey": "000005:evt-05",
       "actor": "harness",
       "title": "npm run typecheck",
-      "text": "npm run typecheck"
+      "text": "npm run typecheck",
+      "raw": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "eventId": "session-event:evt-05",
+        "pointer": "event:evt-05"
+      }
     },
     {
       "kind": "tool-result",
@@ -271,7 +354,12 @@
       "orderKey": "000006:evt-06",
       "actor": "harness",
       "title": "Implementation note saved for later audit.",
-      "text": "Implementation note saved for later audit."
+      "text": "Implementation note saved for later audit.",
+      "raw": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "eventId": "session-event:evt-06",
+        "pointer": "event:evt-06"
+      }
     },
     {
       "kind": "lifecycle",
@@ -284,7 +372,12 @@
       "orderKey": "000007:evt-07",
       "actor": "harness",
       "title": "Session completed",
-      "text": "Session completed"
+      "text": "Session completed",
+      "raw": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "eventId": "session-event:evt-07",
+        "pointer": "event:evt-07"
+      }
     }
   ],
   "messages": [
@@ -301,6 +394,11 @@
       "eventIds": [
         "session-event:evt-02"
       ],
+      "source": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "eventId": "session-event:evt-02",
+        "pointer": "message:evt-02"
+      },
       "confidence": "confirmed"
     },
     {
@@ -316,6 +414,11 @@
       "eventIds": [
         "session-event:evt-03"
       ],
+      "source": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "eventId": "session-event:evt-03",
+        "pointer": "message:evt-03"
+      },
       "confidence": "confirmed"
     }
   ],
@@ -338,6 +441,11 @@
         "output-artifact:artifact-01"
       ],
       "fileMutationId": "file-mutation:mutation-01",
+      "source": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "eventId": "session-event:evt-04",
+        "pointer": "tool:evt-04"
+      },
       "confidence": "confirmed"
     }
   ],
@@ -352,6 +460,11 @@
       "command": "npm run typecheck",
       "outputInline": "Type checking passed.",
       "rawExitCode": 0,
+      "source": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "eventId": "session-event:evt-05",
+        "pointer": "shell:evt-05"
+      },
       "confidence": "confirmed"
     }
   ],
@@ -368,7 +481,11 @@
       "contentKind": "plain-text",
       "mediaType": "text/plain",
       "sizeBytes": 84,
-      "loaded": false
+      "loaded": false,
+      "source": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "pointer": "artifact:artifacts/implementation-note.txt"
+      }
     }
   ],
   "fileMutations": [
@@ -382,6 +499,11 @@
       "path": "src/main/core/model/entities.ts",
       "mutationKind": "created",
       "toolCallId": "tool-call:evt-04",
+      "source": {
+        "path": "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json",
+        "eventId": "session-event:evt-04",
+        "pointer": "file:evt-04:src/main/core/model/entities.ts"
+      },
       "confidence": "confirmed"
     }
   ],

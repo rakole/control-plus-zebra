@@ -3,7 +3,7 @@
 
 ## System overview
 
-Agent Workbench is a local-first Electron desktop app that reads coding-agent session evidence from adapter-owned source roots, normalizes it in the main process, derives shared verification and run-audit truth, and exposes read-only view models to a React renderer. The bundled adapter set now includes `fake-test`, `gemini-cli`, and `archive-reader`, so the shared runtime has to support both live local harness roots and imported read-only archives without adapter-specific renderer branches.
+Agent Workbench is a local-first Electron desktop app that reads coding-agent session evidence from adapter-owned source roots, normalizes it in the main process, derives shared verification and run-audit truth, and exposes read-only view models to a React renderer. The bundled configurable adapter set is `fake-test` plus `gemini-cli`; archive import remains an import-only source path that preserves original harness identity without registering `archive-reader` as a normal bundled harness.
 
 ## Component diagram
 
@@ -21,7 +21,7 @@ graph TD
   Renderer["React renderer"]
   Fake["fake-test adapter"]
   Gemini["gemini-cli adapter"]
-  Archive["archive-reader adapter"]
+  Archive["Archive import source"]
 
   ElectronMain --> Runtime
   Runtime --> Registry
@@ -31,10 +31,8 @@ graph TD
   Runtime --> Security
   Registry --> Fake
   Registry --> Gemini
-  Registry --> Archive
   Ingestion --> Fake
   Ingestion --> Gemini
-  Ingestion --> Archive
   Services --> IPC
   Runtime --> IPC
   IPC --> Preload
@@ -62,7 +60,7 @@ graph TD
 | `ArchiveExporter` / `ArchiveImporter` | Shared read-only archive layer that exports manifest-backed snapshots and rehydrates them as `archive-reader` sources. | `src/main/core/archive/` |
 | `SafeFilesystem` | Adapter-scoped filesystem facade that limits reads to configured roots and indexed raw artifacts. | `src/main/core/security/safe-filesystem.ts` |
 | `registerIpcHandlers` | Main-process IPC boundary that validates payloads with Zod and exposes only sanctioned bridge methods. | `src/main/ipc/handlers.ts` |
-| `createBundledAdapterRegistry` | Bundles the built-in `archive-reader`, `fake-test`, and `gemini-cli` adapters into the shared runtime. | `src/main/core/registry/register-bundled-adapters.ts` |
+| `createBundledAdapterRegistry` | Bundles the configurable `fake-test` and `gemini-cli` adapters into the shared runtime. Archive imports are handled by import services and source metadata, not normal adapter registration. | `src/main/core/registry/register-bundled-adapters.ts` |
 
 ## Directory structure rationale
 

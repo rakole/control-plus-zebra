@@ -44,11 +44,9 @@ import {
   createArchiveResponseSchema,
   openArchiveRequestSchema,
   openArchiveResponseSchema,
-  addDataSourceRequestSchema,
   addSourceRequestSchema,
   dashboardStatsRequestSchema,
   dashboardStatsResponseSchema,
-  dataSourcesResponseSchema,
   disableSourceRequestSchema,
   eventsResponseSchema,
   getEventsRequestSchema,
@@ -57,13 +55,9 @@ import {
   type CreateArchiveResponse,
   getProjectRequestSchema,
   getProjectResponseSchema,
-  getOverviewRequestSchema,
-  getOverviewResponseSchema,
   getSessionRequestSchema,
   getSessionResponseSchema,
   getSessionByIdRequestSchema,
-  getSessionByIdResponseSchema,
-  getSessionDetailResponseSchema,
   getSessionTimelineRequestSchema,
   getRunAuditResponseSchema,
   gitSnapshotRequestSchema,
@@ -85,7 +79,6 @@ import {
   rescanSourceRequestSchema,
   scannerStatusResponseSchema,
   getScannerStatusRequestSchema,
-  setDataSourceEnabledRequestSchema,
   shellStateViewModelSchema,
   shellCommandsResponseSchema,
   getShellCommandsRequestSchema,
@@ -93,20 +86,13 @@ import {
   sourcesResponseSchema,
   toolCallsResponseSchema,
   getToolCallsRequestSchema,
-  updateDataSourceRequestSchema,
   updateSourceRequestSchema,
-  validateDataSourceRequestSchema,
   validateSourceRequestSchema,
-  scanDataSourceRequestSchema,
-  type DataSourcesResponse,
   type DashboardStatsResponse,
   type EventsResponse,
   type GetHarnessCapabilitiesResponse,
-  type GetOverviewResponse,
   type GetProjectResponse,
   type GetSessionResponse,
-  type GetSessionByIdResponse,
-  type GetSessionDetailResponse,
   type GetRunAuditResponse,
   type GitSnapshotResponse,
   type GitHubSnapshotResponse,
@@ -349,23 +335,6 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.getOverview, async (_event, payload) => {
-    const request = getOverviewRequestSchema.safeParse(payload ?? {});
-
-    if (!request.success) {
-      return buildInvalidRequestError() satisfies GetOverviewResponse;
-    }
-
-    try {
-      return getOverviewResponseSchema.parse({
-        ok: true,
-        overview: await services.triageService.getOverview(request.data)
-      }) satisfies GetOverviewResponse;
-    } catch {
-      return buildSessionLoadFailedError() satisfies GetOverviewResponse;
-    }
-  });
-
   ipcMain.handle(IPC_CHANNELS.listProjects, async (_event, payload) => {
     const request = listProjectsRequestSchema.safeParse(payload ?? {});
 
@@ -424,25 +393,6 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.getSessionById, async (_event, payload) => {
-    const request = getSessionByIdRequestSchema.safeParse(payload);
-
-    if (!request.success) {
-      return buildInvalidRequestError() satisfies GetSessionByIdResponse;
-    }
-
-    try {
-      const session = await services.sessionService.getSessionById(request.data);
-
-      return getSessionByIdResponseSchema.parse({
-        ok: true,
-        session
-      }) satisfies GetSessionByIdResponse;
-    } catch {
-      return buildSessionLoadFailedError() satisfies GetSessionByIdResponse;
-    }
-  });
-
   ipcMain.handle(IPC_CHANNELS.getSession, async (_event, payload) => {
     const request = getSessionRequestSchema.safeParse(payload);
 
@@ -459,23 +409,6 @@ export function registerIpcHandlers(
       }) satisfies GetSessionResponse;
     } catch {
       return buildSessionLoadFailedError() satisfies GetSessionResponse;
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.getSessionDetail, async (_event, payload) => {
-    const request = getSessionByIdRequestSchema.safeParse(payload);
-
-    if (!request.success) {
-      return buildInvalidRequestError() satisfies GetSessionDetailResponse;
-    }
-
-    try {
-      return getSessionDetailResponseSchema.parse({
-        ok: true,
-        detail: await services.sessionDetailService.getSessionDetail(request.data)
-      }) satisfies GetSessionDetailResponse;
-    } catch {
-      return buildSessionLoadFailedError() satisfies GetSessionDetailResponse;
     }
   });
 
@@ -705,72 +638,6 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.listDataSources, async (_event, payload) => {
-    const request = z.undefined().safeParse(payload);
-
-    if (!request.success) {
-      return buildInvalidRequestError() satisfies DataSourcesResponse;
-    }
-
-    return runDataSourcesOperation(() => services.dataSourcesService.listDataSources());
-  });
-
-  ipcMain.handle(IPC_CHANNELS.addDataSource, async (_event, payload) => {
-    const request = addDataSourceRequestSchema.safeParse(payload);
-
-    if (!request.success) {
-      return buildInvalidRequestError() satisfies DataSourcesResponse;
-    }
-
-    return runDataSourcesOperation(() => services.dataSourcesService.addDataSource(request.data));
-  });
-
-  ipcMain.handle(IPC_CHANNELS.updateDataSource, async (_event, payload) => {
-    const request = updateDataSourceRequestSchema.safeParse(payload);
-
-    if (!request.success) {
-      return buildInvalidRequestError() satisfies DataSourcesResponse;
-    }
-
-    return runDataSourcesOperation(() =>
-      services.dataSourcesService.updateDataSource(request.data)
-    );
-  });
-
-  ipcMain.handle(IPC_CHANNELS.setDataSourceEnabled, async (_event, payload) => {
-    const request = setDataSourceEnabledRequestSchema.safeParse(payload);
-
-    if (!request.success) {
-      return buildInvalidRequestError() satisfies DataSourcesResponse;
-    }
-
-    return runDataSourcesOperation(() =>
-      services.dataSourcesService.setDataSourceEnabled(request.data)
-    );
-  });
-
-  ipcMain.handle(IPC_CHANNELS.validateDataSource, async (_event, payload) => {
-    const request = validateDataSourceRequestSchema.safeParse(payload);
-
-    if (!request.success) {
-      return buildInvalidRequestError() satisfies DataSourcesResponse;
-    }
-
-    return runDataSourcesOperation(() =>
-      services.dataSourcesService.validateDataSource(request.data)
-    );
-  });
-
-  ipcMain.handle(IPC_CHANNELS.scanDataSource, async (_event, payload) => {
-    const request = scanDataSourceRequestSchema.safeParse(payload);
-
-    if (!request.success) {
-      return buildInvalidRequestError() satisfies DataSourcesResponse;
-    }
-
-    return runDataSourcesOperation(() => services.dataSourcesService.scanDataSource(request.data));
-  });
-
   ipcMain.handle(IPC_CHANNELS.getThemeState, (_event, payload) => {
     const request = z.undefined().safeParse(payload);
 
@@ -817,19 +684,6 @@ function createDefaultIpcServices(): IpcServices {
       savePreference() {}
     })
   };
-}
-
-async function runDataSourcesOperation(
-  operation: () => Promise<Awaited<ReturnType<DataSourcesViewModelService["listDataSources"]>>>
-): Promise<DataSourcesResponse> {
-  try {
-    return dataSourcesResponseSchema.parse({
-      ok: true,
-      dataSources: await operation()
-    }) satisfies DataSourcesResponse;
-  } catch {
-    return buildDataSourcesLoadFailedError() satisfies DataSourcesResponse;
-  }
 }
 
 async function runSourcesOperation(

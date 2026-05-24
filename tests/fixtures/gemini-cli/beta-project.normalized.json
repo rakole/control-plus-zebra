@@ -1,0 +1,400 @@
+{
+  "adapterId": "gemini-cli",
+  "sourceId": "source:beta-project",
+  "capabilities": {
+    "adapter": {
+      "adapterId": "gemini-cli",
+      "capabilities": {
+        "discovery": {
+          "defaultRoots": true,
+          "projectRootMapping": "native",
+          "stableProjectId": true,
+          "stableSessionId": true
+        },
+        "replay": {
+          "transcriptReplay": true,
+          "messageRoles": true,
+          "assistantMessages": true,
+          "lifecycleEvents": true,
+          "cancellationEvents": true,
+          "topicEvents": true,
+          "rawEventPointers": true
+        },
+        "tools": {
+          "toolCalls": true,
+          "toolResults": true,
+          "fileReads": true,
+          "fileSearches": true,
+          "fileMutations": true,
+          "diffStats": false,
+          "shellCommands": true,
+          "shellOutputs": true,
+          "sidecarOutputs": true
+        },
+        "usage": {
+          "modelNames": true,
+          "tokenCounts": true,
+          "costEstimates": false
+        },
+        "live": {
+          "activeSessionDetection": "none",
+          "watchableArtifacts": false,
+          "incrementalParsing": false
+        },
+        "audit": {
+          "agentClaimDetection": true,
+          "finalAnswerDetection": true,
+          "shellExitCodeEvidence": false,
+          "verificationCommandEvidence": true
+        },
+        "export": {
+          "rawArtifactExport": true,
+          "normalizedExport": true
+        }
+      }
+    },
+    "source": {
+      "adapterId": "gemini-cli",
+      "sourceId": "source:beta-project",
+      "capabilities": {
+        "discovery": {
+          "defaultRoots": true,
+          "projectRootMapping": "native",
+          "stableProjectId": true,
+          "stableSessionId": true
+        },
+        "replay": {
+          "transcriptReplay": true,
+          "messageRoles": true,
+          "assistantMessages": true,
+          "lifecycleEvents": true,
+          "cancellationEvents": true,
+          "topicEvents": true,
+          "rawEventPointers": true
+        },
+        "tools": {
+          "toolCalls": true,
+          "toolResults": true,
+          "fileReads": true,
+          "fileSearches": true,
+          "fileMutations": true,
+          "diffStats": false,
+          "shellCommands": true,
+          "shellOutputs": true,
+          "sidecarOutputs": true
+        },
+        "usage": {
+          "modelNames": true,
+          "tokenCounts": true,
+          "costEstimates": false
+        },
+        "live": {
+          "activeSessionDetection": "none",
+          "watchableArtifacts": false,
+          "incrementalParsing": false
+        },
+        "audit": {
+          "agentClaimDetection": true,
+          "finalAnswerDetection": true,
+          "shellExitCodeEvidence": false,
+          "verificationCommandEvidence": true
+        },
+        "export": {
+          "rawArtifactExport": true,
+          "normalizedExport": true
+        }
+      }
+    },
+    "sessions": [
+      {
+        "adapterId": "gemini-cli",
+        "sourceId": "source:beta-project",
+        "sessionId": "session:33333333-3333-4333-8333-333333333333",
+        "capabilities": {
+          "discovery": {
+            "defaultRoots": true,
+            "projectRootMapping": "native",
+            "stableProjectId": true,
+            "stableSessionId": true
+          },
+          "replay": {
+            "transcriptReplay": true,
+            "messageRoles": true,
+            "assistantMessages": true,
+            "lifecycleEvents": true,
+            "cancellationEvents": true,
+            "topicEvents": true,
+            "rawEventPointers": true
+          },
+          "tools": {
+            "toolCalls": true,
+            "toolResults": true,
+            "fileReads": true,
+            "fileSearches": true,
+            "fileMutations": true,
+            "diffStats": false,
+            "shellCommands": true,
+            "shellOutputs": true,
+            "sidecarOutputs": true
+          },
+          "usage": {
+            "modelNames": true,
+            "tokenCounts": true,
+            "costEstimates": false
+          },
+          "live": {
+            "activeSessionDetection": "none",
+            "watchableArtifacts": false,
+            "incrementalParsing": false
+          },
+          "audit": {
+            "agentClaimDetection": true,
+            "finalAnswerDetection": true,
+            "shellExitCodeEvidence": false,
+            "verificationCommandEvidence": true
+          },
+          "export": {
+            "rawArtifactExport": true,
+            "normalizedExport": true
+          }
+        }
+      }
+    ]
+  },
+  "projects": [
+    {
+      "kind": "project",
+      "id": "project:beta-project",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:beta-project",
+      "nativeId": "beta-project",
+      "displayName": "beta-project",
+      "primaryRootPath": "/workspaces/beta-project",
+      "rootConfidence": "confirmed",
+      "harnessRefs": [
+        {
+          "adapterId": "gemini-cli",
+          "sourceId": "source:beta-project",
+          "nativeProjectId": "beta-project",
+          "nativeProjectPath": "/workspaces/beta-project",
+          "projectRootPath": "/workspaces/beta-project",
+          "projectRootConfidence": "confirmed",
+          "rawArtifactRefs": [
+            {
+              "nativeRef": ".project_root",
+              "artifactKind": "project-root-map",
+              "parseStrategy": "text"
+            },
+            {
+              "nativeRef": "logs.json",
+              "artifactKind": "history",
+              "parseStrategy": "json"
+            }
+          ]
+        }
+      ],
+      "sessionIds": [
+        "session:33333333-3333-4333-8333-333333333333"
+      ],
+      "latestActivityAt": "2026-05-23T10:00:04.000Z",
+      "latestPrompt": "List the project files and keep the session active."
+    }
+  ],
+  "sessions": [
+    {
+      "kind": "session",
+      "id": "session:33333333-3333-4333-8333-333333333333",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:beta-project",
+      "nativeId": "33333333-3333-4333-8333-333333333333",
+      "projectId": "project:beta-project",
+      "title": "List the project files and keep the session active.",
+      "startedAt": "2026-05-23T10:00:00.000Z",
+      "lastUpdatedAt": "2026-05-23T10:00:04.000Z",
+      "durationMs": 4000,
+      "lifecycleStatus": "active",
+      "parseConfidence": "confirmed",
+      "messageIds": [
+        "session-message:user-333:2"
+      ],
+      "eventIds": [
+        "session-event:33333333-3333-4333-8333-333333333333:lifecycle",
+        "session-event:33333333-3333-4333-8333-333333333333:header-metadata",
+        "session-event:chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl:message:2",
+        "session-event:list_directory_1700000004000_0:3",
+        "session-event:list_directory_1700000004000_0:4"
+      ],
+      "toolCallIds": [
+        "tool-call:list_directory_1700000004000_0"
+      ],
+      "usage": {},
+      "rawArtifactRefs": [
+        {
+          "nativeRef": "chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+          "artifactKind": "session-log",
+          "parseStrategy": "stream-jsonl"
+        },
+        {
+          "nativeRef": "logs.json",
+          "artifactKind": "history",
+          "parseStrategy": "json"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "kind": "lifecycle",
+      "id": "session-event:33333333-3333-4333-8333-333333333333:lifecycle",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:beta-project",
+      "sessionId": "session:33333333-3333-4333-8333-333333333333",
+      "nativeId": "33333333-3333-4333-8333-333333333333:lifecycle",
+      "timestamp": "2026-05-23T10:00:03.500Z",
+      "orderKey": "000001:33333333-3333-4333-8333-333333333333:lifecycle",
+      "actor": "harness",
+      "title": "Active",
+      "text": "Active",
+      "raw": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/beta-project/chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "nativeId": "chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "lineNumber": 1,
+        "eventId": "session-event:33333333-3333-4333-8333-333333333333:lifecycle",
+        "pointer": "event:33333333-3333-4333-8333-333333333333:lifecycle"
+      }
+    },
+    {
+      "kind": "metadata",
+      "id": "session-event:33333333-3333-4333-8333-333333333333:header-metadata",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:beta-project",
+      "sessionId": "session:33333333-3333-4333-8333-333333333333",
+      "nativeId": "33333333-3333-4333-8333-333333333333:header-metadata",
+      "timestamp": "2026-05-23T10:00:00.000Z",
+      "orderKey": "000002:33333333-3333-4333-8333-333333333333:header-metadata",
+      "actor": "harness",
+      "title": "Project hash project-hash-beta",
+      "text": "Project hash project-hash-beta",
+      "raw": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/beta-project/chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "nativeId": "chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "lineNumber": 1,
+        "eventId": "session-event:33333333-3333-4333-8333-333333333333:header-metadata",
+        "pointer": "event:33333333-3333-4333-8333-333333333333:header-metadata"
+      }
+    },
+    {
+      "kind": "message",
+      "id": "session-event:chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl:message:2",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:beta-project",
+      "sessionId": "session:33333333-3333-4333-8333-333333333333",
+      "nativeId": "chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl:message:2",
+      "timestamp": "2026-05-23T10:00:01.000Z",
+      "orderKey": "000003:chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl:message:2",
+      "actor": "user",
+      "title": "user message",
+      "text": "user message",
+      "raw": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/beta-project/chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "nativeId": "chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "lineNumber": 2,
+        "eventId": "session-event:chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl:message:2",
+        "pointer": "event:chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl:message:2"
+      }
+    },
+    {
+      "kind": "tool-call",
+      "id": "session-event:list_directory_1700000004000_0:3",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:beta-project",
+      "sessionId": "session:33333333-3333-4333-8333-333333333333",
+      "nativeId": "list_directory_1700000004000_0:3",
+      "timestamp": "2026-05-23T10:00:03.000Z",
+      "orderKey": "000004:list_directory_1700000004000_0:3",
+      "actor": "tool",
+      "title": "list_directory success",
+      "text": "list_directory success",
+      "raw": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/beta-project/chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "nativeId": "chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "lineNumber": 3,
+        "eventId": "session-event:list_directory_1700000004000_0:3",
+        "pointer": "event:list_directory_1700000004000_0:3"
+      }
+    },
+    {
+      "kind": "tool-call",
+      "id": "session-event:list_directory_1700000004000_0:4",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:beta-project",
+      "sessionId": "session:33333333-3333-4333-8333-333333333333",
+      "nativeId": "list_directory_1700000004000_0:4",
+      "timestamp": "2026-05-23T10:00:03.500Z",
+      "orderKey": "000005:list_directory_1700000004000_0:4",
+      "actor": "tool",
+      "title": "list_directory success",
+      "text": "list_directory success",
+      "raw": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/beta-project/chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "nativeId": "chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "lineNumber": 4,
+        "eventId": "session-event:list_directory_1700000004000_0:4",
+        "pointer": "event:list_directory_1700000004000_0:4"
+      }
+    }
+  ],
+  "messages": [
+    {
+      "kind": "session-message",
+      "id": "session-message:user-333:2",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:beta-project",
+      "sessionId": "session:33333333-3333-4333-8333-333333333333",
+      "nativeId": "user-333:2",
+      "role": "user",
+      "text": "List the project files and keep the session active.",
+      "timestamp": "2026-05-23T10:00:01.000Z",
+      "eventIds": [
+        "session-event:chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl:message:2"
+      ],
+      "source": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/beta-project/chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "nativeId": "chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "lineNumber": 2,
+        "eventId": "session-event:chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl:message:2",
+        "pointer": "message:user-333:2"
+      },
+      "confidence": "confirmed"
+    }
+  ],
+  "toolCalls": [
+    {
+      "kind": "tool-call",
+      "id": "tool-call:list_directory_1700000004000_0",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:beta-project",
+      "sessionId": "session:33333333-3333-4333-8333-333333333333",
+      "nativeId": "list_directory_1700000004000_0",
+      "nativeToolCallId": "list_directory_1700000004000_0",
+      "name": "list_directory",
+      "normalizedKind": "unknown",
+      "statusRaw": "success",
+      "statusNormalized": "completed",
+      "argsPreview": "dir_path=src/",
+      "resultPreview": "src/main\nsrc/renderer",
+      "source": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/beta-project/chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "nativeId": "chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "lineNumber": 4,
+        "eventId": "session-event:list_directory_1700000004000_0:4",
+        "pointer": "tool:list_directory_1700000004000_0"
+      },
+      "confidence": "confirmed"
+    }
+  ],
+  "shellCommands": [],
+  "outputArtifacts": [],
+  "fileMutations": [],
+  "diagnostics": []
+}

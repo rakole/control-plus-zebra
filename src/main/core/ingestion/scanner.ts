@@ -749,6 +749,9 @@ async function deriveShellSessions(args: {
   const outputArtifactsById = new Map(
     args.normalized.outputArtifacts.map((artifact) => [artifact.id, artifact] as const)
   );
+  const eventOrderById = new Map(
+    args.normalized.events.map((event) => [event.id, event.orderKey ?? event.timestamp ?? event.id] as const)
+  );
 
   const sessions = [];
 
@@ -769,8 +772,18 @@ async function deriveShellSessions(args: {
           return leftOrder - rightOrder;
         }
 
-        const leftPointer = left.source?.pointer ?? left.nativeId ?? left.id;
-        const rightPointer = right.source?.pointer ?? right.nativeId ?? right.id;
+        const leftPointer =
+          (left.source?.eventId ? eventOrderById.get(left.source.eventId) : undefined) ??
+          left.source?.eventId ??
+          left.source?.pointer ??
+          left.nativeId ??
+          left.id;
+        const rightPointer =
+          (right.source?.eventId ? eventOrderById.get(right.source.eventId) : undefined) ??
+          right.source?.eventId ??
+          right.source?.pointer ??
+          right.nativeId ??
+          right.id;
         return leftPointer.localeCompare(rightPointer);
       });
     const parsedShellCommands = [];

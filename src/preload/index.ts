@@ -2,14 +2,12 @@ import { contextBridge, ipcRenderer } from "electron";
 
 import { IPC_CHANNELS } from "../main/ipc/channels.js";
 import type {
-  AddDataSourceRequest,
   AddSourceRequest,
   CreateArchiveRequest,
   DashboardStatsRequest,
   DisableSourceRequest,
   GetEventsRequest,
   GetHarnessCapabilitiesRequest,
-  GetOverviewRequest,
   GetProjectRequest,
   GetSessionRequest,
   GetSessionTimelineRequest,
@@ -20,12 +18,8 @@ import type {
   OpenArchiveRequest,
   OutputArtifactRequest,
   RescanSourceRequest,
-  ScanDataSourceRequest,
-  SetDataSourceEnabledRequest,
   UpdateSourceRequest,
-  UpdateDataSourceRequest,
-  ValidateSourceRequest,
-  ValidateDataSourceRequest
+  ValidateSourceRequest
 } from "../main/ipc/view-models.js";
 import type { AgentWorkbenchBridge } from "./types.js";
 import { agentWorkbenchTheme } from "./theme-bridge.js";
@@ -76,10 +70,6 @@ const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
   getDashboardStats(request: DashboardStatsRequest = {}) {
     return ipcRenderer.invoke(IPC_CHANNELS.getDashboardStats, request);
   },
-  // TODO(Wave 5): Remove once renderer bridge callers migrate to `getDashboardStats`.
-  getOverview(request: GetOverviewRequest = {}) {
-    return ipcRenderer.invoke(IPC_CHANNELS.getOverview, request);
-  },
   listProjects(request: ListProjectsRequest = {}) {
     return ipcRenderer.invoke(IPC_CHANNELS.listProjects, request);
   },
@@ -94,15 +84,6 @@ const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
   },
   getSessionTimeline(request: GetSessionTimelineRequest) {
     return ipcRenderer.invoke(IPC_CHANNELS.getSessionTimeline, request);
-  },
-  // TODO(Wave 5): Remove once renderer bridge callers migrate to `getSession`.
-  getSessionById(request: GetSessionByIdRequest) {
-    return ipcRenderer.invoke(IPC_CHANNELS.getSessionById, request);
-  },
-  // TODO(Wave 5): Remove once renderer bridge callers migrate to `getSession`
-  // plus `getSessionTimeline`.
-  getSessionDetail(request: GetSessionByIdRequest) {
-    return ipcRenderer.invoke(IPC_CHANNELS.getSessionDetail, request);
   },
   getEvents(request: GetEventsRequest) {
     return ipcRenderer.invoke(IPC_CHANNELS.getEvents, request);
@@ -130,30 +111,6 @@ const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
   },
   listDiagnostics(request: ListDiagnosticsRequest = {}) {
     return ipcRenderer.invoke(IPC_CHANNELS.listDiagnostics, request);
-  },
-  // TODO(Wave 5): Remove once renderer bridge callers migrate to `listSources`.
-  listDataSources() {
-    return ipcRenderer.invoke(IPC_CHANNELS.listDataSources);
-  },
-  // TODO(Wave 5): Remove once renderer bridge callers migrate to `addSource`.
-  addDataSource(request: AddDataSourceRequest) {
-    return ipcRenderer.invoke(IPC_CHANNELS.addDataSource, request);
-  },
-  // TODO(Wave 5): Remove once renderer bridge callers migrate to `updateSource`.
-  updateDataSource(request: UpdateDataSourceRequest) {
-    return ipcRenderer.invoke(IPC_CHANNELS.updateDataSource, request);
-  },
-  // TODO(Wave 5): Remove once renderer bridge callers migrate to `disableSource`.
-  setDataSourceEnabled(request: SetDataSourceEnabledRequest) {
-    return ipcRenderer.invoke(IPC_CHANNELS.setDataSourceEnabled, request);
-  },
-  // TODO(Wave 5): Remove once renderer bridge callers migrate to `validateSource`.
-  validateDataSource(request: ValidateDataSourceRequest) {
-    return ipcRenderer.invoke(IPC_CHANNELS.validateDataSource, request);
-  },
-  // TODO(Wave 5): Remove once renderer bridge callers migrate to `rescanSource`.
-  scanDataSource(request: ScanDataSourceRequest) {
-    return ipcRenderer.invoke(IPC_CHANNELS.scanDataSource, request);
   }
 });
 

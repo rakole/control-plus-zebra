@@ -13,10 +13,9 @@ import type { ThemeService } from "../../../src/main/theme/theme-service.js";
 import type { TriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import {
   createArchiveResponseSchema,
-  dataSourcesResponseSchema,
-  getOverviewResponseSchema,
-  getSessionByIdResponseSchema,
-  getSessionDetailResponseSchema,
+  dashboardStatsResponseSchema,
+  getSessionResponseSchema,
+  sessionTimelineResponseSchema,
   getRunAuditResponseSchema,
   listDiagnosticsResponseSchema,
   listProjectsResponseSchema,
@@ -24,6 +23,7 @@ import {
   outputArtifactLoadResponseSchema,
   outputArtifactPreviewResponseSchema,
   shellStateViewModelSchema,
+  sourcesResponseSchema,
   type SessionPreviewViewModel,
   type SessionSummaryViewModel
 } from "../../../src/main/ipc/view-models.js";
@@ -50,13 +50,10 @@ describe("ipc handlers", () => {
       IPC_CHANNELS.createArchive,
       IPC_CHANNELS.openArchive,
       IPC_CHANNELS.getDashboardStats,
-      IPC_CHANNELS.getOverview,
       IPC_CHANNELS.listProjects,
       IPC_CHANNELS.getProject,
       IPC_CHANNELS.listSessions,
-      IPC_CHANNELS.getSessionById,
       IPC_CHANNELS.getSession,
-      IPC_CHANNELS.getSessionDetail,
       IPC_CHANNELS.getSessionTimeline,
       IPC_CHANNELS.getEvents,
       IPC_CHANNELS.getToolCalls,
@@ -68,14 +65,6 @@ describe("ipc handlers", () => {
       IPC_CHANNELS.getGitSnapshot,
       IPC_CHANNELS.getGitHubSnapshot,
       IPC_CHANNELS.listDiagnostics,
-      // TODO(Wave 5): remove these compatibility aliases after renderer
-      // bridge callers migrate to the Wave 4 public channel names.
-      IPC_CHANNELS.listDataSources,
-      IPC_CHANNELS.addDataSource,
-      IPC_CHANNELS.updateDataSource,
-      IPC_CHANNELS.setDataSourceEnabled,
-      IPC_CHANNELS.validateDataSource,
-      IPC_CHANNELS.scanDataSource,
       IPC_CHANNELS.getThemeState,
       IPC_CHANNELS.setThemePreference
     ]);
@@ -86,7 +75,7 @@ describe("ipc handlers", () => {
 
     registerIpcHandlers(collector, createFakeServices());
 
-    const result = await collector.invoke(IPC_CHANNELS.getSessionById, { sessionId: "" });
+    const result = await collector.invoke(IPC_CHANNELS.getSession, { sessionId: "" });
 
     expect(result).toEqual({
       ok: false,
@@ -109,11 +98,11 @@ describe("ipc handlers", () => {
       includeRawArtifacts: false,
       privacyWarningAcknowledged: true
     });
-    const overview = await collector.invoke(IPC_CHANNELS.getOverview);
+    const overview = await collector.invoke(IPC_CHANNELS.getDashboardStats);
     const projects = await collector.invoke(IPC_CHANNELS.listProjects);
     const list = await collector.invoke(IPC_CHANNELS.listSessions);
-    const get = await collector.invoke(IPC_CHANNELS.getSessionById, { sessionId: "session_1" });
-    const detail = await collector.invoke(IPC_CHANNELS.getSessionDetail, {
+    const get = await collector.invoke(IPC_CHANNELS.getSession, { sessionId: "session_1" });
+    const timeline = await collector.invoke(IPC_CHANNELS.getSessionTimeline, {
       sessionId: "session_1"
     });
     const previewArtifact = await collector.invoke(IPC_CHANNELS.getOutputArtifactPreview, {
@@ -128,20 +117,20 @@ describe("ipc handlers", () => {
       sessionId: "session_1"
     });
     const diagnostics = await collector.invoke(IPC_CHANNELS.listDiagnostics);
-    const sources = await collector.invoke(IPC_CHANNELS.listDataSources);
+    const sources = await collector.invoke(IPC_CHANNELS.listSources);
 
     expect(() => shellStateViewModelSchema.parse(shell)).not.toThrow();
     expect(() => createArchiveResponseSchema.parse(archive)).not.toThrow();
-    expect(() => getOverviewResponseSchema.parse(overview)).not.toThrow();
+    expect(() => dashboardStatsResponseSchema.parse(overview)).not.toThrow();
     expect(() => listProjectsResponseSchema.parse(projects)).not.toThrow();
     expect(() => listSessionsResponseSchema.parse(list)).not.toThrow();
-    expect(() => getSessionByIdResponseSchema.parse(get)).not.toThrow();
-    expect(() => getSessionDetailResponseSchema.parse(detail)).not.toThrow();
+    expect(() => getSessionResponseSchema.parse(get)).not.toThrow();
+    expect(() => sessionTimelineResponseSchema.parse(timeline)).not.toThrow();
     expect(() => outputArtifactPreviewResponseSchema.parse(previewArtifact)).not.toThrow();
     expect(() => outputArtifactLoadResponseSchema.parse(loadedArtifact)).not.toThrow();
     expect(() => getRunAuditResponseSchema.parse(runAudit)).not.toThrow();
     expect(() => listDiagnosticsResponseSchema.parse(diagnostics)).not.toThrow();
-    expect(() => dataSourcesResponseSchema.parse(sources)).not.toThrow();
+    expect(() => sourcesResponseSchema.parse(sources)).not.toThrow();
   });
 });
 
@@ -289,19 +278,19 @@ function createFakeServices(): {
           IPC_CHANNELS.getShellState,
           IPC_CHANNELS.createArchive,
           IPC_CHANNELS.openArchive,
-          IPC_CHANNELS.getOverview,
+          IPC_CHANNELS.getDashboardStats,
           IPC_CHANNELS.listProjects,
           IPC_CHANNELS.listSessions,
-          IPC_CHANNELS.getSessionById,
-          IPC_CHANNELS.getSessionDetail,
+          IPC_CHANNELS.getSession,
+          IPC_CHANNELS.getSessionTimeline,
           IPC_CHANNELS.getRunAudit,
           IPC_CHANNELS.listDiagnostics,
-          IPC_CHANNELS.listDataSources,
-          IPC_CHANNELS.addDataSource,
-          IPC_CHANNELS.updateDataSource,
-          IPC_CHANNELS.setDataSourceEnabled,
-          IPC_CHANNELS.validateDataSource,
-          IPC_CHANNELS.scanDataSource,
+          IPC_CHANNELS.listSources,
+          IPC_CHANNELS.addSource,
+          IPC_CHANNELS.updateSource,
+          IPC_CHANNELS.disableSource,
+          IPC_CHANNELS.validateSource,
+          IPC_CHANNELS.rescanSource,
           IPC_CHANNELS.getThemeState,
           IPC_CHANNELS.setThemePreference
         ],

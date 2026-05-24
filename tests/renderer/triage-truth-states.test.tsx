@@ -41,7 +41,7 @@ describe("triage truth states", () => {
           {
             id: "git-github",
             title: "Git / GitHub",
-            summary: "Phase 6 shows placeholders until read-only providers land in Phase 7.",
+            summary: "Read-only providers keep unavailable repository evidence explicit.",
             items: [{ label: "Repo State", value: "Unknown", tone: "neutral" }]
           }
         ]

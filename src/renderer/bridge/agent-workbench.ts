@@ -44,10 +44,32 @@ export function getSession(
   return getAgentWorkbenchBridge().getSession(request);
 }
 
-export function getSessionDetail(
-  request: Parameters<Window["agentWorkbench"]["getSessionDetail"]>[0]
+export async function getSessionDetail(
+  request: Parameters<Window["agentWorkbench"]["getSession"]>[0]
 ) {
-  return getAgentWorkbenchBridge().getSessionDetail(request);
+  const [sessionResponse, timelineResponse] = await Promise.all([
+    getAgentWorkbenchBridge().getSession(request),
+    getAgentWorkbenchBridge().getSessionTimeline(request)
+  ]);
+
+  if (!sessionResponse.ok) {
+    return sessionResponse;
+  }
+
+  if (!timelineResponse.ok) {
+    return timelineResponse;
+  }
+
+  return {
+    ok: true as const,
+    detail:
+      sessionResponse.session && timelineResponse.timeline
+        ? {
+            session: sessionResponse.session,
+            timeline: timelineResponse.timeline
+          }
+        : null
+  };
 }
 
 export function getRunAudit(

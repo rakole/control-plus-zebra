@@ -1,0 +1,557 @@
+{
+  "adapterId": "gemini-cli",
+  "sourceId": "source:gamma-project",
+  "capabilities": {
+    "adapter": {
+      "adapterId": "gemini-cli",
+      "capabilities": {
+        "discovery": {
+          "defaultRoots": true,
+          "projectRootMapping": "native",
+          "stableProjectId": true,
+          "stableSessionId": true
+        },
+        "replay": {
+          "transcriptReplay": true,
+          "messageRoles": true,
+          "assistantMessages": true,
+          "lifecycleEvents": true,
+          "cancellationEvents": true,
+          "topicEvents": true,
+          "rawEventPointers": true
+        },
+        "tools": {
+          "toolCalls": true,
+          "toolResults": true,
+          "fileReads": true,
+          "fileSearches": true,
+          "fileMutations": true,
+          "diffStats": false,
+          "shellCommands": true,
+          "shellOutputs": true,
+          "sidecarOutputs": true
+        },
+        "usage": {
+          "modelNames": true,
+          "tokenCounts": true,
+          "costEstimates": false
+        },
+        "live": {
+          "activeSessionDetection": "none",
+          "watchableArtifacts": false,
+          "incrementalParsing": false
+        },
+        "audit": {
+          "agentClaimDetection": true,
+          "finalAnswerDetection": true,
+          "shellExitCodeEvidence": false,
+          "verificationCommandEvidence": true
+        },
+        "export": {
+          "rawArtifactExport": true,
+          "normalizedExport": true
+        }
+      }
+    },
+    "source": {
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "capabilities": {
+        "discovery": {
+          "defaultRoots": true,
+          "projectRootMapping": "native",
+          "stableProjectId": true,
+          "stableSessionId": true
+        },
+        "replay": {
+          "transcriptReplay": true,
+          "messageRoles": true,
+          "assistantMessages": true,
+          "lifecycleEvents": true,
+          "cancellationEvents": true,
+          "topicEvents": true,
+          "rawEventPointers": true
+        },
+        "tools": {
+          "toolCalls": true,
+          "toolResults": true,
+          "fileReads": true,
+          "fileSearches": true,
+          "fileMutations": true,
+          "diffStats": false,
+          "shellCommands": true,
+          "shellOutputs": true,
+          "sidecarOutputs": true
+        },
+        "usage": {
+          "modelNames": true,
+          "tokenCounts": true,
+          "costEstimates": false
+        },
+        "live": {
+          "activeSessionDetection": "none",
+          "watchableArtifacts": false,
+          "incrementalParsing": false
+        },
+        "audit": {
+          "agentClaimDetection": true,
+          "finalAnswerDetection": true,
+          "shellExitCodeEvidence": false,
+          "verificationCommandEvidence": true
+        },
+        "export": {
+          "rawArtifactExport": true,
+          "normalizedExport": true
+        }
+      }
+    },
+    "sessions": [
+      {
+        "adapterId": "gemini-cli",
+        "sourceId": "source:gamma-project",
+        "sessionId": "session:44444444-4444-4444-8444-444444444444",
+        "capabilities": {
+          "discovery": {
+            "defaultRoots": true,
+            "projectRootMapping": "native",
+            "stableProjectId": true,
+            "stableSessionId": true
+          },
+          "replay": {
+            "transcriptReplay": true,
+            "messageRoles": true,
+            "assistantMessages": true,
+            "lifecycleEvents": true,
+            "cancellationEvents": true,
+            "topicEvents": true,
+            "rawEventPointers": true
+          },
+          "tools": {
+            "toolCalls": true,
+            "toolResults": true,
+            "fileReads": true,
+            "fileSearches": true,
+            "fileMutations": true,
+            "diffStats": false,
+            "shellCommands": true,
+            "shellOutputs": true,
+            "sidecarOutputs": true
+          },
+          "usage": {
+            "modelNames": true,
+            "tokenCounts": true,
+            "costEstimates": false
+          },
+          "live": {
+            "activeSessionDetection": "none",
+            "watchableArtifacts": false,
+            "incrementalParsing": false
+          },
+          "audit": {
+            "agentClaimDetection": true,
+            "finalAnswerDetection": true,
+            "shellExitCodeEvidence": false,
+            "verificationCommandEvidence": true
+          },
+          "export": {
+            "rawArtifactExport": true,
+            "normalizedExport": true
+          }
+        }
+      }
+    ]
+  },
+  "projects": [
+    {
+      "kind": "project",
+      "id": "project:gamma-project",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "nativeId": "gamma-project",
+      "displayName": "gamma-project",
+      "primaryRootPath": "/workspaces/gamma-project",
+      "rootConfidence": "confirmed",
+      "harnessRefs": [
+        {
+          "adapterId": "gemini-cli",
+          "sourceId": "source:gamma-project",
+          "nativeProjectId": "gamma-project",
+          "nativeProjectPath": "/workspaces/gamma-project",
+          "projectRootPath": "/workspaces/gamma-project",
+          "projectRootConfidence": "confirmed",
+          "rawArtifactRefs": [
+            {
+              "nativeRef": ".project_root",
+              "artifactKind": "project-root-map",
+              "parseStrategy": "text"
+            },
+            {
+              "nativeRef": "logs.json",
+              "artifactKind": "history",
+              "parseStrategy": "json"
+            }
+          ]
+        }
+      ],
+      "sessionIds": [
+        "session:44444444-4444-4444-8444-444444444444"
+      ],
+      "latestActivityAt": "2026-05-23T11:00:00.000Z",
+      "latestPrompt": "Run a diagnostic shell command."
+    }
+  ],
+  "sessions": [
+    {
+      "kind": "session",
+      "id": "session:44444444-4444-4444-8444-444444444444",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "nativeId": "44444444-4444-4444-8444-444444444444",
+      "projectId": "project:gamma-project",
+      "title": "Run a diagnostic shell command.",
+      "startedAt": "2026-05-23T11:00:00.000Z",
+      "lastUpdatedAt": "2026-05-23T11:00:00.000Z",
+      "durationMs": 0,
+      "lifecycleStatus": "completed",
+      "parseConfidence": "confirmed",
+      "messageIds": [
+        "session-message:user-444:3",
+        "session-message:assistant-444:4"
+      ],
+      "eventIds": [
+        "session-event:44444444-4444-4444-8444-444444444444:lifecycle",
+        "session-event:44444444-4444-4444-8444-444444444444:header-metadata",
+        "session-event:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:3",
+        "session-event:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:4",
+        "session-event:run_shell_command_1700000006000_0:4",
+        "session-event:shell:run_shell_command_1700000006000_0",
+        "session-event:artifact:tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json"
+      ],
+      "toolCallIds": [
+        "tool-call:run_shell_command_1700000006000_0"
+      ],
+      "shellCommandIds": [
+        "shell-command:shell:run_shell_command_1700000006000_0"
+      ],
+      "outputArtifactIds": [
+        "output-artifact:tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json"
+      ],
+      "usage": {},
+      "rawArtifactRefs": [
+        {
+          "nativeRef": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+          "artifactKind": "session-log",
+          "parseStrategy": "stream-jsonl"
+        },
+        {
+          "nativeRef": "logs.json",
+          "artifactKind": "history",
+          "parseStrategy": "json"
+        },
+        {
+          "nativeRef": "tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+          "artifactKind": "output-artifact",
+          "parseStrategy": "json"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "kind": "lifecycle",
+      "id": "session-event:44444444-4444-4444-8444-444444444444:lifecycle",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "sessionId": "session:44444444-4444-4444-8444-444444444444",
+      "nativeId": "44444444-4444-4444-8444-444444444444:lifecycle",
+      "timestamp": "2026-05-23T11:00:05.000Z",
+      "orderKey": "000001:44444444-4444-4444-8444-444444444444:lifecycle",
+      "actor": "harness",
+      "title": "Completed",
+      "text": "Completed",
+      "raw": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/gamma-project/chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "nativeId": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "lineNumber": 1,
+        "eventId": "session-event:44444444-4444-4444-8444-444444444444:lifecycle",
+        "pointer": "event:44444444-4444-4444-8444-444444444444:lifecycle"
+      }
+    },
+    {
+      "kind": "metadata",
+      "id": "session-event:44444444-4444-4444-8444-444444444444:header-metadata",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "sessionId": "session:44444444-4444-4444-8444-444444444444",
+      "nativeId": "44444444-4444-4444-8444-444444444444:header-metadata",
+      "timestamp": "2026-05-23T11:00:00.000Z",
+      "orderKey": "000002:44444444-4444-4444-8444-444444444444:header-metadata",
+      "actor": "harness",
+      "title": "Project hash project-hash-gamma",
+      "text": "Project hash project-hash-gamma",
+      "raw": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/gamma-project/chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "nativeId": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "lineNumber": 1,
+        "eventId": "session-event:44444444-4444-4444-8444-444444444444:header-metadata",
+        "pointer": "event:44444444-4444-4444-8444-444444444444:header-metadata"
+      }
+    },
+    {
+      "kind": "message",
+      "id": "session-event:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:3",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "sessionId": "session:44444444-4444-4444-8444-444444444444",
+      "nativeId": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:3",
+      "timestamp": "2026-05-23T11:00:01.000Z",
+      "orderKey": "000003:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:3",
+      "actor": "user",
+      "title": "user message",
+      "text": "user message",
+      "raw": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/gamma-project/chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "nativeId": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "lineNumber": 3,
+        "eventId": "session-event:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:3",
+        "pointer": "event:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:3"
+      }
+    },
+    {
+      "kind": "message",
+      "id": "session-event:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:4",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "sessionId": "session:44444444-4444-4444-8444-444444444444",
+      "nativeId": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:4",
+      "timestamp": "2026-05-23T11:00:05.000Z",
+      "orderKey": "000004:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:4",
+      "actor": "assistant",
+      "title": "assistant message",
+      "text": "assistant message",
+      "raw": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/gamma-project/chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "nativeId": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "lineNumber": 4,
+        "eventId": "session-event:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:4",
+        "pointer": "event:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:4"
+      }
+    },
+    {
+      "kind": "tool-call",
+      "id": "session-event:run_shell_command_1700000006000_0:4",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "sessionId": "session:44444444-4444-4444-8444-444444444444",
+      "nativeId": "run_shell_command_1700000006000_0:4",
+      "timestamp": "2026-05-23T11:00:04.500Z",
+      "orderKey": "000005:run_shell_command_1700000006000_0:4",
+      "actor": "tool",
+      "title": "run_shell_command success",
+      "text": "run_shell_command success",
+      "raw": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/gamma-project/chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "nativeId": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "lineNumber": 4,
+        "eventId": "session-event:run_shell_command_1700000006000_0:4",
+        "pointer": "event:run_shell_command_1700000006000_0:4"
+      }
+    },
+    {
+      "kind": "shell-command",
+      "id": "session-event:shell:run_shell_command_1700000006000_0",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "sessionId": "session:44444444-4444-4444-8444-444444444444",
+      "nativeId": "shell:run_shell_command_1700000006000_0",
+      "timestamp": "2026-05-23T11:00:04.500Z",
+      "orderKey": "000006:shell:run_shell_command_1700000006000_0",
+      "actor": "harness",
+      "title": "npm run test -- tests/main/core/scanner-cache.test.ts",
+      "text": "npm run test -- tests/main/core/scanner-cache.test.ts",
+      "raw": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/gamma-project/chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "nativeId": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "lineNumber": 4,
+        "eventId": "session-event:shell:run_shell_command_1700000006000_0",
+        "pointer": "event:shell:run_shell_command_1700000006000_0"
+      }
+    },
+    {
+      "kind": "tool-result",
+      "id": "session-event:artifact:tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "sessionId": "session:44444444-4444-4444-8444-444444444444",
+      "nativeId": "artifact:tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+      "orderKey": "000007:artifact:tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+      "actor": "harness",
+      "title": "tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+      "text": "tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+      "raw": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/gamma-project/tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+        "nativeId": "tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+        "eventId": "session-event:artifact:tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+        "pointer": "event:artifact:tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json"
+      }
+    }
+  ],
+  "messages": [
+    {
+      "kind": "session-message",
+      "id": "session-message:user-444:3",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "sessionId": "session:44444444-4444-4444-8444-444444444444",
+      "nativeId": "user-444:3",
+      "role": "user",
+      "text": "Run a diagnostic shell command.",
+      "timestamp": "2026-05-23T11:00:01.000Z",
+      "eventIds": [
+        "session-event:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:3"
+      ],
+      "source": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/gamma-project/chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "nativeId": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "lineNumber": 3,
+        "eventId": "session-event:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:3",
+        "pointer": "message:user-444:3"
+      },
+      "confidence": "confirmed"
+    },
+    {
+      "kind": "session-message",
+      "id": "session-message:assistant-444:4",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "sessionId": "session:44444444-4444-4444-8444-444444444444",
+      "nativeId": "assistant-444:4",
+      "role": "assistant",
+      "text": "I captured the diagnostic output and found one malformed artifact.",
+      "timestamp": "2026-05-23T11:00:05.000Z",
+      "eventIds": [
+        "session-event:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:4"
+      ],
+      "source": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/gamma-project/chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "nativeId": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "lineNumber": 4,
+        "eventId": "session-event:chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl:message:4",
+        "pointer": "message:assistant-444:4"
+      },
+      "confidence": "confirmed"
+    }
+  ],
+  "toolCalls": [
+    {
+      "kind": "tool-call",
+      "id": "tool-call:run_shell_command_1700000006000_0",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "sessionId": "session:44444444-4444-4444-8444-444444444444",
+      "nativeId": "run_shell_command_1700000006000_0",
+      "nativeToolCallId": "run_shell_command_1700000006000_0",
+      "name": "run_shell_command",
+      "normalizedKind": "shell",
+      "statusRaw": "success",
+      "statusNormalized": "completed",
+      "argsPreview": "command=npm run test -- tests/main/core/scanner-cache.test.ts, cwd=/workspaces/gamma-project",
+      "resultPreview": "1 test passed",
+      "outputArtifactIds": [
+        "output-artifact:tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json"
+      ],
+      "shellCommandId": "shell-command:shell:run_shell_command_1700000006000_0",
+      "source": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/gamma-project/chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "nativeId": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "lineNumber": 4,
+        "eventId": "session-event:run_shell_command_1700000006000_0:4",
+        "pointer": "tool:run_shell_command_1700000006000_0"
+      },
+      "confidence": "confirmed"
+    }
+  ],
+  "shellCommands": [
+    {
+      "kind": "shell-command",
+      "id": "shell-command:shell:run_shell_command_1700000006000_0",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "sessionId": "session:44444444-4444-4444-8444-444444444444",
+      "nativeId": "shell:run_shell_command_1700000006000_0",
+      "toolCallId": "tool-call:run_shell_command_1700000006000_0",
+      "command": "npm run test -- tests/main/core/scanner-cache.test.ts",
+      "cwd": "/workspaces/gamma-project",
+      "outputInline": "1 test passed",
+      "outputArtifactIds": [
+        "output-artifact:tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json"
+      ],
+      "rawStatus": "success",
+      "source": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/gamma-project/chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "nativeId": "chats/session-2026-05-23T11-00-44444444-4444-4444-8444-444444444444.jsonl",
+        "lineNumber": 4,
+        "eventId": "session-event:shell:run_shell_command_1700000006000_0",
+        "pointer": "shell:run_shell_command_1700000006000_0"
+      },
+      "confidence": "confirmed"
+    }
+  ],
+  "outputArtifacts": [
+    {
+      "kind": "sidecar",
+      "id": "output-artifact:tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "sessionId": "session:44444444-4444-4444-8444-444444444444",
+      "nativeId": "tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+      "nativeRef": "tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+      "path": "tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+      "contentKind": "json-output-wrapper",
+      "mediaType": "application/json",
+      "sizeBytes": 26,
+      "preview": "{\"content\":\"unterminated\"\n",
+      "loaded": false,
+      "source": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/gamma-project/tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+        "nativeId": "tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json",
+        "pointer": "artifact:tool-outputs/session-44444444-4444-4444-8444-444444444444/run_shell_command_1700000006000_0.json"
+      }
+    }
+  ],
+  "fileMutations": [],
+  "diagnostics": [
+    {
+      "id": "diagnostic:gemini-cli.parse.chat-json-line:1",
+      "code": "gemini-cli.parse.chat-json-line",
+      "message": "Gemini chat row 2 failed JSON parsing: Expected ',' or '}' after property value in JSON at position 18 (line 1 column 19)",
+      "severity": "error",
+      "scope": "artifact",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "confidence": {
+        "level": "high",
+        "normalizedLevel": "confirmed"
+      },
+      "metadata": {
+        "sessionId": "44444444-4444-4444-8444-444444444444"
+      }
+    },
+    {
+      "id": "diagnostic:gemini-cli.parse.tool-output-json:2",
+      "code": "gemini-cli.parse.tool-output-json",
+      "message": "Gemini tool-output JSON parsing failed: Expected ',' or '}' after property value in JSON at position 26 (line 2 column 1)",
+      "severity": "error",
+      "scope": "artifact",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:gamma-project",
+      "confidence": {
+        "level": "high",
+        "normalizedLevel": "confirmed"
+      },
+      "metadata": {
+        "sessionId": "44444444-4444-4444-8444-444444444444"
+      }
+    }
+  ]
+}

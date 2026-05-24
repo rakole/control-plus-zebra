@@ -24,14 +24,11 @@ describe("preload API surface", () => {
     expect(typesSource).toContain("createArchive(request");
     expect(typesSource).toContain("openArchive(request?");
     expect(typesSource).toContain("getDashboardStats(request?");
-    expect(typesSource).toContain("getOverview(request?");
     expect(typesSource).toContain("listProjects(request?");
     expect(typesSource).toContain("getProject(request");
     expect(typesSource).toContain("listSessions(request?");
     expect(typesSource).toContain("getSession(request");
     expect(typesSource).toContain("getSessionTimeline(request");
-    expect(typesSource).toContain("getSessionById(request");
-    expect(typesSource).toContain("getSessionDetail(request");
     expect(typesSource).toContain("getEvents(request");
     expect(typesSource).toContain("getToolCalls(request");
     expect(typesSource).toContain("getShellCommands(request");
@@ -41,12 +38,6 @@ describe("preload API surface", () => {
     expect(typesSource).toContain("getGitSnapshot(request");
     expect(typesSource).toContain("getGitHubSnapshot(request");
     expect(typesSource).toContain("listDiagnostics(request?");
-    expect(typesSource).toContain("listDataSources()");
-    expect(typesSource).toContain("addDataSource(request");
-    expect(typesSource).toContain("updateDataSource(request");
-    expect(typesSource).toContain("setDataSourceEnabled(request");
-    expect(typesSource).toContain("validateDataSource(request");
-    expect(typesSource).toContain("scanDataSource(request");
     expect(extractBridgeMethodNames(typesSource)).toEqual([
       "getShellState",
       "listHarnesses",
@@ -63,14 +54,11 @@ describe("preload API surface", () => {
       "createArchive",
       "openArchive",
       "getDashboardStats",
-      "getOverview",
       "listProjects",
       "getProject",
       "listSessions",
       "getSession",
       "getSessionTimeline",
-      "getSessionById",
-      "getSessionDetail",
       "getEvents",
       "getToolCalls",
       "getShellCommands",
@@ -79,13 +67,7 @@ describe("preload API surface", () => {
       "getRunAudit",
       "getGitSnapshot",
       "getGitHubSnapshot",
-      "listDiagnostics",
-      "listDataSources",
-      "addDataSource",
-      "updateDataSource",
-      "setDataSourceEnabled",
-      "validateDataSource",
-      "scanDataSource"
+      "listDiagnostics"
     ]);
     expect(findForbiddenPublicNames(typesSource)).toEqual([]);
   });
@@ -110,14 +92,11 @@ describe("preload API surface", () => {
       "createArchive",
       "openArchive",
       "getDashboardStats",
-      "getOverview",
       "listProjects",
       "getProject",
       "listSessions",
       "getSession",
       "getSessionTimeline",
-      "getSessionById",
-      "getSessionDetail",
       "getEvents",
       "getToolCalls",
       "getShellCommands",
@@ -126,13 +105,7 @@ describe("preload API surface", () => {
       "getRunAudit",
       "getGitSnapshot",
       "getGitHubSnapshot",
-      "listDiagnostics",
-      "listDataSources",
-      "addDataSource",
-      "updateDataSource",
-      "setDataSourceEnabled",
-      "validateDataSource",
-      "scanDataSource"
+      "listDiagnostics"
     ]);
     expect(preloadSource).not.toMatch(/\b(?:fs|child_process|shell)\b/u);
     expect(preloadSource).not.toMatch(/(?<!\.)\binvoke\s*\(/u);

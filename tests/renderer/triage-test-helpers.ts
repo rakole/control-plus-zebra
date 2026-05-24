@@ -581,10 +581,12 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
         session: sessionId === secondSession.sessionId ? secondPreview : firstPreview
       })
     ),
-    getSessionDetail: vi.fn().mockImplementation(({ sessionId }: { sessionId: string }) =>
+    getSessionTimeline: vi.fn().mockImplementation(({ sessionId }: { sessionId: string }) =>
       Promise.resolve({
         ok: true,
-        detail: detailBySessionId[sessionId] ?? detailBySessionId[firstSession.sessionId]
+        timeline:
+          (detailBySessionId[sessionId] ?? detailBySessionId[firstSession.sessionId])?.timeline ??
+          null
       })
     ),
     getRunAudit: vi.fn().mockResolvedValue({
@@ -605,7 +607,6 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
     rescanAllSources: vi.fn(),
     rescanScannerSource: vi.fn(),
     getProject: vi.fn(),
-    getSessionTimeline: vi.fn(),
     getEvents: vi.fn(),
     getToolCalls: vi.fn(),
     getShellCommands: vi.fn(),
@@ -633,13 +634,7 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
       }
     }),
     getGitSnapshot: vi.fn(),
-    getGitHubSnapshot: vi.fn(),
-    listDataSources: vi.fn().mockResolvedValue({ ok: true, dataSources: { adapters: [], sources: [] } }),
-    addDataSource: vi.fn(),
-    updateDataSource: vi.fn(),
-    setDataSourceEnabled: vi.fn(),
-    validateDataSource: vi.fn(),
-    scanDataSource: vi.fn()
+    getGitHubSnapshot: vi.fn()
   };
 
   Object.defineProperty(window, "agentWorkbench", {
