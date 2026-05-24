@@ -66,7 +66,21 @@ export function DataSourceDetail({
   const title = source.sourceName?.trim() || source.rootPath || "Draft source";
   const showValidationAlert = source.validation.label === "Invalid";
   const showScanAlert = source.scan.label === "Scan Failed";
-  const scanButtonLabel = source.hasCompletedScan ? "Rescan Source" : "Scan Source";
+  const isReadOnly = source.readOnly;
+  const scanButtonLabel = isReadOnly
+    ? "Scan Unavailable"
+    : source.hasCompletedScan
+      ? "Rescan Source"
+      : "Scan Source";
+  const adapterOptions = adapters.some((adapter) => adapter.adapterId === source.adapterId)
+    ? adapters
+    : [
+        {
+          adapterId: source.adapterId,
+          displayName: source.adapterDisplayName
+        },
+        ...adapters
+      ];
 
   return (
     <aside className="source-detail-panel" aria-label="Selected data source detail">
@@ -75,8 +89,64 @@ export function DataSourceDetail({
           <p className="preview-label">{source.adapterDisplayName}</p>
           <h2>{title}</h2>
         </div>
-        <SourceStatusBadge label={source.enabledLabel} />
+        <div className="detail-section-badges">
+          {source.readOnlyLabel ? <SourceStatusBadge label={source.readOnlyLabel} /> : null}
+          <SourceStatusBadge label={source.enabledLabel} />
+        </div>
       </div>
+
+      <section className="detail-section" aria-labelledby="source-metadata-heading">
+        <div className="detail-section-heading">
+          <h3 id="source-metadata-heading">Source Metadata</h3>
+        </div>
+        <div className="detail-field-grid">
+          <div className="detail-field">
+            <span className="detail-label">Source Kind</span>
+            <span className="detail-summary">{source.sourceKind}</span>
+          </div>
+          <div className="detail-field">
+            <span className="detail-label">Added By</span>
+            <span className="detail-summary">{source.addedBy}</span>
+          </div>
+        </div>
+        {source.readOnlyReason ? (
+          <p className="detail-summary">{source.readOnlyReason}</p>
+        ) : null}
+      </section>
+
+      {source.archiveMetadata ? (
+        <section className="detail-section" aria-labelledby="archive-metadata-heading">
+          <div className="detail-section-heading">
+            <h3 id="archive-metadata-heading">Archive Metadata</h3>
+          </div>
+          <div className="detail-field-grid">
+            <div className="detail-field">
+              <span className="detail-label">Archive Path</span>
+              <span className="detail-summary">{source.archiveMetadata.archivePath}</span>
+            </div>
+            <div className="detail-field">
+              <span className="detail-label">Archive Scope</span>
+              <span className="detail-summary">{source.archiveMetadata.scopeLabel}</span>
+            </div>
+            <div className="detail-field">
+              <span className="detail-label">Manifest Version</span>
+              <span className="detail-summary">{source.archiveMetadata.manifestVersion}</span>
+            </div>
+            <div className="detail-field">
+              <span className="detail-label">Imported At</span>
+              <span className="detail-summary">{source.archiveMetadata.importedAt}</span>
+            </div>
+            <div className="detail-field">
+              <span className="detail-label">Exported At</span>
+              <span className="detail-summary">{source.archiveMetadata.exportedAt}</span>
+            </div>
+            <div className="detail-field">
+              <span className="detail-label">Archived Sessions</span>
+              <span className="detail-summary">{source.archiveMetadata.sessionCount}</span>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section className="detail-section" aria-labelledby="source-settings-heading">
         <div className="detail-section-heading">
@@ -89,10 +159,11 @@ export function DataSourceDetail({
             <select
               aria-label="Harness"
               className="detail-select"
+              disabled={isReadOnly}
               onChange={(event) => onAdapterChange(event.target.value)}
               value={source.adapterId}
             >
-              {adapters.map((adapter) => (
+              {adapterOptions.map((adapter) => (
                 <option key={adapter.adapterId} value={adapter.adapterId}>
                   {adapter.displayName}
                 </option>
@@ -105,6 +176,7 @@ export function DataSourceDetail({
             <input
               aria-label="Source Name"
               className="detail-input"
+              disabled={isReadOnly}
               onChange={(event) => onSourceNameChange(event.target.value)}
               type="text"
               value={source.sourceName ?? ""}
@@ -117,14 +189,16 @@ export function DataSourceDetail({
           <input
             aria-label="Source Root Path"
             className="detail-input"
+            disabled={isReadOnly}
             onChange={(event) => onRootPathChange(event.target.value)}
             ref={pathInputRef}
             type="text"
             value={source.rootPath}
           />
           <span className="detail-helper">
-            Enter a local source root path. Validation runs through the shared source
-            registry.
+            {isReadOnly
+              ? "Imported archives keep the original archive path and remain read-only after import."
+              : "Enter a local source root path. Validation runs through the shared source registry."}
           </span>
         </label>
 
@@ -140,6 +214,7 @@ export function DataSourceDetail({
             <input
               aria-label="Source Enabled"
               checked={source.enabled}
+              disabled={isReadOnly}
               onChange={(event) => onEnabledChange(event.target.checked)}
               role="switch"
               type="checkbox"
@@ -234,7 +309,7 @@ export function DataSourceDetail({
           onClick={onValidate}
           type="button"
         >
-          Validate Source
+          {isReadOnly ? "Validation Unavailable" : "Validate Source"}
         </button>
       </section>
     </aside>

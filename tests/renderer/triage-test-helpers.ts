@@ -77,11 +77,21 @@ export interface SessionDetailFixture {
 
 export interface RunAuditFixture {
   session: SessionPreviewFixture;
+  archiveExport: {
+    scopeKind: "project" | "session";
+    scopeId: string;
+    scopeLabel: string;
+    sessionCount: number;
+    sourceCount: number;
+    rawArtifactsAvailable: boolean;
+    rawArtifactCount: number;
+    rawArtifactsReason?: string;
+  };
   sections: Array<{
     id: string;
     title: string;
     summary: string;
-    items: Array<{ label: string; value: string; tone: string }>;
+    items: Array<{ label: string; value: string; tone: string; hint?: string }>;
   }>;
 }
 
@@ -95,17 +105,35 @@ export interface ProjectFixture {
   projectId: string;
   projectName: string;
   repoPath: { status: string; displayValue: string; rawValue?: string };
+  validatedRepoRoot: { status: string; displayValue: string; rawValue?: string; reason?: string };
   observedHarnesses: string[];
   latestActivityAt: string;
   sessionCount: number;
   latestVerification: TruthStateFixture;
   latestRunAudit: TruthStateFixture;
+  gitStatus: TruthStateFixture;
+  githubStatus: TruthStateFixture;
   branch: { status: string; displayValue: string };
   head: { status: string; displayValue: string };
   dirtyState: TruthStateFixture;
   changedFiles: { status: string; displayValue: string };
   untrackedFiles: { status: string; displayValue: string };
+  additions: { status: string; displayValue: string };
+  deletions: { status: string; displayValue: string };
+  remoteUrl: { status: string; displayValue: string; reason?: string };
   pullRequest: { status: string; displayValue: string };
+  checks: { status: string; displayValue: string };
+  reviewStatus: { status: string; displayValue: string };
+  archiveExport: {
+    scopeKind: "project" | "session";
+    scopeId: string;
+    scopeLabel: string;
+    sessionCount: number;
+    sourceCount: number;
+    rawArtifactsAvailable: boolean;
+    rawArtifactCount: number;
+    rawArtifactsReason?: string;
+  };
 }
 
 export interface DiagnosticsFixture {
@@ -231,6 +259,15 @@ export function buildSessionDetail(overrides: Partial<SessionDetailFixture> = {}
 export function buildRunAudit(overrides: Partial<RunAuditFixture> = {}) {
   return {
     session: buildSessionPreview(),
+    archiveExport: {
+      scopeKind: "session" as const,
+      scopeId: "session-1",
+      scopeLabel: "Fixture session",
+      sessionCount: 1,
+      sourceCount: 1,
+      rawArtifactsAvailable: true,
+      rawArtifactCount: 2
+    },
     sections: [
       {
         id: "claim-vs-evidence",
@@ -244,10 +281,19 @@ export function buildRunAudit(overrides: Partial<RunAuditFixture> = {}) {
       {
         id: "git-github",
         title: "Git / GitHub",
-        summary: "Phase 6 shows placeholders until read-only providers land in Phase 7.",
+        summary: "Show shared read-only repository truth and keep GitHub gaps explicit.",
         items: [
-          { label: "Repo State", value: "Unknown", tone: "neutral" as const },
-          { label: "Pull Request", value: "Unknown", tone: "neutral" as const }
+          { label: "Git Snapshot", value: "Available", tone: "info" as const },
+          { label: "Branch", value: "main", tone: "info" as const },
+          {
+            label: "Remote URL",
+            value: "https://github.com/example/control-plus-zebra.git",
+            tone: "info" as const
+          },
+          { label: "GitHub Snapshot", value: "No Matching PR", tone: "neutral" as const },
+          { label: "Pull Request", value: "No Matching PR", tone: "neutral" as const },
+          { label: "Checks", value: "No Matching PR", tone: "neutral" as const },
+          { label: "Review / Merge", value: "No Matching PR", tone: "neutral" as const }
         ]
       }
     ],
@@ -284,17 +330,41 @@ export function buildProject(overrides: Partial<ProjectFixture> = {}) {
       displayValue: "/workspace/control-plus-zebra",
       rawValue: "/workspace/control-plus-zebra"
     },
+    validatedRepoRoot: {
+      status: "value" as const,
+      displayValue: "/workspace/control-plus-zebra",
+      rawValue: "/workspace/control-plus-zebra"
+    },
     observedHarnesses: ["Fake Test Harness", "Gemini CLI"],
     latestActivityAt: "2026-05-23T10:08:00.000Z",
     sessionCount: 2,
     latestVerification: { label: "Passed", tone: "positive" as const },
     latestRunAudit: { label: "Needs Review", tone: "warning" as const },
-    branch: { status: "unknown" as const, displayValue: "Unknown" },
-    head: { status: "unknown" as const, displayValue: "Unknown" },
-    dirtyState: { label: "Unknown", tone: "neutral" as const },
-    changedFiles: { status: "unknown" as const, displayValue: "Unknown" },
-    untrackedFiles: { status: "unknown" as const, displayValue: "Unknown" },
-    pullRequest: { status: "unknown" as const, displayValue: "Unknown" },
+    gitStatus: { label: "Available", tone: "info" as const },
+    githubStatus: { label: "No Matching PR", tone: "neutral" as const },
+    branch: { status: "value" as const, displayValue: "main" },
+    head: { status: "value" as const, displayValue: "abc12345" },
+    dirtyState: { label: "Dirty", tone: "warning" as const },
+    changedFiles: { status: "value" as const, displayValue: "1" },
+    untrackedFiles: { status: "value" as const, displayValue: "1" },
+    additions: { status: "value" as const, displayValue: "2" },
+    deletions: { status: "value" as const, displayValue: "0" },
+    remoteUrl: {
+      status: "value" as const,
+      displayValue: "https://github.com/example/control-plus-zebra.git"
+    },
+    pullRequest: { status: "value" as const, displayValue: "No Matching PR" },
+    checks: { status: "value" as const, displayValue: "No Matching PR" },
+    reviewStatus: { status: "value" as const, displayValue: "No Matching PR" },
+    archiveExport: {
+      scopeKind: "project" as const,
+      scopeId: "project-1",
+      scopeLabel: "control-plus-zebra",
+      sessionCount: 2,
+      sourceCount: 2,
+      rawArtifactsAvailable: true,
+      rawArtifactCount: 3
+    },
     ...overrides
   };
 }
@@ -353,6 +423,22 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
 
   const bridge = {
     getShellState: vi.fn(),
+    createArchive: vi.fn().mockResolvedValue({
+      ok: true,
+      archive: {
+        status: "exported",
+        archivePath: "/tmp/control-plus-zebra.awb-archive.json",
+        manifestVersion: 1,
+        rawArtifactsIncluded: false,
+        rawArtifactCount: 0
+      }
+    }),
+    openArchive: vi.fn().mockResolvedValue({
+      ok: true,
+      archiveImport: {
+        status: "cancelled"
+      }
+    }),
     getOverview: vi.fn().mockResolvedValue({
       ok: true,
       overview: options.overview ?? buildOverview()

@@ -105,4 +105,42 @@ describe("SourceRegistry", () => {
 
     expect(new Set([first.sourceId, second.sourceId, third.sourceId]).size).toBe(3);
   });
+
+  it("persists imported archive metadata and read-only source semantics across reloads", async () => {
+    const { store, registry } = await createRegistryHarness();
+    const created = await registry.createSource({
+      adapterId: "archive-reader",
+      displayName: "Imported Project Archive",
+      rootPath: "/tmp/control-plus-zebra.awb-archive.json",
+      readOnly: true,
+      sourceKind: "imported-archive",
+      addedBy: "import",
+      archive: {
+        archivePath: "/tmp/control-plus-zebra.awb-archive.json",
+        exportedAt: "2026-05-24T08:00:00.000Z",
+        importedAt: "2026-05-24T08:05:00.000Z",
+        manifestVersion: 1,
+        scopeKind: "project",
+        scopeId: "project-1",
+        scopeLabel: "Control Plus Zebra",
+        sourceCount: 1,
+        sessionCount: 2,
+        projectCount: 1,
+        rawArtifactCount: 0
+      }
+    });
+    const reloaded = await new SourceRegistry(store).getSource(created.sourceId);
+
+    expect(reloaded).toMatchObject({
+      sourceId: created.sourceId,
+      adapterId: "archive-reader",
+      sourceKind: "imported-archive",
+      addedBy: "import",
+      readOnly: true,
+      archive: {
+        scopeKind: "project",
+        sessionCount: 2
+      }
+    });
+  });
 });

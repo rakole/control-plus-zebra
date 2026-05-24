@@ -53,27 +53,52 @@ export interface SourceWatchSummary {
   updatedAt?: string;
 }
 
+export type SourceKind = "local-root" | "imported-archive";
+export type SourceAddedBy = "user" | "import";
+
+export interface ImportedArchiveMetadata {
+  archivePath: string;
+  exportedAt: string;
+  importedAt: string;
+  manifestVersion: number;
+  scopeKind: "project" | "session";
+  scopeId: string;
+  scopeLabel: string;
+  sourceCount: number;
+  sessionCount: number;
+  projectCount: number;
+  rawArtifactCount: number;
+}
+
 export interface SourceRecord {
   sourceId: SourceId;
   adapterId: AdapterId;
   displayName?: string;
   rootPath: string;
   enabled: boolean;
+  sourceKind: SourceKind;
+  addedBy: SourceAddedBy;
+  readOnly: boolean;
   validation: SourceValidationSummary;
   scan: SourceScanSummary;
   cache: SourceCacheSummary;
   watch: SourceWatchSummary;
   diagnostics: Diagnostic[];
+  archive?: ImportedArchiveMetadata;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface CreateSourceRecordInput {
   adapterId: AdapterId;
+  archive?: ImportedArchiveMetadata;
+  addedBy?: SourceAddedBy;
   displayName?: string;
   enabled?: boolean;
+  readOnly?: boolean;
   rootPath: string;
   sourceId?: SourceId;
+  sourceKind?: SourceKind;
 }
 
 export interface UpdateSourceRecordInput {
@@ -110,6 +135,9 @@ export class SourceRegistry {
       ...(input.displayName ? { displayName: input.displayName } : {}),
       rootPath: input.rootPath,
       enabled: input.enabled ?? true,
+      sourceKind: input.sourceKind ?? "local-root",
+      addedBy: input.addedBy ?? "user",
+      readOnly: input.readOnly ?? false,
       validation: createInitialValidationSummary(),
       scan: createInitialOperationalSummary(),
       cache: createInitialCacheSummary(),
@@ -117,6 +145,7 @@ export class SourceRegistry {
         status: "unknown"
       },
       diagnostics: [],
+      ...(input.archive ? { archive: input.archive } : {}),
       createdAt: now,
       updatedAt: now
     });
@@ -274,14 +303,22 @@ function sanitizeSourceRecord(record: SourceRecord): SourceRecord {
     ...(record.displayName ? { displayName: record.displayName } : {}),
     rootPath: record.rootPath,
     enabled: record.enabled,
+    sourceKind: record.sourceKind,
+    addedBy: record.addedBy,
+    readOnly: record.readOnly,
     validation: record.validation,
     scan: record.scan,
     cache: record.cache,
     watch: record.watch,
     diagnostics: record.diagnostics,
+    ...(record.archive ? { archive: record.archive } : {}),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt
   };
+}
+
+export function isImportedArchiveSource(record: SourceRecord): boolean {
+  return record.sourceKind === "imported-archive" || record.readOnly;
 }
 
 export function createInitialValidationSummary(): SourceValidationSummary {

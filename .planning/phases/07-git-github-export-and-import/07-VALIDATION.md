@@ -1,9 +1,9 @@
 ---
 phase: 07
 slug: git-github-export-and-import
-status: draft
+status: complete
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-05-24
 ---
 
@@ -38,10 +38,10 @@ created: 2026-05-24
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 07-01-01 | 01 | 1 | GIT-01, GIT-02 | T-07-01-01, T-07-01-02, T-07-01-03 | Shared git snapshots are project-scoped, root-confidence-gated, fixed-command-only, and degrade to explicit Unknown or Unsupported states instead of fake clean repo truth. | node + renderer | `npm run test -- --project node tests/main/core/git-snapshot-provider.test.ts tests/main/core/scanner-cache.test.ts tests/main/ipc/triage-view-model-service.test.ts tests/main/ipc/run-audit-view-model-service.test.ts && npm run test -- --project renderer tests/renderer/projects-route.test.tsx tests/renderer/run-audit-route.test.tsx` | `src/main/core/git/git-snapshot-provider.ts` | pending |
-| 07-02-01 | 02 | 2 | GIT-03 | T-07-02-01, T-07-02-02, T-07-02-03 | Shared GitHub snapshots run only after validated git context, use fixed read-only `gh` commands, and surface No Matching PR, Unknown, or Unsupported states without blocking triage. | node + renderer | `npm run test -- --project node tests/main/core/github-snapshot-provider.test.ts tests/main/ipc/triage-view-model-service.test.ts tests/main/ipc/run-audit-view-model-service.test.ts && npm run test -- --project renderer tests/renderer/projects-route.test.tsx tests/renderer/run-audit-route.test.tsx` | `src/main/core/github/github-snapshot-provider.ts` | pending |
-| 07-03-01 | 03 | 2 | GIT-04, GIT-06 | T-07-03-01, T-07-03-02, T-07-03-03 | Export archives are harness-neutral, normalized-only by default, raw-inclusive only through indexed allowlisted artifacts, and always record privacy-warning acceptance and raw inclusion in the manifest. | node + renderer | `npm run test -- --project node tests/main/core/archive-exporter.test.ts tests/main/ipc/ipc-handlers.test.ts tests/main/ipc/run-audit-view-model-service.test.ts && npm run test -- --project renderer tests/renderer/projects-route.test.tsx tests/renderer/run-audit-route.test.tsx` | `src/main/core/archive/archive-exporter.ts` | pending |
-| 07-04-01 | 04 | 3 | GIT-05 | T-07-04-01, T-07-04-02, T-07-04-03 | Imported archives register as persistent read-only sources, reuse the existing runtime and cache seams, and never re-enable validate, scan, watch, git, or GitHub operations against the host machine. | node + renderer | `npm run test -- --project node tests/main/core/archive-importer.test.ts tests/main/core/source-registry.test.ts tests/main/ipc/data-sources-view-model-service.test.ts tests/main/ipc/data-sources-ipc.test.ts tests/main/ipc/session-view-model-service.test.ts && npm run test -- --project renderer tests/renderer/data-sources-route.test.tsx tests/renderer/sessions-route.test.tsx` | `src/main/core/archive/archive-importer.ts` | pending |
+| 07-01-01 | 01 | 1 | GIT-01, GIT-02 | T-07-01-01, T-07-01-02, T-07-01-03 | Shared git snapshots are project-scoped, root-confidence-gated, fixed-command-only, and degrade to explicit Unknown or Unsupported states instead of fake clean repo truth. | node + renderer | `npm run test -- --project node tests/main/core/git-snapshot-provider.test.ts tests/main/core/scanner-cache.test.ts tests/main/ipc/triage-view-model-service.test.ts tests/main/ipc/run-audit-view-model-service.test.ts && npm run test -- --project renderer tests/renderer/projects-route.test.tsx tests/renderer/run-audit-route.test.tsx` | `src/main/core/git/git-snapshot-provider.ts` | green |
+| 07-02-01 | 02 | 2 | GIT-03 | T-07-02-01, T-07-02-02, T-07-02-03 | Shared GitHub snapshots run only after validated git context, use fixed read-only `gh` commands, and surface No Matching PR, Unknown, or Unsupported states without blocking triage. | node + renderer | `npm run test -- --project node tests/main/core/github-snapshot-provider.test.ts tests/main/ipc/triage-view-model-service.test.ts tests/main/ipc/run-audit-view-model-service.test.ts && npm run test -- --project renderer tests/renderer/projects-route.test.tsx tests/renderer/run-audit-route.test.tsx` | `src/main/core/github/github-snapshot-provider.ts` | green |
+| 07-03-01 | 03 | 2 | GIT-04, GIT-06 | T-07-03-01, T-07-03-02, T-07-03-03 | Export archives are harness-neutral, normalized-only by default, raw-inclusive only through indexed allowlisted artifacts, and always record privacy-warning acceptance and raw inclusion in the manifest. | node + renderer | `npm run test -- --project node tests/main/core/archive-exporter.test.ts tests/main/ipc/ipc-handlers.test.ts tests/main/ipc/run-audit-view-model-service.test.ts && npm run test -- --project renderer tests/renderer/projects-route.test.tsx tests/renderer/run-audit-route.test.tsx` | `src/main/core/archive/archive-exporter.ts` | green |
+| 07-04-01 | 04 | 3 | GIT-05 | T-07-04-01, T-07-04-02, T-07-04-03 | Imported archives register as persistent read-only sources, reuse the existing runtime and cache seams, and never re-enable validate, scan, watch, git, or GitHub operations against the host machine. | node + renderer | `npm run test -- --project node tests/main/core/archive-importer.test.ts tests/main/core/source-registry.test.ts tests/main/ipc/data-sources-view-model-service.test.ts tests/main/ipc/data-sources-ipc.test.ts tests/main/ipc/session-view-model-service.test.ts && npm run test -- --project renderer tests/renderer/data-sources-route.test.tsx tests/renderer/sessions-route.test.tsx` | `src/main/core/archive/archive-importer.ts` | green |
 
 *Status: pending, green, red, flaky*
 
@@ -49,12 +49,12 @@ created: 2026-05-24
 
 ## Wave 0 Requirements
 
-- [ ] `tests/main/core/git-snapshot-provider.test.ts` - read-only git provider coverage for root-confidence gating, remote/top-level mismatch, and timeout degradation
-- [ ] `tests/main/core/github-snapshot-provider.test.ts` - read-only `gh` coverage for availability, auth gaps, no-match PR, and timeout semantics
-- [ ] `tests/main/core/archive-exporter.test.ts` - archive manifest, normalized-only default, and raw-artifact allowlist coverage
-- [ ] `tests/main/core/archive-importer.test.ts` - archive manifest parsing, source registration, cache hydration, and read-only metadata coverage
-- [ ] `tests/main/ipc/ipc-handlers.test.ts` export/import cases - typed IPC and sanitized error handling for archive operations
-- [ ] `tests/renderer/projects-route.test.tsx`, `tests/renderer/run-audit-route.test.tsx`, and `tests/renderer/data-sources-route.test.tsx` extensions - route-level truth-state, privacy-warning, and imported-source rendering coverage
+- [x] `tests/main/core/git-snapshot-provider.test.ts` - read-only git provider coverage for root-confidence gating, remote/top-level mismatch, and timeout degradation
+- [x] `tests/main/core/github-snapshot-provider.test.ts` - read-only `gh` coverage for availability, auth gaps, no-match PR, and timeout semantics
+- [x] `tests/main/core/archive-exporter.test.ts` - archive manifest, normalized-only default, and raw-artifact allowlist coverage
+- [x] `tests/main/core/archive-importer.test.ts` - archive manifest parsing, source registration, cache hydration, and read-only metadata coverage
+- [x] `tests/main/ipc/ipc-handlers.test.ts` export/import cases - typed IPC and sanitized error handling for archive operations
+- [x] `tests/renderer/projects-route.test.tsx`, `tests/renderer/run-audit-route.test.tsx`, and `tests/renderer/data-sources-route.test.tsx` extensions - route-level truth-state, privacy-warning, and imported-source rendering coverage
 
 ---
 
@@ -76,4 +76,4 @@ created: 2026-05-24
 - [x] Feedback latency under 105 seconds
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** execution complete

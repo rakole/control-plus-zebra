@@ -145,15 +145,15 @@ async function assertPathAllowed(
       (artifactId === undefined || artifact.artifactId === artifactId)
   );
 
-  if (!allowedByRoot && !allowedByArtifact) {
-    if (artifactId !== undefined) {
-      throw new SafeFilesystemError(
-        "safe-filesystem.artifact-not-indexed",
-        path.resolve(targetPath),
-        artifactId
-      );
-    }
+  if (artifactId !== undefined && !allowedByArtifact) {
+    throw new SafeFilesystemError(
+      "safe-filesystem.artifact-not-indexed",
+      path.resolve(targetPath),
+      artifactId
+    );
+  }
 
+  if (artifactId === undefined && !allowedByRoot && !allowedByArtifact) {
     throw new SafeFilesystemError("safe-filesystem.path-not-allowed", path.resolve(targetPath));
   }
 }

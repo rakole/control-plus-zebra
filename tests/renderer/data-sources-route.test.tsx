@@ -84,16 +84,36 @@ const secondSource = buildSource({
   adapterDisplayName: "Archive Reader",
   sourceName: "Archive Inbox",
   rootPath: "/Volumes/agent-archives/import",
-  enabled: false,
-  enabledLabel: "Disabled",
-  validationStatus: "Unknown",
+  enabled: true,
+  enabledLabel: "Enabled",
+  sourceKind: "Imported Archive",
+  addedBy: "Import",
+  readOnly: true,
+  readOnlyLabel: "Read Only",
+  readOnlyReason:
+    "Imported archives are read-only sources. Live validate, scan, watch, git, and GitHub operations stay disabled after import.",
+  archiveMetadata: {
+    archivePath: "/Volumes/agent-archives/import/archive.awb-archive.json",
+    exportedAt: "2026-05-24T08:00:00.000Z",
+    importedAt: "2026-05-24T08:05:00.000Z",
+    manifestVersion: 1,
+    scopeKind: "project",
+    scopeId: "project-1",
+    scopeLabel: "Archive Inbox",
+    sourceCount: 1,
+    sessionCount: 2,
+    projectCount: 1,
+    rawArtifactCount: 0
+  },
+  validationStatus: "Unsupported",
   scanStatus: "Unsupported",
-  scanReason: "This harness does not currently report scan support.",
-  cacheStatus: "Stale",
-  cacheReason:
-    "Source settings changed. Validate the source, then rescan to refresh cache state.",
-  watchSupport: "Watch Unknown",
-  watchReason: "Watch support has not been reported for this source.",
+  scanReason:
+    "Imported archives are read-only sources. Live validate, scan, watch, git, and GitHub operations stay disabled after import.",
+  cacheStatus: "Cached",
+  cacheReason: "Archive contents were imported into the local read-only cache.",
+  watchSupport: "Watch Unsupported",
+  watchReason:
+    "Imported archives are read-only sources. Live validate, scan, watch, git, and GitHub operations stay disabled after import.",
   diagnosticCount: 1,
   diagnostics: [
     {
@@ -108,6 +128,7 @@ const secondSource = buildSource({
 describe("Data Sources route", () => {
   const listDataSources = vi.fn();
   const addDataSource = vi.fn();
+  const openArchiveBridge = vi.fn();
   const updateDataSource = vi.fn();
   const setDataSourceEnabled = vi.fn();
   const validateDataSource = vi.fn();
@@ -233,11 +254,18 @@ describe("Data Sources route", () => {
         secondSource
       ])
     );
+    openArchiveBridge.mockResolvedValue({
+      ok: true,
+      archiveImport: {
+        status: "cancelled"
+      }
+    });
 
     Object.defineProperty(window, "agentWorkbench", {
       configurable: true,
       value: {
         getShellState: vi.fn(),
+        openArchive: openArchiveBridge,
         listSessions: vi.fn(),
         getSessionById: vi.fn(),
         listDataSources,
@@ -259,8 +287,9 @@ describe("Data Sources route", () => {
     render(<App />);
 
     expect(screen.getByRole("heading", { name: "Data Sources" })).toBeInTheDocument();
-    expect(screen.getByText("Local sources")).toBeInTheDocument();
+    expect(screen.getByText("Local and archived sources")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add Source" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Import Archive" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reload Data Sources" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Data Sources" })).toHaveAttribute(
       "aria-current",
@@ -274,8 +303,9 @@ describe("Data Sources route", () => {
     expect(within(route).getByRole("button", { name: /Fixture Root/u })).toBeInTheDocument();
     expect(within(route).getByRole("button", { name: /Archive Inbox/u })).toBeInTheDocument();
     expect(within(route).getAllByText("Unsupported").length).toBeGreaterThan(0);
-    expect(within(route).getAllByText("Unknown").length).toBeGreaterThan(0);
-    expect(within(route).getByText("Stale")).toBeInTheDocument();
+    expect(within(route).getAllByText("Imported Archive").length).toBeGreaterThan(0);
+    expect(within(route).getAllByText("Read Only").length).toBeGreaterThan(0);
+    expect(within(route).getAllByText("Cached").length).toBeGreaterThan(0);
     expect(within(route).queryByText("Passed")).not.toBeInTheDocument();
     expect(within(route).queryByText("Clean")).not.toBeInTheDocument();
   });
@@ -290,8 +320,78 @@ describe("Data Sources route", () => {
 
     expect(screen.getByRole("heading", { name: "Archive Inbox" })).toBeInTheDocument();
     expect(
-      screen.getByText("Validation results are unavailable for this source.")
-    ).toBeInTheDocument();
+      screen.getAllByText(
+        "Imported archives are read-only sources. Live validate, scan, watch, git, and GitHub operations stay disabled after import."
+      )
+    ).not.toHaveLength(0);
+    expect(screen.getAllByText("Imported Archive").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Read Only").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(
+        "Imported archives are read-only sources. Live validate, scan, watch, git, and GitHub operations stay disabled after import."
+      ).length
+    ).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Validation Unavailable" })).toBeDisabled();
+  });
+
+  it("imports an archive through the bridge and selects the imported source detail", async () => {
+    const user = userEvent.setup();
+    const importedSource = buildSource({
+      sourceId: "source-archive-new",
+      adapterId: "archive-reader",
+      adapterDisplayName: "Archive Reader",
+      sourceName: "Imported Project Archive",
+      rootPath: "/tmp/imported.awb-archive.json",
+      sourceKind: "Imported Archive",
+      addedBy: "Import",
+      readOnly: true,
+      readOnlyLabel: "Read Only",
+      readOnlyReason:
+        "Imported archives are read-only sources. Live validate, scan, watch, git, and GitHub operations stay disabled after import.",
+      archiveMetadata: {
+        archivePath: "/tmp/imported.awb-archive.json",
+        exportedAt: "2026-05-24T08:00:00.000Z",
+        importedAt: "2026-05-24T08:05:00.000Z",
+        manifestVersion: 1,
+        scopeKind: "project",
+        scopeId: "project-1",
+        scopeLabel: "Control Plus Zebra",
+        sourceCount: 1,
+        sessionCount: 2,
+        projectCount: 1,
+        rawArtifactCount: 0
+      },
+      validationStatus: "Unsupported",
+      scanStatus: "Unsupported",
+      cacheStatus: "Cached",
+      cacheReason: "Archive contents were imported into the local read-only cache.",
+      watchSupport: "Watch Unsupported",
+      watchReason:
+        "Imported archives are read-only sources. Live validate, scan, watch, git, and GitHub operations stay disabled after import."
+    });
+
+    openArchiveBridge.mockResolvedValueOnce({
+      ok: true,
+      archiveImport: {
+        status: "imported",
+        archivePath: "/tmp/imported.awb-archive.json",
+        manifestVersion: 1,
+        sourceId: "source-archive-new"
+      }
+    });
+    listDataSources.mockResolvedValueOnce(buildDataSourcesResponse([firstSource, secondSource]));
+    listDataSources.mockResolvedValueOnce(
+      buildDataSourcesResponse([importedSource, firstSource, secondSource])
+    );
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: /Fixture Root/u });
+    await user.click(screen.getByRole("button", { name: "Import Archive" }));
+
+    await waitFor(() => expect(openArchiveBridge).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("heading", { name: "Imported Project Archive" })).toBeInTheDocument();
+    expect(screen.getByText("Control Plus Zebra")).toBeInTheDocument();
   });
 
   it("creates a draft source, validates it, and scans only after validation succeeds", async () => {
@@ -355,7 +455,7 @@ describe("Data Sources route", () => {
     expect(await screen.findByText("No data sources configured")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Add a harness source root, validate it, then scan it to populate local sessions."
+        "Add a local harness source or import an archive to populate sessions and project summaries."
       )
     ).toBeInTheDocument();
   });
@@ -470,6 +570,9 @@ function buildSource(
     rootPath: "/tmp/source-root",
     enabled: true,
     enabledLabel: "Enabled",
+    sourceKind: "Local Source",
+    addedBy: "Configured",
+    readOnly: false,
     validationStatus: "Valid",
     scanStatus: "Never Scanned",
     cacheStatus: "Unknown",

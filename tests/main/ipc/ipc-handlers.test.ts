@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import type { ArchiveImportService } from "../../../src/main/app/archive-import-service.js";
+import type { ArchiveExportService } from "../../../src/main/app/archive-export-service.js";
 import type { DiagnosticsViewModelService } from "../../../src/main/app/diagnostics-view-model-service.js";
 import { IPC_CHANNELS, registerIpcHandlers } from "../../../src/main/ipc/index.js";
 import type { DataSourcesViewModelService } from "../../../src/main/app/data-sources-view-model-service.js";
@@ -8,6 +10,7 @@ import type { SessionViewModelService } from "../../../src/main/app/session-view
 import type { SessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
 import type { TriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import {
+  createArchiveResponseSchema,
   dataSourcesResponseSchema,
   getOverviewResponseSchema,
   getSessionByIdResponseSchema,
@@ -29,6 +32,8 @@ describe("ipc handlers", () => {
 
     expect([...collector.handlers.keys()]).toEqual([
       IPC_CHANNELS.getShellState,
+      IPC_CHANNELS.createArchive,
+      IPC_CHANNELS.openArchive,
       IPC_CHANNELS.getOverview,
       IPC_CHANNELS.listProjects,
       IPC_CHANNELS.listSessions,
@@ -68,6 +73,11 @@ describe("ipc handlers", () => {
     registerIpcHandlers(collector, createFakeServices());
 
     const shell = await collector.invoke(IPC_CHANNELS.getShellState);
+    const archive = await collector.invoke(IPC_CHANNELS.createArchive, {
+      scope: { kind: "project", projectId: "project-1" },
+      includeRawArtifacts: false,
+      privacyWarningAcknowledged: true
+    });
     const overview = await collector.invoke(IPC_CHANNELS.getOverview);
     const projects = await collector.invoke(IPC_CHANNELS.listProjects);
     const list = await collector.invoke(IPC_CHANNELS.listSessions);
@@ -82,6 +92,7 @@ describe("ipc handlers", () => {
     const sources = await collector.invoke(IPC_CHANNELS.listDataSources);
 
     expect(() => shellStateViewModelSchema.parse(shell)).not.toThrow();
+    expect(() => createArchiveResponseSchema.parse(archive)).not.toThrow();
     expect(() => getOverviewResponseSchema.parse(overview)).not.toThrow();
     expect(() => listProjectsResponseSchema.parse(projects)).not.toThrow();
     expect(() => listSessionsResponseSchema.parse(list)).not.toThrow();
@@ -114,6 +125,8 @@ function createIpcCollector() {
 }
 
 function createFakeServices(): {
+  archiveImportService: ArchiveImportService;
+  archiveExportService: ArchiveExportService;
   dataSourcesService: DataSourcesViewModelService;
   diagnosticsService: DiagnosticsViewModelService;
   runAuditService: RunAuditViewModelService;
@@ -187,6 +200,26 @@ function createFakeServices(): {
     sources: []
   };
 
+  const archiveExportService: ArchiveExportService = {
+    async createArchive() {
+      return {
+        status: "exported",
+        archivePath: "/tmp/control-plus-zebra.awb-archive.json",
+        manifestVersion: 1,
+        rawArtifactsIncluded: false,
+        rawArtifactCount: 0
+      };
+    }
+  };
+
+  const archiveImportService: ArchiveImportService = {
+    async openArchive() {
+      return {
+        status: "cancelled"
+      };
+    }
+  };
+
   const sessionService: SessionViewModelService = {
     getShellState() {
       return {
@@ -194,6 +227,8 @@ function createFakeServices(): {
         readOnly: true,
         allowedOperations: [
           IPC_CHANNELS.getShellState,
+          IPC_CHANNELS.createArchive,
+          IPC_CHANNELS.openArchive,
           IPC_CHANNELS.getOverview,
           IPC_CHANNELS.listProjects,
           IPC_CHANNELS.listSessions,
@@ -245,7 +280,17 @@ function createFakeServices(): {
 
       return {
         session: preview,
-        sections: []
+        sections: [],
+        archiveExport: {
+          scopeKind: "session",
+          scopeId: "session_1",
+          scopeLabel: "Safe fake session",
+          sessionCount: 1,
+          sourceCount: 1,
+          rawArtifactsAvailable: false,
+          rawArtifactCount: 0,
+          rawArtifactsReason: "No indexed raw artifacts are available for this archive scope."
+        }
       };
     }
   };
@@ -278,17 +323,38 @@ function createFakeServices(): {
             displayValue: "/workspace/control-plus-zebra",
             rawValue: "/workspace/control-plus-zebra"
           },
+          validatedRepoRoot: {
+            status: "unknown",
+            displayValue: "Unknown"
+          },
           observedHarnesses: ["Fake Test Harness"],
           latestActivityAt: "2026-05-23T10:00:01.000Z",
           sessionCount: 1,
           latestVerification: { label: "Passed", tone: "positive" },
           latestRunAudit: { label: "Needs Review", tone: "warning" },
+          gitStatus: { label: "Unknown", tone: "neutral" },
+          githubStatus: { label: "Unknown", tone: "neutral" },
           branch: { status: "unknown", displayValue: "Unknown" },
           head: { status: "unknown", displayValue: "Unknown" },
           dirtyState: { label: "Unknown", tone: "neutral" },
           changedFiles: { status: "unknown", displayValue: "Unknown" },
           untrackedFiles: { status: "unknown", displayValue: "Unknown" },
-          pullRequest: { status: "unknown", displayValue: "Unknown" }
+          additions: { status: "unknown", displayValue: "Unknown" },
+          deletions: { status: "unknown", displayValue: "Unknown" },
+          remoteUrl: { status: "unknown", displayValue: "Unknown" },
+          pullRequest: { status: "unknown", displayValue: "Unknown" },
+          checks: { status: "unknown", displayValue: "Unknown" },
+          reviewStatus: { status: "unknown", displayValue: "Unknown" },
+          archiveExport: {
+            scopeKind: "project",
+            scopeId: "project-1",
+            scopeLabel: "control-plus-zebra",
+            sessionCount: 1,
+            sourceCount: 1,
+            rawArtifactsAvailable: false,
+            rawArtifactCount: 0,
+            rawArtifactsReason: "No indexed raw artifacts are available for this archive scope."
+          }
         }
       ];
     }
@@ -328,6 +394,8 @@ function createFakeServices(): {
   };
 
   return {
+    archiveImportService,
+    archiveExportService,
     dataSourcesService,
     diagnosticsService,
     runAuditService,

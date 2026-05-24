@@ -1,6 +1,14 @@
 import { z } from "zod";
 
 import {
+  createArchiveImportService,
+  type ArchiveImportService
+} from "../app/archive-import-service.js";
+import {
+  createArchiveExportService,
+  type ArchiveExportService
+} from "../app/archive-export-service.js";
+import {
   createDiagnosticsViewModelService,
   type DiagnosticsViewModelService
 } from "../app/diagnostics-view-model-service.js";
@@ -27,8 +35,13 @@ import {
 import { createWorkbenchRuntime } from "../app/workbench-runtime.js";
 import { IPC_CHANNELS } from "./channels.js";
 import {
+  createArchiveRequestSchema,
+  createArchiveResponseSchema,
+  openArchiveRequestSchema,
+  openArchiveResponseSchema,
   addDataSourceRequestSchema,
   dataSourcesResponseSchema,
+  type CreateArchiveResponse,
   getOverviewRequestSchema,
   getOverviewResponseSchema,
   getSessionByIdRequestSchema,
@@ -54,6 +67,7 @@ import {
   type ListDiagnosticsResponse,
   type ListProjectsResponse,
   type ListSessionsResponse,
+  type OpenArchiveResponse,
   type SanitizedErrorViewModel,
   type ShellStateViewModel
 } from "./view-models.js";
@@ -66,6 +80,8 @@ export interface IpcMainLike {
 }
 
 export interface IpcServices {
+  archiveImportService: ArchiveImportService;
+  archiveExportService: ArchiveExportService;
   dataSourcesService: DataSourcesViewModelService;
   diagnosticsService: DiagnosticsViewModelService;
   runAuditService: RunAuditViewModelService;
@@ -88,6 +104,40 @@ export function registerIpcHandlers(
     return shellStateViewModelSchema.parse(
       services.sessionService.getShellState()
     ) satisfies ShellStateViewModel;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.createArchive, async (_event, payload) => {
+    const request = createArchiveRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies CreateArchiveResponse;
+    }
+
+    try {
+      return createArchiveResponseSchema.parse({
+        ok: true,
+        archive: await services.archiveExportService.createArchive(request.data)
+      }) satisfies CreateArchiveResponse;
+    } catch {
+      return buildArchiveExportFailedError() satisfies CreateArchiveResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.openArchive, async (_event, payload) => {
+    const request = openArchiveRequestSchema.safeParse(payload ?? {});
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies OpenArchiveResponse;
+    }
+
+    try {
+      return openArchiveResponseSchema.parse({
+        ok: true,
+        archiveImport: await services.archiveImportService.openArchive(request.data)
+      }) satisfies OpenArchiveResponse;
+    } catch {
+      return buildArchiveImportFailedError() satisfies OpenArchiveResponse;
+    }
   });
 
   ipcMain.handle(IPC_CHANNELS.getOverview, async (_event, payload) => {
@@ -286,6 +336,8 @@ function createDefaultIpcServices(): IpcServices {
   const runtime = createWorkbenchRuntime();
 
   return {
+    archiveImportService: createArchiveImportService({ runtime }),
+    archiveExportService: createArchiveExportService({ runtime }),
     sessionService: createSessionViewModelService({ runtime }),
     sessionDetailService: createSessionDetailViewModelService({ runtime }),
     runAuditService: createRunAuditViewModelService({ runtime }),
@@ -318,6 +370,17 @@ function buildInvalidRequestError(): IpcErrorResponse {
   };
 }
 
+function buildArchiveImportFailedError(): IpcErrorResponse {
+  return {
+    ok: false,
+    error: {
+      code: "archive-import-failed",
+      message:
+        "Archive import could not complete. Check that the archive is readable and matches the supported harness-neutral format."
+    }
+  };
+}
+
 function buildSessionLoadFailedError(): IpcErrorResponse {
   return {
     ok: false,
@@ -334,6 +397,17 @@ function buildDataSourcesLoadFailedError(): IpcErrorResponse {
     error: {
       code: "data-sources-load-failed",
       message: "Data sources could not be loaded."
+    }
+  };
+}
+
+function buildArchiveExportFailedError(): IpcErrorResponse {
+  return {
+    ok: false,
+    error: {
+      code: "archive-export-failed",
+      message:
+        "Archive export could not complete. Check the archive destination, current source data, and privacy options, then try the export again."
     }
   };
 }

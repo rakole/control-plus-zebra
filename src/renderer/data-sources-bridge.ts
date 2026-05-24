@@ -2,6 +2,7 @@ type AgentWorkbenchBridge = Window["agentWorkbench"];
 type NativeListDataSourcesResponse = Awaited<
   ReturnType<AgentWorkbenchBridge["listDataSources"]>
 >;
+type NativeOpenArchiveResponse = Awaited<ReturnType<AgentWorkbenchBridge["openArchive"]>>;
 type NativeDataSourcesResponse = Extract<NativeListDataSourcesResponse, { ok: true }>;
 type NativeDataSourcesViewModel = NativeDataSourcesResponse["dataSources"];
 type NativeDataSourceAdapterViewModel = NativeDataSourcesViewModel["adapters"][number];
@@ -57,6 +58,26 @@ export interface DataSourceViewModel {
   rootPath: string;
   enabled: boolean;
   enabledLabel: DataSourceEnabledLabel;
+  sourceKind: "Local Source" | "Imported Archive";
+  addedBy: "Configured" | "Import";
+  readOnly: boolean;
+  readOnlyLabel?: "Read Only" | undefined;
+  readOnlyReason?: string | undefined;
+  archiveMetadata?:
+    | {
+        archivePath: string;
+        exportedAt: string;
+        importedAt: string;
+        manifestVersion: number;
+        scopeKind: "project" | "session";
+        scopeId: string;
+        scopeLabel: string;
+        sourceCount: number;
+        sessionCount: number;
+        projectCount: number;
+        rawArtifactCount: number;
+      }
+    | undefined;
   validation: DataSourceStatusViewModel<DataSourceValidationLabel>;
   scan: DataSourceStatusViewModel<DataSourceScanLabel>;
   cache: DataSourceStatusViewModel<DataSourceCacheLabel>;
@@ -104,6 +125,29 @@ export interface SetDataSourceEnabledRequest {
 export interface DataSourceActionRequest {
   sourceId: string;
 }
+
+export interface OpenArchiveRequest {
+  archivePath?: string | undefined;
+}
+
+export type OpenArchiveResponse =
+  | {
+      ok: true;
+      archiveImport:
+        | {
+            status: "cancelled";
+          }
+        | {
+            status: "imported";
+            archivePath: string;
+            manifestVersion: number;
+            sourceId: string;
+          };
+    }
+  | {
+      ok: false;
+      error: SanitizedErrorViewModel;
+    };
 
 export type DataSourceMutationResponse =
   | {
@@ -178,6 +222,21 @@ export async function scanDataSource(
   const response = await getBridge().scanDataSource(request);
 
   return mapMutationResponse(response, (source) => source.sourceId === request.sourceId);
+}
+
+export async function openArchive(
+  request: OpenArchiveRequest = {}
+): Promise<OpenArchiveResponse> {
+  const response: NativeOpenArchiveResponse = await getBridge().openArchive(request);
+
+  if (!response.ok) {
+    return response;
+  }
+
+  return {
+    ok: true,
+    archiveImport: response.archiveImport
+  };
 }
 
 async function loadSourceById(
@@ -275,6 +334,12 @@ function mapSource(source: NativeDataSourceViewModel): DataSourceViewModel {
     rootPath: source.rootPath,
     enabled: source.enabled,
     enabledLabel: source.enabledLabel,
+    sourceKind: source.sourceKind,
+    addedBy: source.addedBy,
+    readOnly: source.readOnly,
+    ...(source.readOnlyLabel ? { readOnlyLabel: source.readOnlyLabel } : {}),
+    ...(source.readOnlyReason ? { readOnlyReason: source.readOnlyReason } : {}),
+    ...(source.archiveMetadata ? { archiveMetadata: source.archiveMetadata } : {}),
     validation: mapValidationStatus(source),
     scan,
     cache,
@@ -315,7 +380,9 @@ function mapValidationStatus(
     case "Unsupported":
       return {
         label: "Unsupported",
-        detail: "This harness does not currently report source validation support."
+        detail:
+          source.readOnlyReason ??
+          "This harness does not currently report source validation support."
       };
     case "Unknown":
       return {
@@ -366,7 +433,9 @@ function mapScanStatus(
     case "Unsupported":
       return {
         label: "Unsupported",
-        detail: "This harness does not currently report scan support."
+        detail:
+          source.readOnlyReason ??
+          "This harness does not currently report scan support."
       };
     case "Unknown":
       return {
@@ -432,7 +501,9 @@ function mapWatchStatus(
       return {
         label: "Watch Unsupported",
         detail:
-          source.watchReason ?? "Shared watching is unsupported for this source."
+          source.readOnlyReason ??
+          source.watchReason ??
+          "Shared watching is unsupported for this source."
       };
     case "Watch Unknown":
       return {

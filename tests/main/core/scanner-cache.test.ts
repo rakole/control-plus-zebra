@@ -1,6 +1,8 @@
-import { copyFile, cp, mkdtemp, rm, stat, utimes } from "node:fs/promises";
+import { copyFile, cp, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
@@ -26,6 +28,7 @@ const incompleteRunFixturePath = path.resolve(
   "src/main/adapters/fake-test/fixtures/phase5-incomplete-run.fixture.json"
 );
 const geminiFixtureRoot = path.resolve("src/main/adapters/gemini-cli/fixtures/sample-root");
+const execFileAsync = promisify(execFile);
 
 class FailingCacheStore extends FileBackedCacheStore {
   async writeRecord(): Promise<void> {
@@ -252,6 +255,35 @@ describe("Scanner cache integration", () => {
     expect(testIntentResult?.commandIds).toHaveLength(2);
   });
 
+  it("persists project-scoped git snapshots when a scanned project root validates as a repository", async () => {
+    const { cacheStore, scanner, sourceRegistry, tempDir } = await createScannerHarness();
+    const fixturePath = path.join(tempDir, "git-backed.fixture.json");
+    const gitRepoRoot = await createGitFixtureRepo(tempDir);
+    await rewriteFixtureProjectRoot(sourceFixturePath, fixturePath, gitRepoRoot);
+
+    const source = await sourceRegistry.createSource({
+      adapterId: "fake-test",
+      rootPath: fixturePath
+    });
+    const validated = await scanner.validateSource(source.sourceId);
+
+    await scanner.scanSource(validated.source.sourceId);
+
+    const cachedRecord = await cacheStore.getLatestSourceRecord(validated.source.sourceId);
+    const projectSnapshot = cachedRecord?.derived?.projects?.[0]?.git;
+
+    expect(projectSnapshot).toEqual(
+      expect.objectContaining({
+        status: "available",
+        snapshot: expect.objectContaining({
+          branch: "main",
+          dirty: true,
+          untrackedFiles: 1
+        })
+      })
+    );
+  });
+
   it("marks fake runs incomplete when claimed completion is followed by pending tool work", async () => {
     const { cacheStore, scanner, sourceRegistry } = await createScannerHarness(incompleteRunFixturePath);
     const source = await sourceRegistry.createSource({
@@ -302,3 +334,40 @@ describe("Scanner cache integration", () => {
     ).toBe(true);
   });
 });
+
+async function createGitFixtureRepo(baseDir: string): Promise<string> {
+  const repoDir = path.join(baseDir, "fixture-repo");
+
+  await execGit(["init", "-b", "main", repoDir]);
+  await execGit(["config", "user.name", "Agent Workbench Tests"], repoDir);
+  await execGit(["config", "user.email", "agent-workbench-tests@example.com"], repoDir);
+  await writeFile(path.join(repoDir, "README.md"), "# Fixture Repo\n", "utf8");
+  await execGit(["add", "README.md"], repoDir);
+  await execGit(["commit", "-m", "Initial fixture commit"], repoDir);
+  await writeFile(path.join(repoDir, "README.md"), "# Fixture Repo\n\nDirty change\n", "utf8");
+  await writeFile(path.join(repoDir, "UNTRACKED.md"), "Untracked file\n", "utf8");
+  await execGit(["remote", "add", "origin", "https://github.com/example/control-plus-zebra.git"], repoDir);
+
+  return repoDir;
+}
+
+async function execGit(args: string[], cwd?: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, cwd ? { cwd } : undefined);
+  return stdout.toString().trim();
+}
+
+async function rewriteFixtureProjectRoot(
+  sourcePath: string,
+  destinationPath: string,
+  projectRoot: string
+): Promise<void> {
+  const source = await readFile(sourcePath, "utf8");
+  const parsed = JSON.parse(source) as { project?: { rootPath?: string } };
+
+  parsed.project = {
+    ...(parsed.project ?? {}),
+    rootPath: projectRoot
+  };
+
+  await writeFile(destinationPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+}

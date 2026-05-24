@@ -6,8 +6,10 @@ import { z } from "zod";
 import type { AdapterNormalizationResult } from "../adapter-contract/types.js";
 import type { AdapterId, SourceId } from "../model/identifiers.js";
 import type { RunAuditResult } from "../audit/types.js";
+import type { ProjectGitHubSnapshot } from "../github/github-snapshot-provider.js";
 import type { ParsedShellCommand } from "../shell/types.js";
 import type { VerificationResult } from "../verification/types.js";
+import type { ProjectGitSnapshot } from "../git/git-snapshot-provider.js";
 
 const confidenceSchema = z
   .object({
@@ -314,13 +316,57 @@ const derivedSessionSchema = z
   })
   .strict();
 
-const derivedSchema = z
+const derivedProjectSchema = z
   .object({
-    sessions: z.array(derivedSessionSchema)
+    projectId: z.string().min(1),
+    git: z
+      .object({
+        status: z.enum(["available", "unknown", "unsupported"]),
+        rootConfidence: z.enum(["confirmed", "observed", "inferred", "unknown"]),
+        candidateRootPath: z.string().min(1).optional(),
+        validatedRootPath: z.string().min(1).optional(),
+        reason: z.string().min(1).optional(),
+        remoteReason: z.string().min(1).optional(),
+        snapshot: z
+          .object({
+            additions: z.number().int().nonnegative(),
+            branch: z.string().min(1),
+            changedFiles: z.number().int().nonnegative(),
+            deletions: z.number().int().nonnegative(),
+            dirty: z.boolean(),
+            headSha: z.string().min(1),
+            remoteUrl: z.string().min(1).optional(),
+            untrackedFiles: z.number().int().nonnegative()
+          })
+          .strict()
+          .optional(),
+        diagnosticIds: z.array(z.string().min(1))
+      })
+      .strict(),
+    github: z
+      .object({
+        status: z.enum(["available", "no-matching-pr", "unknown", "unsupported"]),
+        pullRequestNumber: z.number().int().positive().optional(),
+        pullRequestTitle: z.string().min(1).optional(),
+        pullRequestUrl: z.string().min(1).optional(),
+        checksSummary: z.string().min(1).optional(),
+        reviewSummary: z.string().min(1).optional(),
+        reason: z.string().min(1).optional(),
+        diagnosticIds: z.array(z.string().min(1))
+      })
+      .strict()
+      .optional()
   })
   .strict();
 
-const recordSchema = z
+const derivedSchema = z
+  .object({
+    sessions: z.array(derivedSessionSchema),
+    projects: z.array(derivedProjectSchema).optional()
+  })
+  .strict();
+
+export const normalizedCacheRecordSchema = z
   .object({
     cacheKey: z.string().min(1),
     adapterId: z.string().min(1),
@@ -336,7 +382,7 @@ const recordSchema = z
 const cacheFileSchema = z
   .object({
     version: z.literal(1),
-    records: z.array(recordSchema)
+    records: z.array(normalizedCacheRecordSchema)
   })
   .strict();
 
@@ -358,8 +404,15 @@ export interface DerivedSessionCacheRecord {
   audit?: RunAuditResult;
 }
 
+export interface DerivedProjectCacheRecord {
+  projectId: string;
+  git: ProjectGitSnapshot;
+  github?: ProjectGitHubSnapshot;
+}
+
 export interface DerivedCacheRecord {
   sessions: DerivedSessionCacheRecord[];
+  projects?: DerivedProjectCacheRecord[];
 }
 
 export class FileBackedCacheStore {

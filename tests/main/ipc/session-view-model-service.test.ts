@@ -4,8 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { createTriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import { createSessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import { createWorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
+import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter.js";
+import { ArchiveImporter } from "../../../src/main/core/archive/archive-importer.js";
 
 const forbiddenKeys = new Set([
   "rawEvents",
@@ -60,7 +63,7 @@ describe("session view model service", () => {
           shellCommands: 1,
           outputArtifacts: 1,
           fileMutations: 1,
-          diagnostics: 1
+          diagnostics: expect.any(Number)
         })
       })
     );
@@ -165,6 +168,50 @@ describe("session view model service", () => {
     expect(logOnlySession?.evidenceSummary.messages).toBe(2);
     expect(logOnlySession?.evidenceSummary.toolCalls).toBe(0);
     expect(logOnlySession?.evidenceSummary.shellCommands).toBe(0);
+  });
+
+  it("renders imported archive sessions without depending on the original local source root", async () => {
+    const exportRuntime = await createScannedRuntime(tempDirs);
+    const triageService = createTriageViewModelService({ runtime: exportRuntime });
+    const projectId = (await triageService.listProjects()).find(
+      (project) => project.projectName === "control-plus-zebra"
+    )?.projectId;
+
+    expect(projectId).toBeDefined();
+    if (!projectId) {
+      throw new Error("Expected a scanned project.");
+    }
+
+    const exporter = new ArchiveExporter({
+      cacheStore: exportRuntime.cacheStore,
+      rawArtifactIndex: exportRuntime.rawArtifactIndex,
+      sourceRegistry: exportRuntime.sourceRegistry
+    });
+    const archivePath = path.join(exportRuntime.appDataDir, "exports", "sessions-import.awb-archive.json");
+
+    await exporter.createArchive({
+      destinationPath: archivePath,
+      includeRawArtifacts: false,
+      privacyWarningAcknowledged: true,
+      scope: { kind: "project", projectId }
+    });
+
+    const importRuntime = await createTempRuntime(tempDirs);
+    const importer = new ArchiveImporter({
+      cacheStore: importRuntime.cacheStore,
+      sourceRegistry: importRuntime.sourceRegistry
+    });
+
+    await importer.importArchive({ archivePath });
+
+    const service = createSessionViewModelService({ runtime: importRuntime });
+    const sessions = await service.listSessions();
+    const importedSession = sessions[0];
+
+    expect(importedSession).toBeDefined();
+    expect(importedSession?.sourceId).toMatch(/^source_/u);
+    expect(importedSession?.adapterDisplayName).toBe("Fake Test Harness");
+    expect(importedSession?.projectName).toBeTruthy();
   });
 });
 

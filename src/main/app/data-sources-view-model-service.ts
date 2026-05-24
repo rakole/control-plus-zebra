@@ -8,6 +8,7 @@ import type {
   SourceRecord,
   SourceValidationStatus
 } from "../core/registry/source-registry.js";
+import { isImportedArchiveSource } from "../core/registry/source-registry.js";
 import {
   addDataSourceRequestSchema,
   type AddDataSourceRequest,
@@ -52,6 +53,8 @@ const capabilityKeys = [
 ] as const satisfies readonly (keyof HarnessCapabilities)[];
 
 const settingsChangedReason = "Source settings changed. Validate again before scanning.";
+const importedArchiveReadOnlyReason =
+  "Imported archives are read-only sources. Live validate, scan, watch, git, and GitHub operations stay disabled after import.";
 
 export interface DataSourcesViewModelService {
   listDataSources(): Promise<DataSourcesViewModel>;
@@ -78,6 +81,11 @@ export function createDataSourcesViewModelService(
 
     async addDataSource(request) {
       const parsed = addDataSourceRequestSchema.parse(request);
+
+      if (parsed.adapterId === "archive-reader") {
+        throw new Error("Imported archives must be added through the Import Archive action.");
+      }
+
       runtime.adapterRegistry.require(parsed.adapterId);
       await runtime.sourceRegistry.createSource({
         adapterId: parsed.adapterId,
@@ -92,6 +100,8 @@ export function createDataSourcesViewModelService(
     async updateDataSource(request) {
       const parsed = updateDataSourceRequestSchema.parse(request);
       const current = await requireSource(runtime, parsed.sourceId);
+
+      assertMutableSource(current);
       const nextAdapterId = parsed.adapterId ?? current.adapterId;
       const nextRootPath = parsed.rootPath ?? current.rootPath;
       const identityChanged =
@@ -119,14 +129,18 @@ export function createDataSourcesViewModelService(
 
     async setDataSourceEnabled(request) {
       const parsed = setDataSourceEnabledRequestSchema.parse(request);
+      const source = await requireSource(runtime, parsed.sourceId);
 
+      assertMutableSource(source);
       await runtime.sourceRegistry.setSourceEnabled(parsed.sourceId, parsed.enabled);
       return buildViewModel(runtime);
     },
 
     async validateDataSource(request) {
       const parsed = validateDataSourceRequestSchema.parse(request);
+      const source = await requireSource(runtime, parsed.sourceId);
 
+      assertMutableSource(source);
       await runtime.scanner.validateSource(parsed.sourceId);
       return buildViewModel(runtime);
     },
@@ -135,6 +149,7 @@ export function createDataSourcesViewModelService(
       const parsed = scanDataSourceRequestSchema.parse(request);
       const source = await requireSource(runtime, parsed.sourceId);
 
+      assertMutableSource(source);
       if (!source.enabled) {
         throw new Error("Disabled sources cannot be scanned.");
       }
@@ -154,9 +169,12 @@ async function buildViewModel(runtime: WorkbenchRuntime): Promise<DataSourcesVie
     Promise.resolve(runtime.adapterRegistry.listDescriptors()),
     runtime.sourceRegistry.listSources()
   ]);
+  const configurableDescriptors = descriptors.filter(
+    (descriptor) => descriptor.id !== "archive-reader"
+  );
 
   return dataSourcesViewModelSchema.parse({
-    adapters: descriptors.map(toAdapterViewModel),
+    adapters: configurableDescriptors.map(toAdapterViewModel),
     sources: sources.map((source) => toSourceViewModel(source, descriptors))
   });
 }
@@ -191,6 +209,12 @@ function toSourceViewModel(
     rootPath: source.rootPath,
     enabled: source.enabled,
     enabledLabel: source.enabled ? "Enabled" : "Disabled",
+    sourceKind: toSourceKindLabel(source),
+    addedBy: toAddedByLabel(source),
+    readOnly: source.readOnly,
+    ...(source.readOnly ? { readOnlyLabel: "Read Only" as const } : {}),
+    ...(source.readOnly ? { readOnlyReason: importedArchiveReadOnlyReason } : {}),
+    ...(source.archive ? { archiveMetadata: source.archive } : {}),
     validationStatus: toValidationStatusLabel(source.validation.status),
     ...(source.validation.updatedAt ? { validationUpdatedAt: source.validation.updatedAt } : {}),
     ...(source.validation.normalizedPath ? { validationPath: source.validation.normalizedPath } : {}),
@@ -212,6 +236,12 @@ function toSourceViewModel(
       : [],
     diagnostics
   };
+}
+
+function assertMutableSource(source: SourceRecord): void {
+  if (isImportedArchiveSource(source)) {
+    throw new Error(importedArchiveReadOnlyReason);
+  }
 }
 
 async function requireSource(runtime: WorkbenchRuntime, sourceId: string): Promise<SourceRecord> {
@@ -288,6 +318,14 @@ function toSourceDiagnosticViewModel(
     message: diagnostic.message,
     sourceArea: diagnostic.scope === "adapter" ? "adapter" : fallbackArea
   };
+}
+
+function toSourceKindLabel(source: SourceRecord): "Imported Archive" | "Local Source" {
+  return source.sourceKind === "imported-archive" ? "Imported Archive" : "Local Source";
+}
+
+function toAddedByLabel(source: SourceRecord): "Configured" | "Import" {
+  return source.addedBy === "import" ? "Import" : "Configured";
 }
 
 function toCapabilityBadge(key: keyof HarnessCapabilities, state: CapabilityState) {

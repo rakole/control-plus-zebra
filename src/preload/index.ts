@@ -3,11 +3,13 @@ import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "../main/ipc/channels.js";
 import type {
   AddDataSourceRequest,
+  CreateArchiveRequest,
   GetOverviewRequest,
   GetSessionByIdRequest,
   ListDiagnosticsRequest,
   ListProjectsRequest,
   ListSessionsRequest,
+  OpenArchiveRequest,
   ScanDataSourceRequest,
   SetDataSourceEnabledRequest,
   UpdateDataSourceRequest,
@@ -18,6 +20,12 @@ import type { AgentWorkbenchBridge } from "./types.js";
 const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
   getShellState() {
     return ipcRenderer.invoke(IPC_CHANNELS.getShellState);
+  },
+  createArchive(request: CreateArchiveRequest) {
+    return ipcRenderer.invoke(IPC_CHANNELS.createArchive, request);
+  },
+  openArchive(request: OpenArchiveRequest = {}) {
+    return ipcRenderer.invoke(IPC_CHANNELS.openArchive, request);
   },
   getOverview(request: GetOverviewRequest = {}) {
     return ipcRenderer.invoke(IPC_CHANNELS.getOverview, request);

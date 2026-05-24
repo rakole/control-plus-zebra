@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const operationChannelSchema = z.enum([
   "app:getShellState",
+  "export:createArchive",
+  "import:openArchive",
   "overview:get",
   "projects:list",
   "sessions:list",
@@ -21,14 +23,17 @@ export const capabilityBadgeLabelSchema = z.enum(["Supported", "Unsupported", "U
 export type CapabilityBadgeLabel = z.infer<typeof capabilityBadgeLabelSchema>;
 
 export const truthStateLabelSchema = z.enum([
+  "Available",
   "Active",
   "Cancelled",
   "Clean",
   "Completed",
+  "Dirty",
   "Failed",
   "Failed Verification",
   "Incomplete",
   "Needs Review",
+  "No Matching PR",
   "Not Run",
   "Passed",
   "Supported",
@@ -149,22 +154,45 @@ export const overviewViewModelSchema = z
   .strict();
 export type OverviewViewModel = z.infer<typeof overviewViewModelSchema>;
 
+export const archiveExportAvailabilitySchema = z
+  .object({
+    scopeKind: z.enum(["project", "session"]),
+    scopeId: z.string().min(1),
+    scopeLabel: z.string().min(1),
+    sessionCount: z.number().int().nonnegative(),
+    sourceCount: z.number().int().nonnegative(),
+    rawArtifactsAvailable: z.boolean(),
+    rawArtifactCount: z.number().int().nonnegative(),
+    rawArtifactsReason: z.string().min(1).optional()
+  })
+  .strict();
+export type ArchiveExportAvailability = z.infer<typeof archiveExportAvailabilitySchema>;
+
 export const projectSummaryViewModelSchema = z
   .object({
     projectId: z.string().min(1),
     projectName: z.string().min(1),
     repoPath: fieldValueViewModelSchema,
+    validatedRepoRoot: fieldValueViewModelSchema,
     observedHarnesses: z.array(z.string().min(1)),
     latestActivityAt: z.string().min(1).optional(),
     sessionCount: z.number().int().nonnegative(),
     latestVerification: truthStateViewModelSchema,
     latestRunAudit: truthStateViewModelSchema,
+    gitStatus: truthStateViewModelSchema,
+    githubStatus: truthStateViewModelSchema,
     branch: fieldValueViewModelSchema,
     head: fieldValueViewModelSchema,
     dirtyState: truthStateViewModelSchema,
     changedFiles: metricStateViewModelSchema,
     untrackedFiles: metricStateViewModelSchema,
-    pullRequest: fieldValueViewModelSchema
+    additions: metricStateViewModelSchema,
+    deletions: metricStateViewModelSchema,
+    remoteUrl: fieldValueViewModelSchema,
+    pullRequest: fieldValueViewModelSchema,
+    checks: fieldValueViewModelSchema,
+    reviewStatus: fieldValueViewModelSchema,
+    archiveExport: archiveExportAvailabilitySchema
   })
   .strict();
 export type ProjectSummaryViewModel = z.infer<typeof projectSummaryViewModelSchema>;
@@ -285,7 +313,8 @@ export type RunAuditSectionViewModel = z.infer<typeof runAuditSectionViewModelSc
 export const runAuditViewModelSchema = z
   .object({
     session: sessionPreviewViewModelSchema,
-    sections: z.array(runAuditSectionViewModelSchema)
+    sections: z.array(runAuditSectionViewModelSchema),
+    archiveExport: archiveExportAvailabilitySchema
   })
   .strict();
 export type RunAuditViewModel = z.infer<typeof runAuditViewModelSchema>;
@@ -449,6 +478,104 @@ export const getSessionByIdResponseSchema = z.discriminatedUnion("ok", [
 ]);
 export type GetSessionByIdResponse = z.infer<typeof getSessionByIdResponseSchema>;
 
+export const createArchiveRequestSchema = z
+  .object({
+    scope: z.discriminatedUnion("kind", [
+      z
+        .object({
+          kind: z.literal("project"),
+          projectId: z.string().min(1)
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal("session"),
+          sessionId: z.string().min(1)
+        })
+        .strict()
+    ]),
+    includeRawArtifacts: z.boolean().default(false),
+    privacyWarningAcknowledged: z.boolean()
+  })
+  .strict();
+export type CreateArchiveRequest = z.infer<typeof createArchiveRequestSchema>;
+
+export const createArchiveResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("cancelled"),
+      rawArtifactsIncluded: z.boolean(),
+      rawArtifactCount: z.number().int().nonnegative()
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("exported"),
+      archivePath: z.string().min(1),
+      manifestVersion: z.number().int().positive(),
+      rawArtifactsIncluded: z.boolean(),
+      rawArtifactCount: z.number().int().nonnegative()
+    })
+    .strict()
+]);
+export type CreateArchiveResult = z.infer<typeof createArchiveResultSchema>;
+
+export const createArchiveResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      archive: createArchiveResultSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type CreateArchiveResponse = z.infer<typeof createArchiveResponseSchema>;
+
+export const openArchiveRequestSchema = z
+  .object({
+    archivePath: z.string().min(1).optional()
+  })
+  .strict();
+export type OpenArchiveRequest = z.infer<typeof openArchiveRequestSchema>;
+
+export const openArchiveResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("cancelled")
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("imported"),
+      archivePath: z.string().min(1),
+      manifestVersion: z.number().int().positive(),
+      sourceId: z.string().min(1)
+    })
+    .strict()
+]);
+export type OpenArchiveResult = z.infer<typeof openArchiveResultSchema>;
+
+export const openArchiveResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      archiveImport: openArchiveResultSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type OpenArchiveResponse = z.infer<typeof openArchiveResponseSchema>;
+
 export const getSessionDetailResponseSchema = z.discriminatedUnion("ok", [
   z
     .object({
@@ -583,6 +710,27 @@ export const dataSourceViewModelSchema = z
     rootPath: z.string().min(1),
     enabled: z.boolean(),
     enabledLabel: z.enum(["Enabled", "Disabled"]),
+    sourceKind: z.enum(["Local Source", "Imported Archive"]),
+    addedBy: z.enum(["Configured", "Import"]),
+    readOnly: z.boolean(),
+    readOnlyLabel: z.literal("Read Only").optional(),
+    readOnlyReason: z.string().min(1).optional(),
+    archiveMetadata: z
+      .object({
+        archivePath: z.string().min(1),
+        exportedAt: z.string().min(1),
+        importedAt: z.string().min(1),
+        manifestVersion: z.number().int().positive(),
+        scopeKind: z.enum(["project", "session"]),
+        scopeId: z.string().min(1),
+        scopeLabel: z.string().min(1),
+        sourceCount: z.number().int().nonnegative(),
+        sessionCount: z.number().int().nonnegative(),
+        projectCount: z.number().int().nonnegative(),
+        rawArtifactCount: z.number().int().nonnegative()
+      })
+      .strict()
+      .optional(),
     validationStatus: dataSourceValidationStatusSchema,
     validationUpdatedAt: z.string().min(1).optional(),
     validationPath: z.string().min(1).optional(),

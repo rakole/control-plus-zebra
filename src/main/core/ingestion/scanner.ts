@@ -25,10 +25,15 @@ import { parseShellCommandEvidence } from "../shell/shell-command-parser.js";
 import type { LoadedArtifactDiagnostics } from "../shell/types.js";
 import { deriveVerificationForSession } from "../verification/verification-classifier.js";
 import { deriveRunAuditForSession } from "../audit/run-audit-engine.js";
+import { GitSnapshotProvider, type ProjectGitSnapshotResult } from "../git/git-snapshot-provider.js";
+import { GitHubSnapshotProvider } from "../github/github-snapshot-provider.js";
+import type { Project } from "../model/entities.js";
 
 export interface ScannerOptions {
   adapterRegistry: AdapterRegistry;
   cacheStore: FileBackedCacheStore;
+  githubSnapshotProvider?: GitHubSnapshotProvider;
+  gitSnapshotProvider?: GitSnapshotProvider;
   projectDir: string;
   rawArtifactIndex: RawArtifactIndex;
   sourceRegistry: SourceRegistry;
@@ -49,6 +54,8 @@ type RuntimeAdapterContext = AdapterContext & { safeFilesystem: SafeFilesystem }
 export class Scanner {
   readonly #adapterRegistry: AdapterRegistry;
   readonly #cacheStore: FileBackedCacheStore;
+  readonly #githubSnapshotProvider: GitHubSnapshotProvider;
+  readonly #gitSnapshotProvider: GitSnapshotProvider;
   readonly #projectDir: string;
   readonly #rawArtifactIndex: RawArtifactIndex;
   readonly #sourceRegistry: SourceRegistry;
@@ -57,6 +64,8 @@ export class Scanner {
   constructor(options: ScannerOptions) {
     this.#adapterRegistry = options.adapterRegistry;
     this.#cacheStore = options.cacheStore;
+    this.#githubSnapshotProvider = options.githubSnapshotProvider ?? new GitHubSnapshotProvider();
+    this.#gitSnapshotProvider = options.gitSnapshotProvider ?? new GitSnapshotProvider();
     this.#projectDir = options.projectDir;
     this.#rawArtifactIndex = options.rawArtifactIndex;
     this.#sourceRegistry = options.sourceRegistry;
@@ -288,11 +297,28 @@ export class Scanner {
           context: parseContext,
           normalized
         });
-        const normalizedWithDerivedDiagnostics = {
+        const normalizedWithShellDiagnostics = {
           ...normalized,
           diagnostics: dedupeDiagnostics([
             ...normalized.diagnostics,
             ...shellDerivation.diagnostics
+          ])
+        };
+        const projectGitDerivation = await deriveProjectGitSnapshots(
+          normalizedWithShellDiagnostics.projects,
+          this.#gitSnapshotProvider
+        );
+        const projectGitHubDerivation = await deriveProjectGitHubSnapshots(
+          normalizedWithShellDiagnostics.projects,
+          projectGitDerivation.projects,
+          this.#githubSnapshotProvider
+        );
+        const normalizedWithDerivedDiagnostics = {
+          ...normalizedWithShellDiagnostics,
+          diagnostics: dedupeDiagnostics([
+            ...normalizedWithShellDiagnostics.diagnostics,
+            ...projectGitDerivation.diagnostics,
+            ...projectGitHubDerivation.diagnostics
           ])
         };
         const indexDiagnosticsHash = createDiagnosticsHash(normalizedWithDerivedDiagnostics.diagnostics);
@@ -375,7 +401,18 @@ export class Scanner {
         };
       });
 
-      cacheRecord = {
+      const projectSnapshots = projectGitDerivation.projects.map((projectGitSnapshot) => {
+        const githubSnapshot = projectGitHubDerivation.projectsByProjectId.get(
+          projectGitSnapshot.projectId
+        );
+
+        return {
+          ...projectGitSnapshot,
+          ...(githubSnapshot ? { github: githubSnapshot } : {})
+        };
+      });
+
+      const nextCacheRecord: NormalizedCacheRecord = {
         cacheKey,
         adapterId: normalizedWithDerivedDiagnostics.adapterId,
         sourceId: normalizedWithDerivedDiagnostics.sourceId,
@@ -384,11 +421,13 @@ export class Scanner {
         updatedAt: now,
         normalized: normalizedWithDerivedDiagnostics,
         derived: {
-          sessions: derivedSessions
+          sessions: derivedSessions,
+          projects: projectSnapshots
         }
       };
+      cacheRecord = nextCacheRecord;
 
-        await this.#cacheStore.writeRecord(cacheRecord);
+        await this.#cacheStore.writeRecord(nextCacheRecord);
         normalizedResults.push(normalizedWithDerivedDiagnostics);
         scanDiagnostics = [...scanDiagnostics, ...normalizedWithDerivedDiagnostics.diagnostics];
         totalSessions += normalizedWithDerivedDiagnostics.sessions.length;
@@ -731,6 +770,68 @@ function getSessionDiagnostics(
       diagnostic.relatedEntityIds?.some((relatedId) => relatedIds.has(relatedId)) === true ||
       session.diagnosticIds?.includes(diagnostic.id) === true
   );
+}
+
+async function deriveProjectGitSnapshots(
+  projects: Project[],
+  gitSnapshotProvider: GitSnapshotProvider
+): Promise<{
+  diagnostics: Diagnostic[];
+  projects: Array<{
+    git: ProjectGitSnapshotResult["git"];
+    projectId: string;
+  }>;
+}> {
+  const snapshotResults = await Promise.all(
+    projects.map(async (project) => ({
+      projectId: project.id,
+      ...(await gitSnapshotProvider.collect(project))
+    }))
+  );
+
+  return {
+    diagnostics: dedupeDiagnostics(
+      snapshotResults.flatMap((result) => result.diagnostics)
+    ),
+    projects: snapshotResults.map((result) => ({
+      projectId: result.projectId,
+      git: result.git
+    }))
+  };
+}
+
+async function deriveProjectGitHubSnapshots(
+  projects: Project[],
+  gitProjects: Array<{
+    git: ProjectGitSnapshotResult["git"];
+    projectId: string;
+  }>,
+  githubSnapshotProvider: GitHubSnapshotProvider
+): Promise<{
+  diagnostics: Diagnostic[];
+  projectsByProjectId: Map<string, Awaited<ReturnType<GitHubSnapshotProvider["collect"]>>["github"]>;
+}> {
+  const gitProjectsById = new Map(gitProjects.map((project) => [project.projectId, project.git] as const));
+  const snapshotResults = await Promise.all(
+    projects.map(async (project) => ({
+      projectId: project.id,
+      ...(await githubSnapshotProvider.collect(project, gitProjectsById.get(project.id) ?? {
+        status: "unknown",
+        rootConfidence: "unknown",
+        diagnosticIds: [],
+        reason: "GitHub context is unavailable because a validated git snapshot is required first."
+      }))
+    }))
+  );
+
+  return {
+    diagnostics: dedupeDiagnostics(
+      snapshotResults.flatMap((result) => result.diagnostics)
+    ),
+    projectsByProjectId: new Map(
+      snapshotResults.map((result) => [result.projectId, result.github] as const)
+    )
+  };
 }
 
 function dedupeDiagnostics<T extends { id: string }>(diagnostics: T[]): T[] {

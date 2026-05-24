@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 7 planned
-last_updated: "2026-05-24T06:54:57Z"
-last_activity: 2026-05-24 - Planned Phase 7 into four execution slices for read-only git, optional GitHub, archive export, and read-only archive import
+stopped_at: Phase 7 completed
+last_updated: "2026-05-24T08:40:59Z"
+last_activity: 2026-05-24 - Completed 07-04 archive import with persistent read-only sources and closed Phase 7
 progress:
   total_phases: 8
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 36
-  completed_plans: 32
-  percent: 75
+  completed_plans: 36
+  percent: 88
 ---
 
 # Project State
@@ -21,24 +21,24 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-23)
 
 **Core value:** Agent Workbench must truthfully classify local coding-agent runs from normalized evidence, not harness-specific assumptions.
-**Current focus:** Phase 7 - Git, GitHub, Export, and Import
+**Current focus:** Phase 8 - Hardening, Packaging, and Readiness
 
 ## Current Position
 
-Phase: 7 of 8 (Git, GitHub, Export, and Import)
-Plan: Phase 7 planned; 4 execution plans are ready
+Phase: 8 of 8 (Hardening, Packaging, and Readiness)
+Plan: Phase 7 complete; Phase 8 not started
 Status: active
-Last activity: 2026-05-24 - Planned Phase 7 into 07-01 git snapshots, 07-02 GitHub snapshots, 07-03 archive export, and 07-04 read-only archive import
+Last activity: 2026-05-24 - Completed 07-04 archive import with persistent read-only sources and closed Phase 7
 
-Progress: [███████---] 75%
+Progress: [█████████-] 88%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 32
-- Average duration: 6 min
-- Total execution time: 191 min
+- Total plans completed: 36
+- Average duration: 7 min
+- Total execution time: 248 min
 
 **By Phase:**
 
@@ -50,11 +50,12 @@ Progress: [███████---] 75%
 | 4. Gemini CLI Adapter End-to-End | 4/4 | 18 min | 5 min |
 | 5. Shared Shell, Verification, and Run Audit | 4/4 | 31 min | 8 min |
 | 6. Harness-Neutral Triage UI | 5/5 | 35 min | 7 min |
+| 7. Git, GitHub, Export, and Import | 4/4 | 57 min | 14 min |
 
 **Recent Trend:**
 
-- Last 5 plans: 06-01, 06-02, 06-03, 06-04, 06-05
-- Trend: Phase 6 is complete; the app now surfaces truthful triage routes for fake and Gemini sessions with explicit Unknown and Unsupported placeholders
+- Last 5 plans: 06-05, 07-01, 07-02, 07-03, 07-04
+- Trend: Phase 7 now closes the full git, GitHub, export, and import loop while keeping imported archives persistent, explicit, and read-only
 
 *Updated after each plan completion*
 
@@ -127,15 +128,22 @@ Recent decisions affecting current work:
 - Phase 7 context: Imported archives register as persistent read-only `archive-reader` sources with explicit archive metadata and no live validate, scan, git, or GitHub operations.
 - Phase 7 planning: Execute in three waves - 07-01 shared git snapshots first, 07-02 and 07-03 in parallel after the git foundation lands, then 07-04 archive import once archive format and GitHub snapshot seams are fixed.
 - Phase 7 planning: Keep repo and GitHub truth project-scoped in shared derived cache, keep export normalized-only by default, and model imported archives as explicit read-only source records through a bundled `archive-reader` adapter.
+- Phase 7 execution: Shared root-confidence gating now hard-stops inferred and unknown roots before any git command, validates observed roots against the repository top level, and degrades missing or timed-out git state to explicit Unknown or Unsupported fields plus diagnostics.
+- Phase 7 execution: Scanner-derived project git snapshots now persist branch, HEAD, dirty state, change counts, additions, deletions, and remote URL in shared derived cache records, and both Projects and Run Audit consume that same cached repo truth.
+- Phase 7 execution: Shared GitHub snapshots now run only after validated git context, reuse the project cache seam, and surface Available, No Matching PR, Unknown, or Unsupported PR summary states consistently across Projects and Run Audit.
+- Phase 7 execution: Archive export now builds a manifest-backed read-only bundle from shared cache, source metadata, and diagnostics, defaulting to normalized-only payloads instead of silent raw inclusion.
+- Phase 7 execution: Raw artifact export is now hard-gated to indexed allowlisted artifacts, and Projects plus Run Audit expose explicit export entrypoints with privacy warning copy and typed main-owned IPC.
+- Phase 7 execution: Archive import now validates manifest-backed bundles in main, rehydrates cache into persistent read-only `archive-reader` sources, and keeps imported sessions routable without original local roots.
+- Phase 7 execution: Data Sources now labels imported archives explicitly, exposes archive metadata, and keeps validate, scan, watch, git, and GitHub actions unavailable after import.
 
 ### Pending Todos
 
-- Execute Phase 7 starting with 07-01 read-only git provider and root-confidence gating.
-- Preserve Phase 6 truth-state guarantees while adding repo and GitHub context in Phase 7.
+- Start Phase 8 hardening, packaging, and readiness planning and execution.
+- Preserve the existing read-only preload, renderer-boundary, and truth-state guarantees while adding smoke and packaging coverage.
 
 ### Blockers/Concerns
 
-- Phase 7 must keep git and GitHub collection read-only and root-confidence-gated so the triage UI does not overstate repository truth.
+- Phase 8 must prove packaged-shell and preload boundary behavior without weakening renderer isolation or introducing test-only behavior drift.
 - Cache backend starts file-backed; revisit SQLite only if realistic fixture volume proves it necessary.
 
 ## Deferred Items
@@ -150,6 +158,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-24T06:54:57Z
-Stopped at: Phase 7 planning complete
-Resume file: .planning/phases/07-git-github-export-and-import/07-01-PLAN.md
+Last session: 2026-05-24T08:40:59Z
+Stopped at: Phase 7 complete
+Resume file: .planning/ROADMAP.md

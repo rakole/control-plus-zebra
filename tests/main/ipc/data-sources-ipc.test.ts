@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { ArchiveImportService } from "../../../src/main/app/archive-import-service.js";
+import type { ArchiveExportService } from "../../../src/main/app/archive-export-service.js";
 import type { DiagnosticsViewModelService } from "../../../src/main/app/diagnostics-view-model-service.js";
 import type { DataSourcesViewModelService } from "../../../src/main/app/data-sources-view-model-service.js";
 import type { RunAuditViewModelService } from "../../../src/main/app/run-audit-view-model-service.js";
@@ -31,6 +33,27 @@ describe("data sources IPC handlers", () => {
     });
     expect(() => dataSourcesResponseSchema.parse(validate)).not.toThrow();
     expect(() => dataSourcesResponseSchema.parse(scan)).not.toThrow();
+  });
+
+  it("routes archive import through the dedicated import service", async () => {
+    const collector = createIpcCollector();
+    const services = createServices();
+
+    registerIpcHandlers(collector, services);
+
+    const result = await collector.invoke(IPC_CHANNELS.openArchive, {
+      archivePath: "/tmp/example.awb-archive.json"
+    });
+
+    expect(services.archiveImportService.openArchive).toHaveBeenCalledWith({
+      archivePath: "/tmp/example.awb-archive.json"
+    });
+    expect(result).toEqual({
+      ok: true,
+      archiveImport: {
+        status: "cancelled"
+      }
+    });
   });
 
   it("returns sanitized invalid-request errors for bad data source payloads", async () => {
@@ -121,12 +144,28 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
     ...overrides
   };
 
+  const archiveExportService: ArchiveExportService = {
+    createArchive: vi.fn(async () => ({
+      status: "cancelled" as const,
+      rawArtifactsIncluded: false,
+      rawArtifactCount: 0
+    }))
+  };
+
+  const archiveImportService: ArchiveImportService = {
+    openArchive: vi.fn(async () => ({
+      status: "cancelled" as const
+    }))
+  };
+
   const sessionService: SessionViewModelService = {
     getShellState: vi.fn(() => ({
       appName: "Agent Workbench" as const,
       readOnly: true as const,
       allowedOperations: [
         IPC_CHANNELS.getShellState,
+        IPC_CHANNELS.createArchive,
+        IPC_CHANNELS.openArchive,
         IPC_CHANNELS.getOverview,
         IPC_CHANNELS.listProjects,
         IPC_CHANNELS.listSessions,
@@ -191,6 +230,8 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
   };
 
   return {
+    archiveImportService,
+    archiveExportService,
     dataSourcesService,
     diagnosticsService,
     runAuditService,

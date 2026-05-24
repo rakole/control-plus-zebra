@@ -19,14 +19,34 @@ describe("triage view model service", () => {
     const triageService = createTriageViewModelService({ runtime });
     const overview = await triageService.getOverview();
     const projects = await triageService.listProjects();
+    const gitBackedProject = projects.find((project) => project.projectName === "control-plus-zebra");
+    const degradedProject = projects.find((project) => project.gitStatus.label === "Unknown");
+    const rawExportProject = projects.find((project) => project.archiveExport.rawArtifactsAvailable);
 
     expect(overview.metrics.totalSessions.numericValue).toBeGreaterThan(0);
     expect(overview.harnessFilters.map((filter) => filter.label)).toEqual(
       expect.arrayContaining(["Fake Test Harness", "Gemini CLI"])
     );
     expect(projects.length).toBeGreaterThan(0);
-    expect(projects[0]?.branch.displayValue).toBe("Unknown");
-    expect(projects[0]?.pullRequest.displayValue).toBe("Unknown");
+    expect(gitBackedProject).toEqual(
+      expect.objectContaining({
+        gitStatus: expect.objectContaining({ label: "Available" }),
+        githubStatus: expect.objectContaining({ label: "No Matching PR" }),
+        branch: expect.objectContaining({ displayValue: "main" }),
+        dirtyState: expect.objectContaining({ label: "Dirty" }),
+        remoteUrl: expect.objectContaining({
+          displayValue: "https://github.com/example/control-plus-zebra.git"
+        })
+      })
+    );
+    expect(rawExportProject?.archiveExport).toEqual(
+      expect.objectContaining({
+        rawArtifactsAvailable: true,
+        rawArtifactCount: expect.any(Number)
+      })
+    );
+    expect(degradedProject?.gitStatus.label).toBe("Unknown");
+    expect(gitBackedProject?.pullRequest.displayValue).toBe("No Matching PR");
     expect(JSON.stringify(projects)).not.toContain("rawEvents");
   });
 
