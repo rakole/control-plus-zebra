@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createOutputArtifactViewModelService } from "../../../src/main/app/output-artifact-view-model-service.js";
 import { loadTriageData } from "../../../src/main/app/triage-view-model-service.js";
 import { createWorkbenchRuntime, type WorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
+import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter.js";
+import { ArchiveImporter } from "../../../src/main/core/archive/archive-importer.js";
 import type { OutputArtifact } from "../../../src/main/core/model/entities.js";
 import type { RawArtifactIndexEntry } from "../../../src/main/core/ingestion/raw-artifact-index.js";
 
@@ -227,9 +229,80 @@ describe("output artifact view model service", () => {
       mediaType: "image/png"
     });
   });
+
+  it("loads imported output artifacts after restart without the original source root", async () => {
+    const exportRuntime = await createScannedRuntime(tempDirs);
+    const exportFixture = await loadGeminiArtifactFixture(exportRuntime);
+
+    const exporter = new ArchiveExporter({
+      cacheStore: exportRuntime.cacheStore,
+      rawArtifactIndex: exportRuntime.rawArtifactIndex,
+      sourceRegistry: exportRuntime.sourceRegistry
+    });
+    const archivePath = path.join(
+      exportRuntime.appDataDir,
+      "exports",
+      "imported-output-artifacts.awb-archive.json"
+    );
+
+    await exporter.createArchive({
+      destinationPath: archivePath,
+      includeRawArtifacts: true,
+      privacyWarningAcknowledged: true,
+      scope: { kind: "session", sessionId: exportFixture.sessionId }
+    });
+
+    const importRuntime = createWorkbenchRuntime({
+      appDataDir: `${exportRuntime.appDataDir}-imported`,
+      projectDir: process.cwd()
+    });
+
+    tempDirs.push(importRuntime.appDataDir);
+
+    const importer = new ArchiveImporter({
+      appDataDir: importRuntime.appDataDir,
+      cacheStore: importRuntime.cacheStore,
+      rawArtifactIndex: importRuntime.rawArtifactIndex,
+      sourceRegistry: importRuntime.sourceRegistry
+    });
+    const imported = await importer.importArchive({ archivePath });
+    const importedFixture = await loadGeminiArtifactFixture(importRuntime, {
+      sourceId: imported.sourceId
+    });
+
+    await rm(path.join(exportRuntime.appDataDir, "gemini-root"), {
+      force: true,
+      recursive: true
+    });
+
+    const restartedRuntime = createWorkbenchRuntime({
+      appDataDir: importRuntime.appDataDir,
+      projectDir: process.cwd()
+    });
+    const restartedService = createOutputArtifactViewModelService({
+      runtime: restartedRuntime
+    });
+    const loaded = await restartedService.loadArtifact({
+      sessionId: importedFixture.sessionId,
+      outputArtifactId: importedFixture.plainTextArtifact.id
+    });
+
+    expect(loaded).toMatchObject({
+      status: "loaded",
+      outputArtifactId: importedFixture.plainTextArtifact.id,
+      contentKind: "plain-text"
+    });
+    if (loaded.status !== "loaded") {
+      throw new Error("Expected a loaded imported output artifact.");
+    }
+    expect(loaded.text).toContain("Contract types");
+  });
 });
 
-async function loadGeminiArtifactFixture(runtime: WorkbenchRuntime): Promise<{
+async function loadGeminiArtifactFixture(
+  runtime: WorkbenchRuntime,
+  options: { sourceId?: string } = {}
+): Promise<{
   sessionId: string;
   sourceId: string;
   plainTextArtifact: OutputArtifact;
@@ -238,7 +311,10 @@ async function loadGeminiArtifactFixture(runtime: WorkbenchRuntime): Promise<{
 }> {
   const data = await loadTriageData(runtime);
   const session = [...data.sessionsById.values()].find(
-    (candidate) => candidate.adapterId === "gemini-cli" && (candidate.outputArtifactIds?.length ?? 0) > 0
+    (candidate) =>
+      candidate.adapterId === "gemini-cli" &&
+      (options.sourceId ? candidate.sourceId === options.sourceId : true) &&
+      (candidate.outputArtifactIds?.length ?? 0) > 0
   );
 
   if (!session) {

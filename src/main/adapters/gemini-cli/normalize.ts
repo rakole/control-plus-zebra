@@ -357,7 +357,10 @@ export async function normalizeGeminiCliEvents(
   const sessionCapabilitySnapshots: Array<Record<string, unknown>> = [];
   const projectRawArtifactRefs = uniqueRawArtifactRefs(
     input.artifacts
-      .filter((artifact) => artifact.artifactKind === "output-artifact")
+      .filter(
+        (artifact) =>
+          artifact.artifactKind !== "output-artifact" && artifact.artifactKind !== "session-log"
+      )
       .map((artifact) => toRawArtifactRef(artifact))
   );
   const sessionSummaries: Array<{
@@ -815,8 +818,17 @@ export async function normalizeGeminiCliEvents(
       timeline[0]?.record.timestamp ??
       session.logEntries[0]?.entry.timestamp;
     const sessionRawArtifactRefs = uniqueRawArtifactRefs(
-      session.sidecars
-        .map((sidecar) => rawArtifactsById.get(sidecar.artifactId))
+      [
+        ...(session.headerLocator?.artifactId ? [session.headerLocator.artifactId] : []),
+        ...session.transcriptRecords.flatMap((record) =>
+          record.locator.artifactId ? [record.locator.artifactId] : []
+        ),
+        ...session.logEntries.flatMap((entry) =>
+          entry.locator.artifactId ? [entry.locator.artifactId] : []
+        ),
+        ...session.sidecars.map((sidecar) => sidecar.artifactId)
+      ]
+        .map((artifactId) => rawArtifactsById.get(artifactId))
         .filter((artifact): artifact is RawArtifactRef => Boolean(artifact))
         .map((artifact) => toRawArtifactRef(artifact))
     );

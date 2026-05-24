@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { RawArtifactRef } from "../adapter-contract/types.js";
 import type {
   DerivedCacheRecord,
   FileBackedCacheStore,
@@ -9,9 +10,14 @@ import type {
 import type { Diagnostic } from "../diagnostics/diagnostic.js";
 import { mergeNormalizedResults } from "../ingestion/index.js";
 import type { RawArtifactIndex, RawArtifactIndexEntry } from "../ingestion/raw-artifact-index.js";
-import type { OutputArtifact } from "../model/entities.js";
+import type { OutputArtifact, Project, Session } from "../model/entities.js";
+import { createDiagnosticId } from "../model/identifiers.js";
 import type { SourceRecord, SourceRegistry } from "../registry/source-registry.js";
-import { createSafeFilesystem } from "../security/safe-filesystem.js";
+import {
+  createSafeFilesystem,
+  isPathWithinDirectory,
+  isSamePath
+} from "../security/index.js";
 import {
   ARCHIVE_FORMAT,
   ARCHIVE_MANIFEST_VERSION,
@@ -78,6 +84,11 @@ interface ScopeResolution {
   sessionIds: string[];
   sourceDiagnostics: Diagnostic[];
   sources: ArchivedSourceRecord[];
+}
+
+interface ArchivedSourceScope {
+  archivedSource: ArchivedSourceRecord;
+  diagnostics: Diagnostic[];
 }
 
 export class ArchiveExporter {
@@ -247,16 +258,32 @@ export class ArchiveExporter {
       ).filter((value): value is string => Boolean(value && value.length > 0))
     );
 
-    const relevantSourceRecords = sourceRecords.filter((source) =>
-      sourceIds.includes(source.sourceId)
-    );
+    const selectedProjects = merged.projects.filter((project) => projectIds.includes(project.id));
+    const projectRootPathsBySourceId = buildProjectRootPathsBySourceId(selectedProjects);
     const filteredCacheRecords = cacheRecords
       .map((record) => filterCacheRecord(record, { projectIds, sessionIds, sourceIds }))
       .filter((record): record is NormalizedCacheRecord => record !== null);
-    const filteredOutputArtifacts = filteredCacheRecords.flatMap(
+    const selectedOutputArtifacts = filteredCacheRecords.flatMap(
       (record) => record.normalized.outputArtifacts
     );
-    const matchingRawArtifacts = selectRawArtifactEntries(filteredOutputArtifacts, rawArtifactEntries);
+    const cacheSourceIds = unique(filteredCacheRecords.map((record) => record.sourceId));
+    const matchingRawArtifacts = selectRawArtifactEntries({
+      rawArtifactEntries,
+      scope,
+      cacheSourceIds,
+      outputArtifacts: selectedOutputArtifacts,
+      projects: selectedProjects,
+      sessions: merged.sessions.filter((session) => sessionIds.includes(session.id))
+    });
+    const archivedSourceScopes = cacheSourceIds.flatMap((cacheSourceId) =>
+      resolveArchivedSourceScope({
+        cacheSourceId,
+        cacheRecords: filteredCacheRecords.filter((record) => record.sourceId === cacheSourceId),
+        projectRootPaths: projectRootPathsBySourceId.get(cacheSourceId) ?? [],
+        rawArtifactEntries: matchingRawArtifacts.filter((entry) => entry.sourceId === cacheSourceId),
+        sourceRecords
+      })
+    );
     const availability: ArchiveExportAvailability = {
       scopeKind: scope.kind,
       scopeId: scope.kind === "project" ? scope.projectId : scope.sessionId,
@@ -265,7 +292,7 @@ export class ArchiveExporter {
           ? selectedProject?.displayName ?? selectedProject?.name ?? "Project Archive"
           : selectedSession?.title ?? selectedSession?.nativeId ?? "Session Archive",
       sessionCount: sessionIds.length,
-      sourceCount: relevantSourceRecords.length,
+      sourceCount: archivedSourceScopes.length,
       rawArtifactsAvailable: matchingRawArtifacts.length > 0,
       rawArtifactCount: matchingRawArtifacts.length,
       ...(matchingRawArtifacts.length === 0
@@ -282,8 +309,8 @@ export class ArchiveExporter {
       projectIds,
       rawArtifactEntries: matchingRawArtifacts,
       sessionIds,
-      sourceDiagnostics: uniqueDiagnostics(relevantSourceRecords.flatMap((source) => source.diagnostics)),
-      sources: relevantSourceRecords.map(toArchivedSourceRecord)
+      sourceDiagnostics: uniqueDiagnostics(archivedSourceScopes.flatMap((source) => source.diagnostics)),
+      sources: archivedSourceScopes.map((source) => source.archivedSource)
     };
   }
 
@@ -304,12 +331,15 @@ export class ArchiveExporter {
         artifactId: entry.id,
         adapterId: entry.adapterId,
         sourceId: entry.sourceId,
+        ...(entry.nativeRef ? { nativeRef: entry.nativeRef } : {}),
         nativeId: entry.nativeId,
+        artifactKind: entry.artifactKind,
         artifactType: entry.artifactType,
         ...(entry.mediaType ? { mediaType: entry.mediaType } : {}),
         ...(entry.path ? { originalPath: entry.path } : {}),
         ...(entry.byteLength !== undefined ? { byteLength: entry.byteLength } : {}),
         ...(entry.mtimeMs !== undefined ? { mtimeMs: entry.mtimeMs } : {}),
+        parseStrategy: entry.parseStrategy,
         content: await safeFilesystem.readIndexedTextArtifact(entry.id, entry.path ?? "")
       }))
     );
@@ -425,28 +455,65 @@ function filterDerivedRecord(
   };
 }
 
-function selectRawArtifactEntries(
-  outputArtifacts: OutputArtifact[],
-  rawArtifactEntries: RawArtifactIndexEntry[]
-): RawArtifactIndexEntry[] {
+function selectRawArtifactEntries(args: {
+  rawArtifactEntries: RawArtifactIndexEntry[];
+  scope: ArchiveExportScope;
+  cacheSourceIds: string[];
+  outputArtifacts: OutputArtifact[];
+  projects: Project[];
+  sessions: Session[];
+}): RawArtifactIndexEntry[] {
   const matches = new Map<string, RawArtifactIndexEntry>();
+  const relevantEntries = args.rawArtifactEntries.filter(
+    (entry) => entry.path && args.cacheSourceIds.includes(entry.sourceId)
+  );
 
-  for (const artifact of outputArtifacts) {
+  const scope = args.scope;
+  const selectedSession =
+    scope.kind === "session"
+      ? args.sessions.find((session) => session.id === scope.sessionId)
+      : undefined;
+  const selectedProject =
+    scope.kind === "project"
+      ? args.projects[0]
+      : args.projects.find((project) => project.id === selectedSession?.projectId);
+  const scopedSessions =
+    scope.kind === "project" ? args.sessions : selectedSession ? [selectedSession] : [];
+  const scopedArtifactRefs = [
+    ...(selectedProject?.harnessRefs ?? [])
+      .filter(
+        (harnessRef) =>
+          args.cacheSourceIds.includes(harnessRef.sourceId) &&
+          (!selectedSession || harnessRef.sourceId === selectedSession.sourceId)
+      )
+      .flatMap((harnessRef) => harnessRef.rawArtifactRefs ?? []),
+    ...scopedSessions.flatMap((session) => session.rawArtifactRefs ?? [])
+  ];
+
+  for (const artifactRef of scopedArtifactRefs) {
+    const match = findRawArtifactEntryForRef(artifactRef, relevantEntries);
+
+    if (match) {
+      matches.set(match.id, match);
+    }
+  }
+
+  for (const artifact of args.outputArtifacts) {
     const match =
-      rawArtifactEntries.find(
+      relevantEntries.find(
         (entry) => entry.sourceId === artifact.sourceId && entry.nativeId === artifact.nativeId
       ) ??
-      rawArtifactEntries.find(
+      relevantEntries.find(
         (entry) => entry.sourceId === artifact.sourceId && artifact.path && entry.nativeId === artifact.path
       ) ??
-      rawArtifactEntries.find(
+      relevantEntries.find(
         (entry) =>
           entry.sourceId === artifact.sourceId &&
           artifact.path &&
           entry.path?.endsWith(path.normalize(artifact.path))
       );
 
-    if (match?.path) {
+    if (match) {
       matches.set(match.id, match);
     }
   }
@@ -454,9 +521,133 @@ function selectRawArtifactEntries(
   return [...matches.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function toArchivedSourceRecord(source: SourceRecord): ArchivedSourceRecord {
+function findRawArtifactEntryForRef(
+  artifactRef: RawArtifactRef,
+  rawArtifactEntries: RawArtifactIndexEntry[]
+): RawArtifactIndexEntry | undefined {
+  return (
+    rawArtifactEntries.find((entry) => entry.id === artifactRef.id) ??
+    rawArtifactEntries.find(
+      (entry) =>
+        entry.sourceId === artifactRef.sourceId &&
+        normalizeComparableRef(entry.nativeRef ?? entry.nativeId) ===
+          normalizeComparableRef(artifactRef.nativeRef ?? artifactRef.nativeId)
+    ) ??
+    rawArtifactEntries.find(
+      (entry) =>
+        entry.sourceId === artifactRef.sourceId &&
+        normalizeComparablePath(entry.path) === normalizeComparablePath(artifactRef.path)
+    )
+  );
+}
+
+function normalizeComparableRef(value: string | undefined): string | undefined {
+  return value ? path.normalize(value) : undefined;
+}
+
+function normalizeComparablePath(value: string | undefined): string | undefined {
+  return value ? path.resolve(value) : undefined;
+}
+
+function resolveArchivedSourceScope(args: {
+  cacheSourceId: string;
+  cacheRecords: NormalizedCacheRecord[];
+  projectRootPaths: string[];
+  rawArtifactEntries: RawArtifactIndexEntry[];
+  sourceRecords: SourceRecord[];
+}): ArchivedSourceScope[] {
+  const exactSourceRecord = args.sourceRecords.find((source) => source.sourceId === args.cacheSourceId);
+  const sourceRecord =
+    exactSourceRecord ??
+    selectBestSourceRecord({
+      ...(args.cacheRecords[0]?.adapterId
+        ? { adapterId: args.cacheRecords[0].adapterId }
+        : {}),
+      projectRootPaths: args.projectRootPaths,
+      rawArtifactEntries: args.rawArtifactEntries,
+      sourceRecords: args.sourceRecords
+    });
+
+  if (!sourceRecord) {
+    return [];
+  }
+
+  return [
+    {
+      archivedSource: toArchivedSourceRecord(sourceRecord, args.cacheSourceId),
+      diagnostics: sourceRecord.diagnostics.map((diagnostic) =>
+        rebaseSourceDiagnostic(diagnostic, args.cacheSourceId)
+      )
+    }
+  ];
+}
+
+function selectBestSourceRecord(args: {
+  adapterId?: string;
+  projectRootPaths: string[];
+  rawArtifactEntries: RawArtifactIndexEntry[];
+  sourceRecords: SourceRecord[];
+}): SourceRecord | undefined {
+  const adapterScopedRecords = args.adapterId
+    ? args.sourceRecords.filter((source) => source.adapterId === args.adapterId)
+    : args.sourceRecords;
+  const recordsByProjectRoot = adapterScopedRecords.filter((source) =>
+    args.projectRootPaths.some(
+      (projectRootPath) =>
+        isSamePath(source.rootPath, projectRootPath) ||
+        isPathWithinDirectory(source.rootPath, projectRootPath)
+    )
+  );
+
+  if (recordsByProjectRoot.length > 0) {
+    return recordsByProjectRoot.sort((left, right) => left.rootPath.length - right.rootPath.length)[0];
+  }
+
+  const recordsByArtifactPath = adapterScopedRecords.filter((source) =>
+    args.rawArtifactEntries.some(
+      (entry) =>
+        entry.path &&
+        (isSamePath(source.rootPath, entry.path) || isPathWithinDirectory(source.rootPath, entry.path))
+    )
+  );
+
+  if (recordsByArtifactPath.length > 0) {
+    return recordsByArtifactPath.sort((left, right) => left.rootPath.length - right.rootPath.length)[0];
+  }
+
+  return adapterScopedRecords.length === 1 ? adapterScopedRecords[0] : undefined;
+}
+
+function buildProjectRootPathsBySourceId(projects: Project[]): Map<string, string[]> {
+  const projectRootsBySourceId = new Map<string, Set<string>>();
+
+  for (const project of projects) {
+    const rootPath = project.primaryRootPath ?? project.rootPath;
+
+    if (!rootPath || !project.sourceId) {
+      continue;
+    }
+
+    const rootPaths = projectRootsBySourceId.get(project.sourceId) ?? new Set<string>();
+
+    rootPaths.add(rootPath);
+    projectRootsBySourceId.set(project.sourceId, rootPaths);
+  }
+
+  return new Map(
+    [...projectRootsBySourceId.entries()].map(([sourceId, rootPaths]) => [
+      sourceId,
+      [...rootPaths].sort((left, right) => left.localeCompare(right))
+    ])
+  );
+}
+
+function toArchivedSourceRecord(
+  source: SourceRecord,
+  archivedSourceId: string = source.sourceId
+): ArchivedSourceRecord {
   return {
-    sourceId: source.sourceId,
+    sourceId: archivedSourceId,
     adapterId: source.adapterId,
     ...(source.displayName ? { displayName: source.displayName } : {}),
     rootPath: source.rootPath,
@@ -482,6 +673,22 @@ function toArchivedSourceRecord(source: SourceRecord): ArchivedSourceRecord {
       ...(source.cache.updatedAt ? { updatedAt: source.cache.updatedAt } : {}),
       ...(source.cache.reason ? { reason: source.cache.reason } : {})
     }
+  };
+}
+
+function rebaseSourceDiagnostic(diagnostic: Diagnostic, sourceId: string): Diagnostic {
+  if (!diagnostic.sourceId) {
+    return diagnostic;
+  }
+
+  return {
+    ...diagnostic,
+    id: createDiagnosticId({
+      adapterId: diagnostic.adapterId,
+      sourceId,
+      nativeId: diagnostic.code
+    }),
+    sourceId
   };
 }
 

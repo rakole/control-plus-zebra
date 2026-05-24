@@ -1,8 +1,9 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { loadTriageData } from "../../../src/main/app/triage-view-model-service.js";
 import { createTriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import { createSessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter.js";
@@ -56,7 +57,9 @@ describe("ArchiveImporter", () => {
 
     const importRuntime = await createTempRuntime(tempDirs);
     const importer = new ArchiveImporter({
+      appDataDir: importRuntime.appDataDir,
       cacheStore: importRuntime.cacheStore,
+      rawArtifactIndex: importRuntime.rawArtifactIndex,
       sourceRegistry: importRuntime.sourceRegistry
     });
     const result = await importer.importArchive({ archivePath });
@@ -66,7 +69,7 @@ describe("ArchiveImporter", () => {
 
     expect(importedSource).toMatchObject({
       sourceId: result.sourceId,
-      adapterId: "archive-reader",
+      adapterId: expect.not.stringMatching(/^archive-reader$/u),
       sourceKind: "imported-archive",
       addedBy: "import",
       readOnly: true,
@@ -86,6 +89,7 @@ describe("ArchiveImporter", () => {
     ]);
     expect(sessions.length).toBeGreaterThan(0);
     expect(sessions[0]?.sourceId).toBe(result.sourceId);
+    expect(sessions[0]?.adapterId).toBe(importedSource?.adapterId);
     expect(sessions[0]?.adapterDisplayName).toBeTruthy();
   });
 
@@ -141,7 +145,9 @@ describe("ArchiveImporter", () => {
 
     const importRuntime = await createTempRuntime(tempDirs);
     const importer = new ArchiveImporter({
+      appDataDir: importRuntime.appDataDir,
       cacheStore: importRuntime.cacheStore,
+      rawArtifactIndex: importRuntime.rawArtifactIndex,
       sourceRegistry: importRuntime.sourceRegistry
     });
     const result = await importer.importArchive({ archivePath });
@@ -322,7 +328,9 @@ describe("ArchiveImporter", () => {
 
     const importRuntime = await createTempRuntime(tempDirs);
     const importer = new ArchiveImporter({
+      appDataDir: importRuntime.appDataDir,
       cacheStore: importRuntime.cacheStore,
+      rawArtifactIndex: importRuntime.rawArtifactIndex,
       sourceRegistry: importRuntime.sourceRegistry
     });
     const result = await importer.importArchive({ archivePath });
@@ -433,6 +441,79 @@ describe("ArchiveImporter", () => {
       toolCallId: expectedToolCallId
     });
   });
+
+  it("materializes archived raw artifacts into an import-owned root and rebases durable index paths", async () => {
+    const exportRuntime = await createScannedRuntime(tempDirs);
+    const triageData = await loadTriageData(exportRuntime);
+    const sessionId = [...triageData.sessionsById.values()].find(
+      (session) =>
+        session.adapterId === "gemini-cli" && (session.outputArtifactIds?.length ?? 0) > 0
+    )?.id;
+
+    expect(sessionId).toBeDefined();
+    if (!sessionId) {
+      throw new Error("Expected a Gemini session with output artifacts to export.");
+    }
+
+    const exporter = new ArchiveExporter({
+      cacheStore: exportRuntime.cacheStore,
+      rawArtifactIndex: exportRuntime.rawArtifactIndex,
+      sourceRegistry: exportRuntime.sourceRegistry
+    });
+    const archivePath = path.join(
+      exportRuntime.appDataDir,
+      "exports",
+      "materialized-raw-artifacts.awb-archive.json"
+    );
+
+    await exporter.createArchive({
+      destinationPath: archivePath,
+      includeRawArtifacts: true,
+      privacyWarningAcknowledged: true,
+      scope: { kind: "session", sessionId }
+    });
+
+    const importRuntime = await createTempRuntime(tempDirs);
+    const importer = new ArchiveImporter({
+      appDataDir: importRuntime.appDataDir,
+      cacheStore: importRuntime.cacheStore,
+      rawArtifactIndex: importRuntime.rawArtifactIndex,
+      sourceRegistry: importRuntime.sourceRegistry
+    });
+    const result = await importer.importArchive({ archivePath });
+    const importedSource = await importRuntime.sourceRegistry.getSource(result.sourceId);
+    const importedEntries = await importRuntime.rawArtifactIndex.listSourceEntries(result.sourceId);
+    const importedOutputArtifactEntry = importedEntries.find(
+      (entry) => entry.artifactKind === "output-artifact"
+    );
+    const cachedRecord = (await importRuntime.cacheStore.listLatestRecords()).find(
+      (record) => record.sourceId === result.sourceId
+    );
+
+    expect(importedSource).toBeDefined();
+    expect(importedSource?.archive?.archivePath).toBe(archivePath);
+    expect(importedSource?.rootPath).not.toBe(archivePath);
+    expect(importedSource?.rootPath).toContain(
+      path.join(importRuntime.appDataDir, "imports", "archives")
+    );
+    expect(importedEntries.length).toBeGreaterThan(0);
+    expect(importedOutputArtifactEntry?.path).toBeDefined();
+    expect(importedOutputArtifactEntry?.path).toContain(importedSource?.rootPath ?? "");
+    expect(importedOutputArtifactEntry?.path?.includes("gemini-root")).toBe(false);
+    expect(await readFile(importedOutputArtifactEntry?.path ?? "", "utf8")).toContain(
+      "Contract types"
+    );
+    expect((await stat(importedOutputArtifactEntry?.path ?? "")).isFile()).toBe(true);
+    expect(cachedRecord?.rawArtifactIndex?.entries.some((entry) => entry.path)).toBe(true);
+    expect(
+      cachedRecord?.rawArtifactIndex?.entries
+        .filter((entry) => entry.path)
+        .every((entry) => entry.path?.startsWith(importedSource?.rootPath ?? ""))
+    ).toBe(true);
+    expect(JSON.stringify(cachedRecord?.normalized)).not.toContain(
+      path.join(exportRuntime.appDataDir, "gemini-root")
+    );
+  });
 });
 
 type MutableArchivedEntity = {
@@ -446,7 +527,15 @@ type MutableArchivedEntity = {
 async function getExportProjectId(
   triageService: ReturnType<typeof createTriageViewModelService>
 ): Promise<string | undefined> {
-  return (await triageService.listProjects())[0]?.projectId;
+  const projects = await triageService.listProjects();
+
+  return (
+    projects.find(
+      (project) =>
+        project.projectName === "control-plus-zebra" ||
+        project.projectDisplayName === "control-plus-zebra"
+    ) ?? projects[0]
+  )?.projectId;
 }
 
 function buildExpectedImportedId(
@@ -467,7 +556,7 @@ function buildExpectedImportedId(
   },
   importedSourceId: string
 ): string {
-  const adapterId = entity.adapterId ?? "archive-reader";
+  const adapterId = entity.adapterId ?? "unknown-adapter";
   const archivedId = entity.id;
   const nativeId =
     entity.sourceId && entity.nativeId

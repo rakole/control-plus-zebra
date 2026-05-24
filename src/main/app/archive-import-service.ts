@@ -27,8 +27,10 @@ export function createArchiveImportService(
 ): ArchiveImportService {
   const runtime = options.runtime ?? createWorkbenchRuntime(options);
   const importer = new ArchiveImporter({
+    appDataDir: runtime.appDataDir,
     cacheStore: runtime.cacheStore,
     ...(options.now ? { now: options.now } : {}),
+    rawArtifactIndex: runtime.rawArtifactIndex,
     sourceRegistry: runtime.sourceRegistry
   });
 

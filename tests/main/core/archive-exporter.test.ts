@@ -1,10 +1,13 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createTriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
-import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter.js";
+import {
+  ArchiveExportError,
+  ArchiveExporter
+} from "../../../src/main/core/archive/archive-exporter.js";
 import {
   cleanupTempDirs,
   createScannedRuntime
@@ -71,12 +74,15 @@ describe("ArchiveExporter", () => {
       rawArtifactIndex: runtime.rawArtifactIndex,
       sourceRegistry: runtime.sourceRegistry
     });
-    const geminiSessionId = (await runtime.cacheStore.listLatestRecords()).find(
+    const geminiRecord = (await runtime.cacheStore.listLatestRecords()).find(
       (record) => record.adapterId === "gemini-cli"
-    )?.normalized.sessions[0]?.id;
+    );
+    const geminiSession = geminiRecord?.normalized.sessions[0];
+    const geminiSessionId = geminiSession?.id;
 
     expect(geminiSessionId).toBeDefined();
-    if (!geminiSessionId) {
+    expect(geminiSession?.nativeId).toBeDefined();
+    if (!geminiSessionId || !geminiSession?.nativeId) {
       throw new Error("Expected a Gemini fixture session.");
     }
 
@@ -103,19 +109,153 @@ describe("ArchiveExporter", () => {
         counts: { rawArtifacts: number };
         includes: { privacyWarningAcknowledged: boolean; rawArtifacts: boolean };
       };
-      payload: { rawArtifacts?: Array<{ originalPath?: string; content: string }> };
+      payload: {
+        rawArtifacts?: Array<{
+          artifactKind: string;
+          nativeRef?: string;
+          originalPath?: string;
+          parseStrategy: string;
+          content: string;
+        }>;
+        sources: Array<{ rootPath: string; sourceId: string }>;
+      };
     };
+    const rawArtifacts = archive.payload.rawArtifacts ?? [];
+    const sessionScopedArtifacts = rawArtifacts.filter(
+      (artifact) =>
+        artifact.artifactKind === "session-log" || artifact.artifactKind === "output-artifact"
+    );
 
     expect(result.rawArtifactCount).toBeGreaterThan(0);
     expect(archive.manifest.includes.rawArtifacts).toBe(true);
     expect(archive.manifest.includes.privacyWarningAcknowledged).toBe(true);
     expect(archive.manifest.counts.rawArtifacts).toBe(result.rawArtifactCount);
-    expect(archive.payload.rawArtifacts?.length).toBe(result.rawArtifactCount);
-    expect(archive.payload.rawArtifacts?.every((artifact) => artifact.content.length > 0)).toBe(
-      true
-    );
+    expect(rawArtifacts.length).toBe(result.rawArtifactCount);
+    expect(rawArtifacts.every((artifact) => artifact.content.length > 0)).toBe(true);
+    expect(rawArtifacts.every((artifact) => artifact.parseStrategy.length > 0)).toBe(true);
+    expect(rawArtifacts.some((artifact) => artifact.artifactKind === "project-root-map")).toBe(true);
+    expect(rawArtifacts.some((artifact) => artifact.artifactKind === "history")).toBe(true);
+    expect(rawArtifacts.some((artifact) => artifact.artifactKind === "session-log")).toBe(true);
+    expect(rawArtifacts.some((artifact) => artifact.artifactKind === "output-artifact")).toBe(true);
     expect(
-      archive.payload.rawArtifacts?.some((artifact) => artifact.originalPath?.endsWith("not-indexed-secret.txt"))
+      sessionScopedArtifacts.every((artifact) =>
+        [artifact.nativeRef, artifact.originalPath].some((value) =>
+          value?.includes(geminiSession.nativeId ?? "")
+        )
+      )
+    ).toBe(true);
+    expect(
+      rawArtifacts.some((artifact) => artifact.originalPath?.endsWith("not-indexed-secret.txt"))
+    ).toBe(false);
+    expect(archive.payload.sources).toEqual([
+      expect.objectContaining({
+        sourceId: geminiRecord?.sourceId,
+        rootPath: path.join(runtime.appDataDir, "gemini-root")
+      })
+    ]);
+  });
+
+  it("rejects raw artifact export until the privacy warning is acknowledged", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const exporter = new ArchiveExporter({
+      cacheStore: runtime.cacheStore,
+      rawArtifactIndex: runtime.rawArtifactIndex,
+      sourceRegistry: runtime.sourceRegistry
+    });
+    const geminiSessionId = (await runtime.cacheStore.listLatestRecords()).find(
+      (record) => record.adapterId === "gemini-cli"
+    )?.normalized.sessions[0]?.id;
+
+    expect(geminiSessionId).toBeDefined();
+    if (!geminiSessionId) {
+      throw new Error("Expected a Gemini fixture session.");
+    }
+
+    await expect(
+      exporter.createArchive({
+        destinationPath: path.join(
+          runtime.appDataDir,
+          "exports",
+          "raw-warning-required.awb-archive.json"
+        ),
+        includeRawArtifacts: true,
+        privacyWarningAcknowledged: false,
+        scope: { kind: "session", sessionId: geminiSessionId }
+      })
+    ).rejects.toMatchObject({
+      code: "archive-export.warning-not-acknowledged"
+    } satisfies Partial<ArchiveExportError>);
+  });
+
+  it("does not include unreferenced same-source raw artifacts in project archives", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const exporter = new ArchiveExporter({
+      cacheStore: runtime.cacheStore,
+      rawArtifactIndex: runtime.rawArtifactIndex,
+      sourceRegistry: runtime.sourceRegistry
+    });
+    const geminiRecord = (await runtime.cacheStore.listLatestRecords()).find(
+      (record) => record.adapterId === "gemini-cli"
+    );
+    const projectId = geminiRecord?.normalized.projects[0]?.id;
+    const existingEntries = await runtime.rawArtifactIndex.load();
+    const templateEntry = existingEntries.find(
+      (entry) => entry.sourceId === geminiRecord?.sourceId && entry.path
+    );
+
+    expect(projectId).toBeDefined();
+    expect(geminiRecord).toBeDefined();
+    expect(templateEntry).toBeDefined();
+    if (!projectId || !geminiRecord || !templateEntry) {
+      throw new Error("Expected a Gemini project with indexed raw artifacts.");
+    }
+
+    const unrelatedPath = path.join(
+      runtime.appDataDir,
+      "gemini-root",
+      "chats",
+      "session-unrelated.jsonl"
+    );
+
+    await mkdir(path.dirname(unrelatedPath), { recursive: true });
+    await writeFile(unrelatedPath, "{\"type\":\"message\",\"text\":\"leak\"}\n", "utf8");
+    await runtime.rawArtifactIndex.save([
+      ...existingEntries,
+      {
+        ...templateEntry,
+        id: "raw-artifact-unreferenced-same-source",
+        nativeRef: "chats/session-unrelated.jsonl",
+        nativeId: "chats/session-unrelated.jsonl",
+        path: unrelatedPath,
+        artifactKind: "session-log",
+        artifactType: "gemini-chat",
+        mediaType: "application/x-ndjson"
+      }
+    ]);
+
+    const destinationPath = path.join(
+      runtime.appDataDir,
+      "exports",
+      "project-raw-scoped.awb-archive.json"
+    );
+
+    await exporter.createArchive({
+      destinationPath,
+      includeRawArtifacts: true,
+      privacyWarningAcknowledged: true,
+      scope: { kind: "project", projectId }
+    });
+
+    const archive = JSON.parse(await readFile(destinationPath, "utf8")) as {
+      payload: { rawArtifacts?: Array<{ nativeRef?: string; originalPath?: string }> };
+    };
+
+    expect(
+      (archive.payload.rawArtifacts ?? []).some(
+        (artifact) =>
+          artifact.originalPath === unrelatedPath ||
+          artifact.nativeRef === "chats/session-unrelated.jsonl"
+      )
     ).toBe(false);
   });
 });

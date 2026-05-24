@@ -116,12 +116,23 @@ export const archivedRawArtifactSchema = z
     artifactId: z.string().min(1),
     adapterId: z.string().min(1),
     sourceId: z.string().min(1),
+    nativeRef: z.string().min(1).optional(),
     nativeId: z.string().min(1),
+    artifactKind: z.enum([
+      "session-log",
+      "message-index",
+      "project-root-map",
+      "output-artifact",
+      "history",
+      "metadata",
+      "unknown"
+    ]),
     artifactType: z.string().min(1),
     mediaType: z.string().min(1).optional(),
     originalPath: z.string().min(1).optional(),
     byteLength: z.number().int().nonnegative().optional(),
     mtimeMs: z.number().nonnegative().optional(),
+    parseStrategy: z.enum(["stream-jsonl", "json", "text", "adapter-native", "unknown"]),
     content: z.string()
   })
   .strict();
