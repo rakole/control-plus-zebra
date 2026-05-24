@@ -13,6 +13,7 @@ import type {
   ToolCall
 } from "../model/entities.js";
 import type { Diagnostic } from "../diagnostics/diagnostic.js";
+import type { ProjectGitSnapshot } from "../git/git-snapshot-provider.js";
 import type { ParsedShellCommand } from "../shell/types.js";
 import type { VerificationResult } from "../verification/types.js";
 
@@ -23,6 +24,7 @@ export function deriveRunAuditForSession(args: {
   adapterCapabilities: CapabilityEnvelope;
   diagnostics: Diagnostic[];
   parsedShellCommands: ParsedShellCommand[];
+  projectGitSnapshot?: ProjectGitSnapshot;
   session: Session;
   sessionCapabilities?: CapabilityEnvelope;
   sessionEvents: SessionEvent[];
@@ -39,7 +41,6 @@ export function deriveRunAuditForSession(args: {
   });
   const attentionReasons = new Set<AttentionReasonCode>();
   const pendingToolCalls = args.sessionToolCalls.filter((toolCall) => toolCall.status === "started");
-  const gitCapability = resolveGitCapabilityState(args);
 
   if (args.verification.status === "failed") {
     attentionReasons.add("failed-verification");
@@ -61,7 +62,14 @@ export function deriveRunAuditForSession(args: {
     attentionReasons.add("claim-uncertain");
   }
 
-  if (gitCapability.status !== "supported" || isVerificationCapabilityBlocked(args.verification.status)) {
+  if (hasDirtyProjectStateAfterClaim(completionClaim.status, args.projectGitSnapshot)) {
+    attentionReasons.add("dirty-after-claim");
+  }
+
+  if (
+    isVerificationCapabilityBlocked(args.verification.status) ||
+    isSharedGitAssessmentUnavailable(completionClaim.status, args.projectGitSnapshot)
+  ) {
     attentionReasons.add("capability-missing");
   }
 
@@ -163,20 +171,33 @@ function deriveAuditConfidence(
   return HIGH_CONFIDENCE;
 }
 
-function resolveGitCapabilityState(args: {
-  adapterCapabilities: CapabilityEnvelope;
-  sessionCapabilities?: CapabilityEnvelope;
-  sourceCapabilities?: CapabilityEnvelope;
-}) {
-  return (
-    args.sessionCapabilities?.capabilities.gitContextCapture ??
-    args.sourceCapabilities?.capabilities.gitContextCapture ??
-    args.adapterCapabilities.capabilities.gitContextCapture
+function isVerificationCapabilityBlocked(status: VerificationResult["status"]) {
+  return status === "unsupported" || status === "unknown";
+}
+
+function hasDirtyProjectStateAfterClaim(
+  completionClaimStatus: "claimed" | "not-claimed" | "unknown",
+  projectGitSnapshot?: ProjectGitSnapshot
+): boolean {
+  if (completionClaimStatus !== "claimed" || projectGitSnapshot?.status !== "available") {
+    return false;
+  }
+
+  return Boolean(
+    projectGitSnapshot.snapshot &&
+      (projectGitSnapshot.snapshot.dirty || projectGitSnapshot.snapshot.untrackedFiles > 0)
   );
 }
 
-function isVerificationCapabilityBlocked(status: VerificationResult["status"]) {
-  return status === "unsupported" || status === "unknown";
+function isSharedGitAssessmentUnavailable(
+  completionClaimStatus: "claimed" | "not-claimed" | "unknown",
+  projectGitSnapshot?: ProjectGitSnapshot
+): boolean {
+  if (completionClaimStatus !== "claimed") {
+    return false;
+  }
+
+  return projectGitSnapshot?.status !== "available";
 }
 
 function isMissingSidecarDiagnostic(code: string): boolean {

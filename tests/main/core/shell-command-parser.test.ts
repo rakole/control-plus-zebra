@@ -65,4 +65,66 @@ describe("shared shell command parser", () => {
       artifactIds: ["artifact-01"]
     });
   });
+
+  it("keeps raw tool success without exit-code evidence as unknown", () => {
+    const parsed = parseShellCommandEvidence({
+      shellCommand: createShellCommand({
+        rawToolStatus: "succeeded",
+        toolCallId: "tool-call-02",
+        outputSummary: "Typecheck completed"
+      })
+    });
+
+    expect(parsed).toMatchObject<Partial<ParsedShellCommand>>({
+      shellCommandId: "shell-command-01",
+      intent: "typecheck",
+      result: "unknown",
+      exitCodeSource: "unknown",
+      outputTextSource: "summary",
+      rawToolStatus: "succeeded",
+      toolCallId: "tool-call-02"
+    });
+    expect(parsed.exitCode).toBeUndefined();
+  });
+
+  it("treats explicit failure text as failed even when the tool wrapper reported success", () => {
+    const parsed = parseShellCommandEvidence({
+      shellCommand: createShellCommand({
+        rawToolStatus: "succeeded",
+        toolCallId: "tool-call-03",
+        outputSummary: "1 test failed"
+      })
+    });
+
+    expect(parsed).toMatchObject<Partial<ParsedShellCommand>>({
+      shellCommandId: "shell-command-01",
+      intent: "typecheck",
+      result: "failed",
+      exitCodeSource: "unknown",
+      outputTextSource: "summary",
+      rawToolStatus: "succeeded",
+      toolCallId: "tool-call-03",
+      failureMarkers: ["failed"]
+    });
+    expect(parsed.exitCode).toBeUndefined();
+  });
+
+  it("treats parsed exit code zero from shell output as pass evidence", () => {
+    const parsed = parseShellCommandEvidence({
+      shellCommand: createShellCommand({
+        rawToolStatus: "succeeded",
+        outputSummary: "Typecheck completed successfully.\nExit Code: 0"
+      })
+    });
+
+    expect(parsed).toMatchObject<Partial<ParsedShellCommand>>({
+      shellCommandId: "shell-command-01",
+      intent: "typecheck",
+      result: "passed",
+      exitCode: 0,
+      exitCodeSource: "summary",
+      outputTextSource: "summary",
+      rawToolStatus: "succeeded"
+    });
+  });
 });

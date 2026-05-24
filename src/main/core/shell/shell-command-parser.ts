@@ -39,8 +39,7 @@ export function parseShellCommandEvidence(
   const failureMarkers = collectFailureMarkers(combinedText);
   const result = determineCommandResult({
     exitCode,
-    failureMarkers,
-    rawToolStatus: input.shellCommand.rawToolStatus
+    failureMarkers
   });
   const confidence = determineConfidence({
     exitCodeSource,
@@ -128,14 +127,13 @@ function determineExitCodeSource(args: {
 function determineCommandResult(args: {
   exitCode: number | undefined;
   failureMarkers: string[];
-  rawToolStatus: string | undefined;
 }): ShellCommandResult {
   if (args.exitCode !== undefined) {
     return args.exitCode === 0 ? "passed" : "failed";
   }
 
-  if (args.rawToolStatus === "succeeded" && args.failureMarkers.length === 0) {
-    return "passed";
+  if (args.failureMarkers.length > 0) {
+    return "failed";
   }
 
   return "unknown";

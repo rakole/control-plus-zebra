@@ -99,10 +99,10 @@ export function deriveVerificationForSession(args: {
 
   if (latestStatuses.includes("failed")) {
     status = "failed";
-  } else if (latestStatuses.every((latestStatus) => latestStatus === "unknown")) {
-    status = "unknown";
-  } else {
+  } else if (latestStatuses.every((latestStatus) => latestStatus === "passed")) {
     status = "passed";
+  } else {
+    status = "unknown";
   }
 
   return {
@@ -147,7 +147,7 @@ function deriveIntentResult(
   return {
     intent,
     latestCommandId: latest.shellCommandId,
-    latestStatus: latest.result,
+    latestStatus: deriveVerificationIntentStatus(latest),
     commandIds: commands.map((command) => command.shellCommandId),
     confidence: latest.confidence,
     ...(latest.diagnosticIds?.length ? { diagnosticIds: latest.diagnosticIds } : {})
@@ -206,6 +206,24 @@ function deriveVerificationConfidence(
 
 function isVerificationIntent(intent: ShellCommandIntent): intent is VerificationIntent {
   return verificationIntents.has(intent as VerificationIntent);
+}
+
+function deriveVerificationIntentStatus(
+  command: ParsedShellCommand
+): VerificationIntentResult["latestStatus"] {
+  if (command.result === "failed") {
+    return "failed";
+  }
+
+  if (command.result === "passed" && hasExplicitSuccessfulShellOutcome(command)) {
+    return "passed";
+  }
+
+  return "unknown";
+}
+
+function hasExplicitSuccessfulShellOutcome(command: ParsedShellCommand): boolean {
+  return command.exitCode === 0;
 }
 
 function dedupeStrings(values: string[]): string[] {

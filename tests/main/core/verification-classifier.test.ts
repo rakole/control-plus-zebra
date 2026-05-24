@@ -57,7 +57,12 @@ function createMessage(overrides: Partial<SessionMessage> = {}): SessionMessage 
   };
 }
 
-function createShellCommand(overrides: Partial<ParsedShellCommand> = {}): ParsedShellCommand {
+function createShellCommand(
+  overrides: Partial<ParsedShellCommand> = {},
+  options: { includeDefaultExitCode?: boolean } = {}
+): ParsedShellCommand {
+  const includeDefaultExitCode = options.includeDefaultExitCode ?? true;
+
   return {
     shellCommandId: "shell-01",
     command: "npm run test",
@@ -65,6 +70,7 @@ function createShellCommand(overrides: Partial<ParsedShellCommand> = {}): Parsed
     result: "passed",
     outputSource: "combined",
     outputTextSource: "artifact",
+    ...(includeDefaultExitCode ? { exitCode: 0 } : {}),
     exitCodeSource: "evidence",
     failureMarkers: [],
     confidence: HIGH_CONFIDENCE,
@@ -128,6 +134,84 @@ describe("verification classifier", () => {
         latestStatus: "passed"
       })
     ]);
+  });
+
+  it("keeps verification unknown when raw tool success has no usable shell outcome", () => {
+    const result = deriveVerificationForSession({
+      adapterCapabilities: createCapabilities("supported"),
+      parsedShellCommands: [
+        createShellCommand({
+          shellCommandId: "test-unknown-01",
+          command: "npm run test",
+          intent: "test",
+          result: "passed",
+          exitCodeSource: "unknown",
+          outputTextSource: "missing",
+          rawToolStatus: "succeeded",
+          confidence: LOW_CONFIDENCE
+        },
+        { includeDefaultExitCode: false })
+      ],
+      session: createSession(),
+      sessionMessages: [createMessage()]
+    });
+
+    expect(result).toMatchObject({
+      status: "unknown",
+      confidence: LOW_CONFIDENCE
+    });
+    expect(result.intentResults).toEqual([
+      expect.objectContaining({
+        intent: "test",
+        latestCommandId: "test-unknown-01",
+        latestStatus: "unknown"
+      })
+    ]);
+    expect(result.reasonCodes).toEqual(expect.arrayContaining(["output-missing"]));
+  });
+
+  it("does not hide an unknown verification intent behind another passed intent", () => {
+    const result = deriveVerificationForSession({
+      adapterCapabilities: createCapabilities("supported"),
+      parsedShellCommands: [
+        createShellCommand({
+          shellCommandId: "test-pass-01",
+          command: "npm run test",
+          intent: "test",
+          result: "passed",
+          exitCode: 0,
+          confidence: HIGH_CONFIDENCE
+        }),
+        createShellCommand({
+          shellCommandId: "typecheck-unknown-01",
+          command: "npm run typecheck",
+          intent: "typecheck",
+          result: "unknown",
+          exitCodeSource: "unknown",
+          outputTextSource: "missing",
+          rawToolStatus: "succeeded",
+          confidence: LOW_CONFIDENCE
+        },
+        { includeDefaultExitCode: false })
+      ],
+      session: createSession(),
+      sessionMessages: [createMessage()]
+    });
+
+    expect(result.status).toBe("unknown");
+    expect(result.intentResults).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          intent: "test",
+          latestStatus: "passed"
+        }),
+        expect.objectContaining({
+          intent: "typecheck",
+          latestStatus: "unknown"
+        })
+      ])
+    );
+    expect(result.reasonCodes).toEqual(expect.arrayContaining(["output-missing"]));
   });
 
   it("marks completed runs with a terminal assistant response and no qualifying commands as not-run", () => {
