@@ -20,6 +20,12 @@ describe("gemini-cli normalization", () => {
   it("maps the representative Gemini source into shared projects, sessions, messages, tools, shell evidence, artifacts, and mutations", async () => {
     const exercised = await exerciseAdapter(geminiCliAdapter, geminiFixtureRoot);
     const { normalized } = exercised;
+    const alphaSession = normalized.sessions.find(
+      (session) => session.nativeSessionId === "11111111-1111-4111-8111-111111111111"
+    );
+    const alphaFinalMessage = normalized.messages.find(
+      (message) => message.nativeId === "assistant-final-111:8"
+    );
 
     expect(normalized.projects[0]).toMatchObject({
       adapterId: "gemini-cli",
@@ -55,9 +61,19 @@ describe("gemini-cli normalization", () => {
       path: "src/main/core/adapter-contract/types.ts",
       mutationKind: "updated"
     });
+    expect(alphaSession?.usage).toMatchObject({
+      inputTokens: 420,
+      outputTokens: 110,
+      totalTokens: 552
+    });
+    expect(alphaFinalMessage?.usage).toMatchObject({
+      inputTokens: 200,
+      outputTokens: 80,
+      totalTokens: 280
+    });
   });
 
-  it("keeps active sessions honest and surfaces missing sidecars as diagnostics", async () => {
+  it("keeps active sessions honest without requiring sidecars for inline tool results", async () => {
     const betaSource = await requireGeminiSource(geminiFixtureRoot, "beta-project");
     const artifacts = await collectGeminiArtifacts(betaSource);
     const rawEvents = (
@@ -79,9 +95,66 @@ describe("gemini-cli normalization", () => {
     );
 
     expect(normalized.sessions[0]?.lifecycleStatus).toBe("active");
-    expect(normalized.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+    expect(normalized.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
       "gemini-cli.normalize.missing-sidecar"
     );
+  });
+
+  it("surfaces missing sidecars when no inline tool-result evidence is available", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const chatPath = path.join(
+        rootPath,
+        "beta-project",
+        "chats",
+        "session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl"
+      );
+      const rewrittenRows = (await readFile(chatPath, "utf8"))
+        .split(/\r?\n/u)
+        .filter((line) => line.trim().length > 0)
+        .map((line) => {
+          const row = JSON.parse(line) as { toolCalls?: Array<Record<string, unknown>> };
+
+          for (const toolCall of row.toolCalls ?? []) {
+            delete toolCall.result;
+            delete toolCall.resultDisplay;
+          }
+
+          return JSON.stringify(row);
+        });
+
+      await writeFile(chatPath, `${rewrittenRows.join("\n")}\n`, "utf8");
+
+      const betaSource = await requireGeminiSource(rootPath, "beta-project");
+      const artifacts = await collectGeminiArtifacts(betaSource);
+      const rawEvents = (
+        await Promise.all(
+          artifacts.map((artifact) =>
+            collectAsync(
+              geminiCliAdapter.parseArtifact(
+                artifact,
+                createGeminiAdapterContext(betaSource.rootPath)
+              )
+            )
+          )
+        )
+      ).flat();
+      const normalized = await geminiCliAdapter.normalize(
+        {
+          source: betaSource,
+          artifacts,
+          rawEvents
+        },
+        createGeminiAdapterContext(betaSource.rootPath)
+      );
+
+      expect(normalized.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+        "gemini-cli.normalize.missing-sidecar"
+      );
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
   });
 
   it("preserves parse diagnostics while still normalizing remaining valid evidence", async () => {

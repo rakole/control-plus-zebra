@@ -34,7 +34,7 @@ describe("gemini-cli output artifact loading", () => {
     expect(loadedJson.text).toBe("Updated contract types and capability fields.");
   });
 
-  it("surfaces missing-sidecar diagnostics instead of fabricating output artifacts", async () => {
+  it("does not fabricate output artifacts or missing-sidecar diagnostics when inline output exists", async () => {
     const betaSource = await requireGeminiSource(geminiFixtureRoot, "beta-project");
     const artifacts = await collectGeminiArtifacts(betaSource);
     const rawEvents = (
@@ -56,7 +56,7 @@ describe("gemini-cli output artifact loading", () => {
     );
 
     expect(normalized.outputArtifacts).toEqual([]);
-    expect(normalized.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+    expect(normalized.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
       "gemini-cli.normalize.missing-sidecar"
     );
   });

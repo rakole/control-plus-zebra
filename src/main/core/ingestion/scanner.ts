@@ -753,11 +753,24 @@ async function deriveShellSessions(args: {
   const sessions = [];
 
   for (const session of args.normalized.sessions) {
+    const shellCommandOrderById = new Map(
+      (session.shellCommandIds ?? []).map((shellCommandId, index) => [
+        shellCommandId,
+        index
+      ])
+    );
     const shellCommands = args.normalized.shellCommands
       .filter((shellCommand) => shellCommand.sessionId === session.id)
       .sort((left, right) => {
-        const leftPointer = left.source?.eventId ?? left.id;
-        const rightPointer = right.source?.eventId ?? right.id;
+        const leftOrder = shellCommandOrderById.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+        const rightOrder = shellCommandOrderById.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+
+        if (leftOrder !== rightOrder) {
+          return leftOrder - rightOrder;
+        }
+
+        const leftPointer = left.source?.pointer ?? left.nativeId ?? left.id;
+        const rightPointer = right.source?.pointer ?? right.nativeId ?? right.id;
         return leftPointer.localeCompare(rightPointer);
       });
     const parsedShellCommands = [];

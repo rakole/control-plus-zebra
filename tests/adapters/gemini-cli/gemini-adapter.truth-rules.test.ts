@@ -44,7 +44,10 @@ function assertTruthStates(snapshot: CapabilityEnvelope) {
   expect(snapshot.capabilities.live.watchableArtifacts).toBe(false);
   expect(snapshot.capabilities.replay.transcriptReplay).toBe(true);
   expect(snapshot.capabilities.tools.shellCommands).toBe(true);
+  expect(snapshot.capabilities.tools.fileSearches).toBe(true);
+  expect(snapshot.capabilities.usage.tokenCounts).toBe(true);
   expect(snapshot.capabilities.audit.verificationCommandEvidence).toBe(true);
+  expect(snapshot.capabilities.audit.shellExitCodeEvidence).toBe(false);
 }
 
 describe("gemini-cli adapter truth rules", () => {

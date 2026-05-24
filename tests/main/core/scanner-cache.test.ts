@@ -241,7 +241,9 @@ describe("Scanner cache integration", () => {
     expect(failedVerificationSession?.verification?.status).toBe("failed");
     expect(failedVerificationSession?.audit?.attentionReasons).toContain("failed-verification");
     expect(
-      derivedSessions.some((session) => session.audit?.attentionReasons.includes("parser-warning"))
+      derivedSessions.every(
+        (session) => !session.audit?.attentionReasons.includes("missing-sidecar")
+      )
     ).toBe(true);
     expect(
       geminiRecords.some((record) =>
@@ -250,7 +252,7 @@ describe("Scanner cache integration", () => {
     ).toBe(true);
   });
 
-  it("persists partial derived shell summaries when a Gemini shell sidecar is missing", async () => {
+  it("persists partial derived shell summaries when a Gemini shell sidecar is missing but inline output exists", async () => {
     const { cacheStore, scanner, sourceRegistry, tempDir } = await createScannerHarness();
     const copiedGeminiRoot = path.join(tempDir, "gemini-root-missing-sidecar");
     const missingSidecarPath = path.join(
@@ -286,7 +288,7 @@ describe("Scanner cache integration", () => {
       })
     );
     expect(derivedShellCommand?.confidence.level).not.toBe("high");
-    expect(derivedShellCommand?.diagnosticIds?.length ?? 0).toBeGreaterThan(0);
+    expect(derivedShellCommand?.diagnosticIds ?? []).toEqual([]);
     expect(
       cachedRecords
         .filter((record) => record.adapterId === "gemini-cli")
@@ -295,7 +297,7 @@ describe("Scanner cache integration", () => {
             (diagnostic) => diagnostic.code === "gemini-cli.normalize.missing-sidecar"
           )
         )
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("fails verification when a fake fixture reports successful tool status with a nonzero shell exit code", async () => {
