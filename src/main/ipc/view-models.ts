@@ -2,14 +2,37 @@ import { z } from "zod";
 
 const operationChannelSchema = z.enum([
   "app:getShellState",
+  "harnesses:list",
+  "harnesses:getCapabilities",
+  "sources:list",
+  "sources:add",
+  "sources:update",
+  "sources:disable",
+  "sources:validate",
+  "sources:rescan",
+  "scanner:getStatus",
+  "scanner:rescanAll",
+  "scanner:rescanSource",
   "export:createArchive",
   "import:openArchive",
+  "dashboard:getStats",
   "overview:get",
   "projects:list",
+  "projects:get",
   "sessions:list",
+  "sessions:get",
+  "sessions:getTimeline",
   "sessions:getById",
   "sessions:getDetail",
+  "events:get",
+  "toolCalls:get",
+  "shellCommands:get",
+  "outputArtifacts:getPreview",
+  "outputArtifacts:load",
+  "audit:getRunAudit",
   "sessions:getRunAudit",
+  "git:getSnapshot",
+  "github:getSnapshot",
   "diagnostics:list",
   "dataSources:list",
   "dataSources:add",
@@ -124,6 +147,18 @@ export const evidenceSummaryViewModelSchema = z
   .strict();
 export type EvidenceSummaryViewModel = z.infer<typeof evidenceSummaryViewModelSchema>;
 
+export const evidenceMetricsViewModelSchema = z
+  .object({
+    messages: metricStateViewModelSchema,
+    toolCalls: metricStateViewModelSchema,
+    shellCommands: metricStateViewModelSchema,
+    outputArtifacts: metricStateViewModelSchema,
+    fileMutations: metricStateViewModelSchema,
+    diagnostics: metricStateViewModelSchema
+  })
+  .strict();
+export type EvidenceMetricsViewModel = z.infer<typeof evidenceMetricsViewModelSchema>;
+
 export const sanitizedErrorViewModelSchema = z
   .object({
     code: z.string().min(1),
@@ -167,9 +202,20 @@ export const overviewMetricsViewModelSchema = z
   .strict();
 export type OverviewMetricsViewModel = z.infer<typeof overviewMetricsViewModelSchema>;
 
+export const overviewUsageSummaryViewModelSchema = z
+  .object({
+    models: fieldValueViewModelSchema,
+    tokenCount: metricStateViewModelSchema
+  })
+  .strict();
+export type OverviewUsageSummaryViewModel = z.infer<
+  typeof overviewUsageSummaryViewModelSchema
+>;
+
 export const overviewViewModelSchema = z
   .object({
     metrics: overviewMetricsViewModelSchema,
+    usageSummary: overviewUsageSummaryViewModelSchema,
     harnessFilters: z.array(harnessFilterOptionViewModelSchema),
     activity: z.array(overviewActivityPointViewModelSchema)
   })
@@ -233,6 +279,16 @@ export type SessionTriageMetricsViewModel = z.infer<
   typeof sessionTriageMetricsViewModelSchema
 >;
 
+export const sessionUsageSummaryViewModelSchema = z
+  .object({
+    models: fieldValueViewModelSchema,
+    tokenCount: metricStateViewModelSchema
+  })
+  .strict();
+export type SessionUsageSummaryViewModel = z.infer<
+  typeof sessionUsageSummaryViewModelSchema
+>;
+
 const sessionBaseViewModelSchema = z
   .object({
     adapterId: z.string().min(1),
@@ -253,6 +309,8 @@ const sessionBaseViewModelSchema = z
     runAuditState: truthStateViewModelSchema,
     attentionReasons: z.array(z.string().min(1)),
     evidenceSummary: evidenceSummaryViewModelSchema,
+    evidenceMetrics: evidenceMetricsViewModelSchema,
+    usageSummary: sessionUsageSummaryViewModelSchema,
     triageMetrics: sessionTriageMetricsViewModelSchema
   })
   .strict();
@@ -848,3 +906,423 @@ export const dataSourcesResponseSchema = z.discriminatedUnion("ok", [
     .strict()
 ]);
 export type DataSourcesResponse = z.infer<typeof dataSourcesResponseSchema>;
+
+export const harnessViewModelSchema = dataSourceAdapterViewModelSchema;
+export type HarnessViewModel = z.infer<typeof harnessViewModelSchema>;
+
+export const listHarnessesRequestSchema = z.undefined();
+export type ListHarnessesRequest = z.infer<typeof listHarnessesRequestSchema>;
+
+export const listHarnessesResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      harnesses: z.array(harnessViewModelSchema)
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type ListHarnessesResponse = z.infer<typeof listHarnessesResponseSchema>;
+
+export const getHarnessCapabilitiesRequestSchema = z
+  .object({
+    adapterId: z.string().min(1).optional()
+  })
+  .strict();
+export type GetHarnessCapabilitiesRequest = z.infer<
+  typeof getHarnessCapabilitiesRequestSchema
+>;
+
+export const getHarnessCapabilitiesResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      harnesses: z.array(harnessViewModelSchema)
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type GetHarnessCapabilitiesResponse = z.infer<
+  typeof getHarnessCapabilitiesResponseSchema
+>;
+
+export const listSourcesRequestSchema = z.undefined();
+export type ListSourcesRequest = z.infer<typeof listSourcesRequestSchema>;
+
+export const addSourceRequestSchema = addDataSourceRequestSchema;
+export type AddSourceRequest = z.infer<typeof addSourceRequestSchema>;
+
+export const updateSourceRequestSchema = updateDataSourceRequestSchema;
+export type UpdateSourceRequest = z.infer<typeof updateSourceRequestSchema>;
+
+export const disableSourceRequestSchema = z
+  .object({
+    sourceId: z.string().min(1)
+  })
+  .strict();
+export type DisableSourceRequest = z.infer<typeof disableSourceRequestSchema>;
+
+export const validateSourceRequestSchema = validateDataSourceRequestSchema;
+export type ValidateSourceRequest = z.infer<typeof validateSourceRequestSchema>;
+
+export const rescanSourceRequestSchema = scanDataSourceRequestSchema;
+export type RescanSourceRequest = z.infer<typeof rescanSourceRequestSchema>;
+
+export const sourcesResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      sources: dataSourcesViewModelSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type SourcesResponse = z.infer<typeof sourcesResponseSchema>;
+
+export const scannerStatusViewModelSchema = z
+  .object({
+    status: z.enum(["idle", "scanning", "unknown"]),
+    totalSources: z.number().int().nonnegative(),
+    enabledSources: z.number().int().nonnegative(),
+    activeScans: z.number().int().nonnegative(),
+    staleSources: z.number().int().nonnegative(),
+    lastUpdatedAt: z.string().min(1).optional()
+  })
+  .strict();
+export type ScannerStatusViewModel = z.infer<typeof scannerStatusViewModelSchema>;
+
+export const getScannerStatusRequestSchema = z.undefined();
+export type GetScannerStatusRequest = z.infer<typeof getScannerStatusRequestSchema>;
+
+export const scannerStatusResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      scanner: scannerStatusViewModelSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type ScannerStatusResponse = z.infer<typeof scannerStatusResponseSchema>;
+
+export const rescanAllSourcesRequestSchema = z.undefined();
+export type RescanAllSourcesRequest = z.infer<typeof rescanAllSourcesRequestSchema>;
+
+export const getProjectRequestSchema = z
+  .object({
+    projectId: z.string().min(1)
+  })
+  .strict();
+export type GetProjectRequest = z.infer<typeof getProjectRequestSchema>;
+
+export const getProjectResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      project: projectSummaryViewModelSchema.nullable()
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type GetProjectResponse = z.infer<typeof getProjectResponseSchema>;
+
+export const getSessionRequestSchema = getSessionByIdRequestSchema;
+export type GetSessionRequest = z.infer<typeof getSessionRequestSchema>;
+
+export const getSessionResponseSchema = getSessionByIdResponseSchema;
+export type GetSessionResponse = z.infer<typeof getSessionResponseSchema>;
+
+export const getSessionTimelineRequestSchema = getSessionByIdRequestSchema;
+export type GetSessionTimelineRequest = z.infer<typeof getSessionTimelineRequestSchema>;
+
+export const sessionTimelineResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      timeline: z.array(timelineEventViewModelSchema).nullable()
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type SessionTimelineResponse = z.infer<typeof sessionTimelineResponseSchema>;
+
+export const getEventsRequestSchema = getSessionByIdRequestSchema;
+export type GetEventsRequest = z.infer<typeof getEventsRequestSchema>;
+
+export const eventsResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      events: z.array(timelineEventViewModelSchema).nullable()
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type EventsResponse = z.infer<typeof eventsResponseSchema>;
+
+export const getToolCallsRequestSchema = getSessionByIdRequestSchema;
+export type GetToolCallsRequest = z.infer<typeof getToolCallsRequestSchema>;
+
+export const toolCallsResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      toolCalls: z.array(timelineEventViewModelSchema).nullable()
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type ToolCallsResponse = z.infer<typeof toolCallsResponseSchema>;
+
+export const getShellCommandsRequestSchema = getSessionByIdRequestSchema;
+export type GetShellCommandsRequest = z.infer<typeof getShellCommandsRequestSchema>;
+
+export const shellCommandsResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      shellCommands: z.array(timelineEventViewModelSchema).nullable()
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type ShellCommandsResponse = z.infer<typeof shellCommandsResponseSchema>;
+
+export const outputArtifactRequestSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    outputArtifactId: z.string().min(1)
+  })
+  .strict();
+export type OutputArtifactRequest = z.infer<typeof outputArtifactRequestSchema>;
+
+const outputArtifactUnavailableStateSchema = z
+  .object({
+    status: z.enum(["missing", "unavailable", "unsupported", "unreadable"]),
+    outputArtifactId: z.string().min(1),
+    contentKind: z
+      .enum(["plain-text", "json-output-wrapper", "json", "binary", "unknown"])
+      .optional(),
+    mediaType: z.string().min(1).optional(),
+    reason: z.string().min(1),
+    timelineEntry: timelineEventViewModelSchema.nullable()
+  })
+  .strict();
+
+const outputArtifactPreviewReadyStateSchema = z
+  .object({
+    status: z.literal("preview-ready"),
+    outputArtifactId: z.string().min(1),
+    contentKind: z.enum(["plain-text", "json-output-wrapper", "json", "binary", "unknown"]),
+    mediaType: z.string().min(1).optional(),
+    text: z.string(),
+    truncated: z.boolean(),
+    byteLength: z.number().int().nonnegative().optional(),
+    timelineEntry: timelineEventViewModelSchema.nullable()
+  })
+  .strict();
+
+export const outputArtifactPreviewResultSchema = z.discriminatedUnion("status", [
+  outputArtifactPreviewReadyStateSchema,
+  outputArtifactUnavailableStateSchema
+]);
+export type OutputArtifactPreviewResult = z.infer<
+  typeof outputArtifactPreviewResultSchema
+>;
+
+export const outputArtifactPreviewResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      preview: outputArtifactPreviewResultSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type OutputArtifactPreviewResponse = z.infer<
+  typeof outputArtifactPreviewResponseSchema
+>;
+
+const outputArtifactLoadedStateSchema = z
+  .object({
+    status: z.literal("loaded"),
+    outputArtifactId: z.string().min(1),
+    contentKind: z.enum(["plain-text", "json-output-wrapper", "json", "binary", "unknown"]),
+    mediaType: z.string().min(1).optional(),
+    text: z.string(),
+    byteLength: z.number().int().nonnegative().optional(),
+    timelineEntry: timelineEventViewModelSchema.nullable()
+  })
+  .strict();
+
+export const outputArtifactLoadResultSchema = z.discriminatedUnion("status", [
+  outputArtifactLoadedStateSchema,
+  outputArtifactUnavailableStateSchema
+]);
+export type OutputArtifactLoadResult = z.infer<typeof outputArtifactLoadResultSchema>;
+
+export const outputArtifactLoadResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      artifact: outputArtifactLoadResultSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type OutputArtifactLoadResponse = z.infer<
+  typeof outputArtifactLoadResponseSchema
+>;
+
+export const dashboardStatsRequestSchema = getOverviewRequestSchema;
+export type DashboardStatsRequest = z.infer<typeof dashboardStatsRequestSchema>;
+
+export const dashboardStatsResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      stats: overviewViewModelSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type DashboardStatsResponse = z.infer<typeof dashboardStatsResponseSchema>;
+
+export const gitSnapshotViewModelSchema = z
+  .object({
+    projectId: z.string().min(1),
+    validatedRepoRoot: fieldValueViewModelSchema,
+    remoteUrl: fieldValueViewModelSchema,
+    status: truthStateViewModelSchema,
+    branch: fieldValueViewModelSchema,
+    head: fieldValueViewModelSchema,
+    dirtyState: truthStateViewModelSchema,
+    changedFiles: metricStateViewModelSchema,
+    untrackedFiles: metricStateViewModelSchema,
+    additions: metricStateViewModelSchema,
+    deletions: metricStateViewModelSchema
+  })
+  .strict();
+export type GitSnapshotViewModel = z.infer<typeof gitSnapshotViewModelSchema>;
+
+export const gitSnapshotRequestSchema = getProjectRequestSchema;
+export type GitSnapshotRequest = z.infer<typeof gitSnapshotRequestSchema>;
+
+export const gitSnapshotResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      snapshot: gitSnapshotViewModelSchema.nullable()
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type GitSnapshotResponse = z.infer<typeof gitSnapshotResponseSchema>;
+
+export const githubSnapshotViewModelSchema = z
+  .object({
+    projectId: z.string().min(1),
+    remoteUrl: fieldValueViewModelSchema,
+    status: truthStateViewModelSchema,
+    pullRequest: fieldValueViewModelSchema,
+    checks: fieldValueViewModelSchema,
+    reviewStatus: fieldValueViewModelSchema
+  })
+  .strict();
+export type GitHubSnapshotViewModel = z.infer<typeof githubSnapshotViewModelSchema>;
+
+export const githubSnapshotRequestSchema = getProjectRequestSchema;
+export type GitHubSnapshotRequest = z.infer<typeof githubSnapshotRequestSchema>;
+
+export const githubSnapshotResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      snapshot: githubSnapshotViewModelSchema.nullable()
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type GitHubSnapshotResponse = z.infer<typeof githubSnapshotResponseSchema>;
+
+/**
+ * @deprecated TODO(Wave 5): Remove once renderer bridge callers migrate from
+ * `overview:get` to `dashboard:getStats`.
+ */
+export type GetOverviewDeprecatedResponse = GetOverviewResponse;
+
+/**
+ * @deprecated TODO(Wave 5): Remove once renderer bridge callers migrate from
+ * `dataSources:*` to `sources:*`.
+ */
+export type DataSourcesDeprecatedResponse = DataSourcesResponse;

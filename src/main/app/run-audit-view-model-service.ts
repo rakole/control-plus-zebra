@@ -138,17 +138,22 @@ export function createRunAuditViewModelService(
               },
               {
                 label: "Qualifying Commands",
-                value: String(derived?.verification?.commandIds.length ?? 0),
+                value:
+                  preview.triageMetrics.commands.status === "value"
+                    ? String(derived?.verification?.commandIds.length ?? 0)
+                    : preview.triageMetrics.commands.displayValue,
                 tone: "neutral"
               },
               {
                 label: "Intent Results",
                 value:
-                  derived?.verification?.intentResults
-                    .map((result) =>
-                      `${result.intent}: ${humanizeResult(result.latestStatus)}`
-                    )
-                    .join(", ") || "None",
+                  preview.triageMetrics.commands.status !== "value"
+                    ? preview.triageMetrics.commands.displayValue
+                    : derived?.verification?.intentResults
+                        .map((result) =>
+                          `${result.intent}: ${humanizeResult(result.latestStatus)}`
+                        )
+                        .join(", ") || "None",
                 tone: "neutral"
               }
             ]
@@ -160,14 +165,20 @@ export function createRunAuditViewModelService(
             items: [
               {
                 label: "File Mutations",
-                value: String(fileMutations.length),
-                tone: fileMutations.length > 0 ? "info" : "neutral"
+                value: preview.evidenceMetrics.fileMutations.displayValue,
+                tone:
+                  preview.evidenceMetrics.fileMutations.status === "value" &&
+                  fileMutations.length > 0
+                    ? "info"
+                    : "neutral"
               },
               {
                 label: "Latest Paths",
                 value:
-                  fileMutations.slice(0, 3).map((mutation) => mutation.path).join(", ") ||
-                  "None",
+                  preview.evidenceMetrics.fileMutations.status === "value"
+                    ? fileMutations.slice(0, 3).map((mutation) => mutation.path).join(", ") ||
+                      "None"
+                    : preview.evidenceMetrics.fileMutations.displayValue,
                 tone: "neutral"
               }
             ]
@@ -179,13 +190,14 @@ export function createRunAuditViewModelService(
             items: [
               {
                 label: "Observed Commands",
-                value: String(commands.length),
+                value: preview.triageMetrics.commands.displayValue,
                 tone: "neutral"
               },
               {
                 label: "Failed Commands",
-                value: String(commands.filter((command) => command.result === "failed").length),
+                value: preview.triageMetrics.failedCommands.displayValue,
                 tone:
+                  preview.triageMetrics.failedCommands.status === "value" &&
                   commands.some((command) => command.result === "failed")
                     ? "danger"
                     : "positive"
@@ -193,10 +205,12 @@ export function createRunAuditViewModelService(
               {
                 label: "Recent Commands",
                 value:
-                  commands
-                    .slice(0, 3)
-                    .map((command) => `${command.command} (${humanizeResult(command.result)})`)
-                    .join(", ") || "None",
+                  preview.triageMetrics.commands.status === "value"
+                    ? commands
+                        .slice(0, 3)
+                        .map((command) => `${command.command} (${humanizeResult(command.result)})`)
+                        .join(", ") || "None"
+                    : preview.triageMetrics.commands.displayValue,
                 tone: "neutral"
               }
             ]

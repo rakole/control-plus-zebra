@@ -14,6 +14,8 @@ export interface TimelineItem {
     label: React.ReactNode;
     value: React.ReactNode;
   }>;
+  actions?: React.ReactNode;
+  detail?: React.ReactNode;
   tone?: StatusTone | undefined;
 }
 
@@ -69,10 +71,14 @@ export function Timeline({ title, items }: TimelineProps) {
                     </dl>
                   ) : null}
                 </div>
-                {item.tone ? (
-                  <StatusBadge tone={item.tone}>{item.tone}</StatusBadge>
-                ) : null}
+                <div className="flex shrink-0 items-center gap-2">
+                  {item.actions}
+                  {item.tone ? (
+                    <StatusBadge tone={item.tone}>{item.tone}</StatusBadge>
+                  ) : null}
+                </div>
               </div>
+              {item.detail ? <div className="mt-3">{item.detail}</div> : null}
             </li>
           ))}
         </ol>

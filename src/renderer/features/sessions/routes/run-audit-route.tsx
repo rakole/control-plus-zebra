@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useParams } from "react-router";
 
 import { createArchive, getRunAudit } from "../../../bridge/agent-workbench.js";
 import { ErrorState } from "../../../components/app/error-state.js";
@@ -18,6 +18,7 @@ const EXPORT_ERROR_COPY =
 
 export function RunAuditRoute() {
   const { sessionId } = useParams();
+  const location = useLocation();
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [includeRawArtifacts, setIncludeRawArtifacts] = useState(false);
@@ -101,7 +102,7 @@ export function RunAuditRoute() {
         actions={
           sessionId ? (
             <Button asChild type="button" variant="outline">
-              <Link to={`/sessions/${sessionId}`}>Open Session Detail</Link>
+              <Link to={`/sessions/${sessionId}${location.search}`}>Open Session Detail</Link>
             </Button>
           ) : null
         }

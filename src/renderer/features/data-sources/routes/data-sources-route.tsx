@@ -146,7 +146,8 @@ export function DataSourcesRoute() {
 
   function handleAddSource() {
     draftCounterRef.current += 1;
-    const selectedAdapter = adapters[0];
+    const selectedAdapter =
+      adapters[0] ?? toAdapterOption(selectedSource) ?? toAdapterOption(sources[0]);
     const draft = buildDraftSource(draftCounterRef.current, selectedAdapter);
 
     setSelectedSource(draft);
@@ -432,6 +433,20 @@ function createEditableSource(source: DataSourceViewModel): DataSourceEditorStat
   return {
     ...source,
     diagnostics: [...source.diagnostics]
+  };
+}
+
+function toAdapterOption(
+  source: DataSourceEditorState | DataSourceViewModel | null | undefined
+): DataSourceAdapterOption | undefined {
+  if (!source?.adapterId) {
+    return undefined;
+  }
+
+  return {
+    adapterId: source.adapterId,
+    displayName: source.adapterDisplayName,
+    watchSupport: source.watch
   };
 }
 

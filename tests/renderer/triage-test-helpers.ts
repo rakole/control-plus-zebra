@@ -52,6 +52,23 @@ export interface SessionSummaryFixture {
     fileMutations: number;
     diagnostics: number;
   };
+  evidenceMetrics: {
+    messages: MetricFixture;
+    toolCalls: MetricFixture;
+    shellCommands: MetricFixture;
+    outputArtifacts: MetricFixture;
+    fileMutations: MetricFixture;
+    diagnostics: MetricFixture;
+  };
+  usageSummary: {
+    models: {
+      status: string;
+      displayValue: string;
+      rawValue?: string;
+      reason?: string;
+    };
+    tokenCount: MetricFixture;
+  };
   triageMetrics: {
     toolCalls: MetricFixture;
     fileMutations: MetricFixture;
@@ -103,6 +120,10 @@ export interface RunAuditFixture {
 
 export interface OverviewFixture {
   metrics: Record<string, MetricFixture>;
+  usageSummary: {
+    models: { status: string; displayValue: string; rawValue?: string; reason?: string };
+    tokenCount: MetricFixture;
+  };
   harnessFilters: Array<{ adapterId: string; label: string; sessionCount: number }>;
   activity: Array<{ day: string; sessionCount: number; needsAttentionCount: number }>;
 }
@@ -218,12 +239,28 @@ export function buildSessionSummary(
       fileMutations: 1,
       diagnostics: 1
     },
+    evidenceMetrics: {
+      messages: { status: "value", displayValue: "3", numericValue: 3 },
+      toolCalls: { status: "value", displayValue: "2", numericValue: 2 },
+      shellCommands: { status: "value", displayValue: "1", numericValue: 1 },
+      outputArtifacts: { status: "value", displayValue: "1", numericValue: 1 },
+      fileMutations: { status: "value", displayValue: "1", numericValue: 1 },
+      diagnostics: { status: "value", displayValue: "1", numericValue: 1 }
+    },
+    usageSummary: {
+      models: {
+        status: "value",
+        displayValue: "gemini-3-flash-preview",
+        rawValue: "gemini-3-flash-preview"
+      },
+      tokenCount: { status: "value", displayValue: "280", numericValue: 280 }
+    },
     triageMetrics: {
       toolCalls: { status: "value", displayValue: "2", numericValue: 2 },
       fileMutations: { status: "value", displayValue: "1", numericValue: 1 },
       commands: { status: "value", displayValue: "1", numericValue: 1 },
       failedCommands: { status: "value", displayValue: "0", numericValue: 0 },
-      tokenCount: { status: "unsupported", displayValue: "Unsupported" }
+      tokenCount: { status: "value", displayValue: "280", numericValue: 280 }
     },
     ...overrides
   };
@@ -267,6 +304,17 @@ export function buildSessionDetail(overrides: Partial<SessionDetailFixture> = {}
         metadata: [
           { label: "Intent", value: "Typecheck" },
           { label: "Result", value: "Passed" }
+        ]
+      },
+      {
+        id: "artifact-1",
+        kind: "output-artifact" as const,
+        timestamp: "2026-05-23T10:00:05.000Z",
+        title: "Output artifact",
+        summary: "Typecheck output artifact",
+        metadata: [
+          { label: "Kind", value: "Plain Text" },
+          { label: "Reference", value: "typecheck.log" }
         ]
       }
     ],
@@ -329,6 +377,14 @@ export function buildOverview(overrides: Partial<OverviewFixture> = {}) {
       cancelledSessions: { status: "value" as const, displayValue: "1", numericValue: 1 },
       needsAttentionSessions: { status: "value" as const, displayValue: "2", numericValue: 2 },
       toolActivity: { status: "value" as const, displayValue: "4", numericValue: 4 }
+    },
+    usageSummary: {
+      models: {
+        status: "value" as const,
+        displayValue: "gemini-3-flash-preview",
+        rawValue: "gemini-3-flash-preview"
+      },
+      tokenCount: { status: "value" as const, displayValue: "560", numericValue: 560 }
     },
     harnessFilters: [
       { adapterId: "fake-test", label: "Fake Test Harness", sessionCount: 1 },
@@ -438,6 +494,39 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
   const firstPreview = options.firstPreview ?? buildSessionPreview(firstSession);
   const secondPreview =
     options.secondPreview ?? buildSessionPreview({ ...secondSession, diagnostics: [] });
+  const detailBySessionId = {
+    [firstSession.sessionId]: options.detail ?? buildSessionDetail({ session: firstPreview }),
+    [secondSession.sessionId]:
+      options.secondDetail ??
+      buildSessionDetail({
+        session: secondPreview,
+        timeline: [
+          {
+            id: "event-1",
+            kind: "message" as const,
+            timestamp: "2026-05-23T10:10:01.000Z",
+            title: "User message",
+            summary: "Summarize the last scan without losing the cancellation trail.",
+            metadata: [
+              { label: "Role", value: "User" },
+              { label: "Ordinal", value: "0" }
+            ]
+          },
+          {
+            id: "artifact-1",
+            kind: "output-artifact" as const,
+            timestamp: "2026-05-23T10:10:05.000Z",
+            title: "Output artifact",
+            summary: "Scan summary artifact",
+            metadata: [
+              { label: "Kind", value: "Plain Text" },
+              { label: "Reference", value: "scan-summary.txt" }
+            ]
+          }
+        ]
+      }),
+    ...(options.detailBySessionId ?? {})
+  };
 
   const bridge = {
     getShellState: vi.fn(),
@@ -457,9 +546,26 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
         status: "cancelled"
       }
     }),
-    getOverview: vi.fn().mockResolvedValue({
+    listHarnesses: vi.fn().mockResolvedValue({
       ok: true,
-      overview: options.overview ?? buildOverview()
+      harnesses: [
+        {
+          adapterId: "fake-test",
+          displayName: "Fake Test Harness",
+          capabilityGroups: [],
+          defaultRoots: []
+        },
+        {
+          adapterId: "gemini-cli",
+          displayName: "Gemini CLI",
+          capabilityGroups: [],
+          defaultRoots: []
+        }
+      ]
+    }),
+    getDashboardStats: vi.fn().mockResolvedValue({
+      ok: true,
+      stats: options.overview ?? buildOverview()
     }),
     listProjects: vi.fn().mockResolvedValue({
       ok: true,
@@ -469,16 +575,18 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
       ok: true,
       sessions: options.sessions ?? [firstSession, secondSession]
     }),
-    getSessionById: vi.fn().mockImplementation(({ sessionId }: { sessionId: string }) =>
+    getSession: vi.fn().mockImplementation(({ sessionId }: { sessionId: string }) =>
       Promise.resolve({
         ok: true,
         session: sessionId === secondSession.sessionId ? secondPreview : firstPreview
       })
     ),
-    getSessionDetail: vi.fn().mockResolvedValue({
-      ok: true,
-      detail: options.detail ?? buildSessionDetail()
-    }),
+    getSessionDetail: vi.fn().mockImplementation(({ sessionId }: { sessionId: string }) =>
+      Promise.resolve({
+        ok: true,
+        detail: detailBySessionId[sessionId] ?? detailBySessionId[firstSession.sessionId]
+      })
+    ),
     getRunAudit: vi.fn().mockResolvedValue({
       ok: true,
       runAudit: options.runAudit ?? buildRunAudit()
@@ -487,6 +595,45 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
       ok: true,
       diagnostics: options.diagnostics ?? buildDiagnostics()
     }),
+    listSources: vi.fn().mockResolvedValue({ ok: true, sources: { adapters: [], sources: [] } }),
+    addSource: vi.fn(),
+    updateSource: vi.fn(),
+    disableSource: vi.fn(),
+    validateSource: vi.fn(),
+    rescanSource: vi.fn(),
+    getScannerStatus: vi.fn(),
+    rescanAllSources: vi.fn(),
+    rescanScannerSource: vi.fn(),
+    getProject: vi.fn(),
+    getSessionTimeline: vi.fn(),
+    getEvents: vi.fn(),
+    getToolCalls: vi.fn(),
+    getShellCommands: vi.fn(),
+    getOutputArtifactPreview: vi.fn().mockResolvedValue({
+      ok: true,
+      preview: {
+        status: "preview-ready",
+        outputArtifactId: "artifact-1",
+        contentKind: "plain-text",
+        text: "Type checking passed.",
+        truncated: false,
+        byteLength: 21,
+        timelineEntry: null
+      }
+    }),
+    loadOutputArtifact: vi.fn().mockResolvedValue({
+      ok: true,
+      artifact: {
+        status: "loaded",
+        outputArtifactId: "artifact-1",
+        contentKind: "plain-text",
+        text: "Type checking passed.",
+        byteLength: 21,
+        timelineEntry: null
+      }
+    }),
+    getGitSnapshot: vi.fn(),
+    getGitHubSnapshot: vi.fn(),
     listDataSources: vi.fn().mockResolvedValue({ ok: true, dataSources: { adapters: [], sources: [] } }),
     addDataSource: vi.fn(),
     updateDataSource: vi.fn(),
@@ -504,12 +651,14 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
 }
 interface BridgeOptions {
   detail: SessionDetailFixture;
+  detailBySessionId: Record<string, SessionDetailFixture>;
   diagnostics: DiagnosticsFixture;
   firstPreview: SessionPreviewFixture;
   firstSession: SessionSummaryFixture;
   overview: OverviewFixture;
   projects: ProjectFixture[];
   runAudit: RunAuditFixture;
+  secondDetail: SessionDetailFixture;
   secondPreview: SessionPreviewFixture;
   secondSession: SessionSummaryFixture;
   sessions: SessionSummaryFixture[];

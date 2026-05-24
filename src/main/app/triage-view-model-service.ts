@@ -118,6 +118,7 @@ export function createTriageViewModelService(
             )
           )
         },
+        usageSummary: buildOverviewUsageSummary(data, sessions),
         harnessFilters: buildHarnessFilters(data, sessions),
         activity: buildActivitySeries(data, sessions)
       });
@@ -729,16 +730,49 @@ function buildSessionBaseViewModel(
     "tools",
     "shellCommands"
   );
+  const toolCallCapability = getGroupedCapabilityState(
+    capabilityEnvelope?.capabilities,
+    "tools",
+    "toolCalls"
+  );
+  const outputArtifactCapability = getGroupedCapabilityState(
+    capabilityEnvelope?.capabilities,
+    "tools",
+    "sidecarOutputs"
+  );
+  const fileMutationCapability = getGroupedCapabilityState(
+    capabilityEnvelope?.capabilities,
+    "tools",
+    "fileMutations"
+  );
   const tokenCountCapability = getGroupedCapabilityState(
     capabilityEnvelope?.capabilities,
     "usage",
     "tokenCounts"
+  );
+  const modelNameCapability = getGroupedCapabilityState(
+    capabilityEnvelope?.capabilities,
+    "usage",
+    "modelNames"
   );
   const derived = getDerivedSession(data, session.id);
   const firstUserPrompt =
     getSessionFirstUserPrompt(session) ?? getFirstPrompt(data, session.id);
   const projectDisplayName = getProjectDisplayName(getProjectForSession(data, session));
   const capabilityGroups = toCapabilityGroups(capabilityEnvelope?.capabilities);
+  const messageCount = data.messagesBySessionId.get(session.id)?.length ?? 0;
+  const toolCallCount = data.toolCallsBySessionId.get(session.id)?.length ?? 0;
+  const shellCommandCount = derived?.shellCommands.length ?? 0;
+  const outputArtifactCount = data.outputArtifactsBySessionId.get(session.id)?.length ?? 0;
+  const fileMutationCount = data.fileMutationsBySessionId.get(session.id)?.length ?? 0;
+  const diagnosticCount = diagnostics.length;
+  const toolCallMetric = toCapabilityCountMetric(toolCallCount, toolCallCapability);
+  const shellCommandMetric = toCapabilityCountMetric(shellCommandCount, shellCapability);
+  const outputArtifactMetric = toCapabilityCountMetric(
+    outputArtifactCount,
+    outputArtifactCapability
+  );
+  const fileMutationMetric = toCapabilityCountMetric(fileMutationCount, fileMutationCapability);
 
   return {
     adapterId: session.adapterId,
@@ -760,20 +794,29 @@ function buildSessionBaseViewModel(
     runAuditState: getRunAuditState(data, session),
     attentionReasons: getAttentionReasons(session, derived),
     evidenceSummary: {
-      messages: data.messagesBySessionId.get(session.id)?.length ?? 0,
-      toolCalls: data.toolCallsBySessionId.get(session.id)?.length ?? 0,
+      messages: messageCount,
+      toolCalls: toolCallCount,
       shellCommands: data.shellCommandsBySessionId.get(session.id)?.length ?? 0,
-      outputArtifacts: data.outputArtifactsBySessionId.get(session.id)?.length ?? 0,
-      fileMutations: data.fileMutationsBySessionId.get(session.id)?.length ?? 0,
-      diagnostics: diagnostics.length
+      outputArtifacts: outputArtifactCount,
+      fileMutations: fileMutationCount,
+      diagnostics: diagnosticCount
+    },
+    evidenceMetrics: {
+      messages: toMetricValue(messageCount),
+      toolCalls: toolCallMetric,
+      shellCommands: shellCommandMetric,
+      outputArtifacts: outputArtifactMetric,
+      fileMutations: fileMutationMetric,
+      diagnostics: toMetricValue(diagnosticCount)
+    },
+    usageSummary: {
+      models: toSessionModelsField(data, session, modelNameCapability),
+      tokenCount: toTokenCountMetric(session, tokenCountCapability)
     },
     triageMetrics: {
-      toolCalls: toMetricValue(data.toolCallsBySessionId.get(session.id)?.length ?? 0),
-      fileMutations: toMetricValue(data.fileMutationsBySessionId.get(session.id)?.length ?? 0),
-      commands:
-        shellCapability?.status === "supported"
-          ? toMetricValue(derived?.shellCommands.length ?? 0)
-          : toMetricStateFromCapability(shellCapability),
+      toolCalls: toolCallMetric,
+      fileMutations: fileMutationMetric,
+      commands: shellCommandMetric,
       failedCommands:
         shellCapability?.status === "supported"
           ? toMetricValue(
@@ -838,6 +881,65 @@ function buildActivitySeries(
       needsAttentionCount: point.needsAttentionCount
     }))
     .sort((left, right) => left.day.localeCompare(right.day));
+}
+
+function buildOverviewUsageSummary(
+  data: LoadedTriageData,
+  sessions: Session[]
+): OverviewViewModel["usageSummary"] {
+  const sessionUsage = sessions.map((session) => {
+    const capabilityEnvelope = getCapabilityEnvelope(data, session);
+
+    return {
+      modelCapability: getGroupedCapabilityState(
+        capabilityEnvelope?.capabilities,
+        "usage",
+        "modelNames"
+      ),
+      tokenCapability: getGroupedCapabilityState(
+        capabilityEnvelope?.capabilities,
+        "usage",
+        "tokenCounts"
+      ),
+      models: getSessionModelNames(data, session),
+      tokenCount: getUsageTokenCount(session)
+    };
+  });
+  const models = unique(sessionUsage.flatMap((item) => item.models));
+  const modelStatus = summarizeUsageCapability(
+    sessionUsage,
+    "modelCapability",
+    (item) => item.models.length > 0
+  );
+  const tokenStatus = summarizeUsageCapability(
+    sessionUsage,
+    "tokenCapability",
+    (item) => typeof item.tokenCount === "number"
+  );
+
+  return {
+    models:
+      modelStatus === "value" && models.length > 0
+        ? toFieldValueWithDisplay(models.join(", "), models.join(", "))
+        : toFieldState(
+            modelStatus === "unsupported" ? "Unsupported" : "Unknown",
+            modelStatus === "unsupported"
+              ? "Selected sessions do not expose model names."
+              : "Model names are not available for every selected session."
+          ),
+    tokenCount:
+      tokenStatus === "value"
+        ? toMetricValue(
+            sessionUsage.reduce((total, item) => total + (item.tokenCount ?? 0), 0)
+          )
+        : toMetricState(
+            tokenStatus === "unsupported" ? "unsupported" : "unknown",
+            tokenStatus === "unsupported" ? "Unsupported" : "Unknown",
+            tokenStatus === "unsupported"
+              ? "Selected sessions do not expose token counts."
+              : "Token counts are not available for every selected session."
+          )
+  };
 }
 
 function buildDiagnosticsBySession(
@@ -1004,6 +1106,17 @@ function toMetricStateFromCapability(
   return toMetricState("unknown", "Unknown", state?.reason);
 }
 
+function toCapabilityCountMetric(
+  value: number,
+  state?: { status: "supported" | "unsupported" | "unknown"; reason?: string }
+): MetricStateViewModel {
+  if (state?.status === "supported") {
+    return toMetricValue(value);
+  }
+
+  return toMetricStateFromCapability(state);
+}
+
 function toReasonText(values: string[] | undefined): string | undefined {
   if (!values || values.length === 0) {
     return undefined;
@@ -1161,6 +1274,27 @@ function toTokenCountMetric(
   return toMetricStateFromCapability(capability);
 }
 
+function toSessionModelsField(
+  data: LoadedTriageData,
+  session: Session,
+  capability?: { status: "supported" | "unsupported" | "unknown"; reason?: string }
+): FieldValueViewModel {
+  const models = getSessionModelNames(data, session);
+
+  if (models.length > 0) {
+    return toFieldValueWithDisplay(models.join(", "), models.join(", "));
+  }
+
+  if (capability?.status === "supported") {
+    return toFieldState("Unknown", "Model names were expected but not observed.");
+  }
+
+  return toFieldState(
+    capability?.status === "unsupported" ? "Unsupported" : "Unknown",
+    capability?.reason
+  );
+}
+
 function getUsageTokenCount(session: Session): number | undefined {
   const candidate = session as Session & {
     usage?: {
@@ -1172,4 +1306,63 @@ function getUsageTokenCount(session: Session): number | undefined {
   };
 
   return candidate.usage?.totalTokens ?? candidate.usage?.tokenCounts?.total;
+}
+
+function getSessionModelNames(
+  data: LoadedTriageData,
+  session: Session
+): string[] {
+  return unique(
+    (data.messagesBySessionId.get(session.id) ?? [])
+      .map((message) => message.modelName)
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .map((value) => sanitizeText(value))
+  );
+}
+
+function summarizeUsageCapability<TItem>(
+  items: readonly TItem[],
+  capabilityKey: keyof TItem,
+  hasValue: (item: TItem) => boolean
+): "value" | "unknown" | "unsupported" {
+  if (items.length === 0) {
+    return "unknown";
+  }
+
+  let sawSupported = false;
+  let sawUnsupported = false;
+  let sawUnknown = false;
+
+  for (const item of items) {
+    const capability = item[capabilityKey] as
+      | { status: "supported" | "unsupported" | "unknown" }
+      | undefined;
+
+    if (capability?.status === "supported") {
+      sawSupported = true;
+
+      if (!hasValue(item)) {
+        return "unknown";
+      }
+
+      continue;
+    }
+
+    if (capability?.status === "unsupported") {
+      sawUnsupported = true;
+      continue;
+    }
+
+    sawUnknown = true;
+  }
+
+  if (sawSupported && !sawUnsupported && !sawUnknown) {
+    return "value";
+  }
+
+  if (sawUnsupported && !sawSupported && !sawUnknown) {
+    return "unsupported";
+  }
+
+  return "unknown";
 }

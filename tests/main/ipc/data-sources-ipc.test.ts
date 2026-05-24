@@ -4,6 +4,7 @@ import type { ArchiveImportService } from "../../../src/main/app/archive-import-
 import type { ArchiveExportService } from "../../../src/main/app/archive-export-service.js";
 import type { DiagnosticsViewModelService } from "../../../src/main/app/diagnostics-view-model-service.js";
 import type { DataSourcesViewModelService } from "../../../src/main/app/data-sources-view-model-service.js";
+import type { OutputArtifactViewModelService } from "../../../src/main/app/output-artifact-view-model-service.js";
 import type { RunAuditViewModelService } from "../../../src/main/app/run-audit-view-model-service.js";
 import type { SessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import type { SessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
@@ -216,6 +217,10 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
         },
         toolActivity: { status: "value" as const, displayValue: "0", numericValue: 0 }
       },
+      usageSummary: {
+        models: { status: "unknown" as const, displayValue: "Unknown" },
+        tokenCount: { status: "unsupported" as const, displayValue: "Unsupported" }
+      },
       harnessFilters: [],
       activity: []
     })),
@@ -229,6 +234,20 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
         "info" | "warning" | "error"
       >,
       groups: []
+    }))
+  };
+  const outputArtifactService: OutputArtifactViewModelService = {
+    getPreview: vi.fn(async ({ outputArtifactId }) => ({
+      status: "unavailable" as const,
+      outputArtifactId,
+      reason: "Output artifact fixtures are not used by data source IPC tests.",
+      timelineEntry: null
+    })),
+    loadArtifact: vi.fn(async ({ outputArtifactId }) => ({
+      status: "unavailable" as const,
+      outputArtifactId,
+      reason: "Output artifact fixtures are not used by data source IPC tests.",
+      timelineEntry: null
     }))
   };
   const themeService: ThemeService = {
@@ -253,6 +272,7 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
     archiveExportService,
     dataSourcesService,
     diagnosticsService,
+    outputArtifactService,
     runAuditService,
     sessionService,
     sessionDetailService,
