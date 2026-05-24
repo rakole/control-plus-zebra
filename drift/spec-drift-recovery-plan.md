@@ -73,11 +73,12 @@ Acceptance checks:
 
 ## Wave 2 - Shared Model, Capabilities, And Adapter Contract Reset
 
-Goal: restore the shared contract surface before changing UI or import/export around it.
+Goal: restore the shared contract surface now that Wave 1 and the shadcn-native renderer migration have landed.
 
 Why second:
 
-- The current model and capability shapes are too small for the intended architecture. If the UI/API is repaired first, it will be forced to wrap legacy shapes and create another compatibility layer.
+- The current model and capability shapes are too small for the intended architecture. PR #10 already replaced the renderer architecture, so Wave 2 must update the new app services, renderer bridge, feature routes, and app composites only as consumers of the shared contract reset.
+- Public IPC renaming and output-artifact loading still belong to Wave 4. Wave 2 should not redesign the shadcn-native UI or collapse public API cleanup into this model/adapter-contract slice.
 
 Primary code areas:
 
@@ -90,10 +91,23 @@ Primary code areas:
 - `src/main/core/adapter-contract/types.ts`
 - `src/main/core/ingestion/normalization-validator.ts`
 - `src/main/core/cache/file-backed-cache-store.ts`
+- `src/main/app/triage-view-model-service.ts`
+- `src/main/app/data-sources-view-model-service.ts`
+- `src/main/app/session-detail-view-model-service.ts`
+- `src/main/app/run-audit-view-model-service.ts`
+- `src/main/ipc/view-models.ts`
+- `src/renderer/bridge/**`
+- `src/renderer/features/**`
+- `src/renderer/components/app/**`
 - `src/main/adapters/fake-test/**`
 - `src/main/adapters/gemini-cli/**`
+- `src/main/core/archive/archive-reader-shared.ts`
+- `src/main/adapters/archive-reader/**`
 - `tests/contract/run-adapter-contract.ts`
 - `tests/fixtures/**`
+- `tests/main/ipc/**`
+- `tests/preload/**`
+- `tests/renderer/**`
 
 Work to do:
 
@@ -114,12 +128,19 @@ Work to do:
   - `OutputArtifact`: `nativeRef`, path, `kind`, `contentKind`, preview, loaded state, source pointer.
 - Add first-class shared model exports for `ShellCommand`, `VerificationResult`, and `RunAudit` instead of leaving durable truth only as ad hoc derived-cache types. If a transitional `derived` cache remains, version it explicitly and test it as a durable contract.
 - Update `fake-test` and `gemini-cli` descriptors, normalizers, fixtures, and golden files to the new contract.
+- Update `archive-reader` capability declarations and compile-time contract touchpoints only as needed to keep the grouped capability model consistent. Do not redesign archive import/export identity in this wave; that remains Wave 5.
+- Update main-owned view-model services and IPC DTO schemas to consume the new shared model and grouped capability helpers.
+- Update the shadcn-native renderer consumers under `src/renderer/bridge/**`, `src/renderer/features/**`, and `src/renderer/components/app/**` only enough to compile and preserve existing behavior with the new DTO/model fields.
+- Preserve the PR #10 theme runtime and preload bridge exactly as a separate surface: `theme:getState`, `theme:setPreference`, `theme:stateChanged`, and `window.agentWorkbenchTheme` are not part of the Wave 2 contract reset.
 
 No-debt constraints:
 
 - Do not keep old fields like `content`, `artifactIds`, `artifactKind`, `toolName`, or `lifecycleState` as permanent aliases.
 - Do not let adapters produce `verification.state`, `runAudit.classification`, or final `attentionReasons`. Shared core owns conclusions.
 - Do not move renderer or app services directly onto adapter-private raw types.
+- Do not redesign shadcn primitives, app composites, route layout, theme runtime, or feature folder architecture.
+- Do not rename public IPC channels to `harnesses:*`, `sources:*`, `sessions:getTimeline`, `events:get`, `toolCalls:get`, `shellCommands:get`, or `outputArtifacts:*` in this wave.
+- Do not implement output artifact preview/load IPC in this wave.
 
 Acceptance checks:
 
@@ -128,6 +149,10 @@ Acceptance checks:
 - `npm run test -- --project node tests/adapters/fake-test`
 - `npm run test -- --project node tests/adapters/gemini-cli`
 - `npm run test -- --project node tests/main/core/file-backed-cache-store.test.ts`
+- `npm run test -- --project node tests/main/ipc`
+- `npm run test -- --project node tests/preload`
+- `npm run test:renderer`
+- `npm run test:boundaries`
 
 ## Wave 3 - Ingestion, Cache, Watch, And Durable Derived Truth
 
