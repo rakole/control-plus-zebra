@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 5 complete; Phase 6 not started
-last_updated: "2026-05-23T19:23:07Z"
-last_activity: 2026-05-24 - Completed Phase 5 shell, verification, audit, and regression hardening
+stopped_at: Phase 6 complete
+last_updated: "2026-05-24T03:12:00Z"
+last_activity: 2026-05-24 - Completed Phase 6 with Overview, Projects, Sessions, Session Detail, Run Audit, Diagnostics, and cross-route truth-state regressions
 progress:
   total_phases: 8
-  completed_phases: 5
-  total_plans: 27
-  completed_plans: 27
-  percent: 63
+  completed_phases: 6
+  total_plans: 32
+  completed_plans: 32
+  percent: 75
 ---
 
 # Project State
@@ -21,24 +21,24 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-23)
 
 **Core value:** Agent Workbench must truthfully classify local coding-agent runs from normalized evidence, not harness-specific assumptions.
-**Current focus:** Phase 5 - Shared Shell, Verification, and Run Audit
+**Current focus:** Phase 7 - Git, GitHub, Export, and Import
 
 ## Current Position
 
-Phase: 6 of 8 (Harness-Neutral Triage UI)
-Plan: Phase 5 complete; Phase 6 planning not started
+Phase: 7 of 8 (Git, GitHub, Export, and Import)
+Plan: Phase 6 complete; Phase 7 ready for planning
 Status: active
-Last activity: 2026-05-24 - Completed Phase 5 shell, verification, audit, and regression hardening
+Last activity: 2026-05-24 - Completed Phase 6 with Overview, Projects, Sessions, Session Detail, Run Audit, Diagnostics, and cross-route truth-state regressions
 
-Progress: [██████----] 63%
+Progress: [███████---] 75%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 27
-- Average duration: 5 min
-- Total execution time: 156 min
+- Total plans completed: 32
+- Average duration: 6 min
+- Total execution time: 191 min
 
 **By Phase:**
 
@@ -49,11 +49,12 @@ Progress: [██████----] 63%
 | 3. Source Registry, Scanner, Cache, and Data Sources UI | 11/11 | 60 min | 5 min |
 | 4. Gemini CLI Adapter End-to-End | 4/4 | 18 min | 5 min |
 | 5. Shared Shell, Verification, and Run Audit | 4/4 | 31 min | 8 min |
+| 6. Harness-Neutral Triage UI | 5/5 | 35 min | 7 min |
 
 **Recent Trend:**
 
-- Last 5 plans: 04-04, 05-01, 05-02, 05-03, 05-04
-- Trend: Phase 5 is complete; the app now derives truthful shared shell, verification, and run-audit state from fake and Gemini evidence with full regression proof
+- Last 5 plans: 06-01, 06-02, 06-03, 06-04, 06-05
+- Trend: Phase 6 is complete; the app now surfaces truthful triage routes for fake and Gemini sessions with explicit Unknown and Unsupported placeholders
 
 *Updated after each plan completion*
 
@@ -111,14 +112,24 @@ Recent decisions affecting current work:
 - Phase 5 execution: Verification now derives from qualifying shared shell summaries with latest-per-intent semantics, explicit `not-run`, and session -> source -> adapter capability precedence.
 - Phase 5 execution: Run audit now persists conservative status precedence and attention reasons internally while current session summaries/previews remain sanitized for Phase 6.
 - Phase 5 execution: Fake and Gemini regression fixtures now lock exit-code precedence, rerun recovery, incomplete claims, parser warnings, and cancelled-plus-failed-verification through the shared scanner pipeline.
+- Phase 6 context: Overview should become the triage landing page once the route exists, while Data Sources remains the setup/config surface.
+- Phase 6 context: Projects should ship in Phase 6 using normalized project/session/audit rollups and explicit `Unknown`/`Unsupported` placeholders for git/GitHub fields until Phase 7 providers land.
+- Phase 6 context: Sessions remains the fast triage surface, while Session Detail owns the chronological mixed timeline and Run Audit owns sectioned claim-vs-evidence review.
+- Phase 6 context: Diagnostics should read like an operator console with grouped actionable issues, shared warning vocabulary, and sanitized raw codes/messages.
+- Phase 6 planning: Execute in three waves - 06-01 foundation first, 06-02/06-03/06-04 in parallel after the route and DTO base lands, then 06-05 cross-route truth-state hardening.
+- Phase 6 planning: Keep all UI truth main-owned and typed through dedicated triage, session-detail, run-audit, and diagnostics services; renderer routes consume bridge DTOs only.
+- Phase 6 execution: Overview, Projects, Sessions, Session Detail, Run Audit, and Diagnostics now ship as real routes backed by dedicated main-owned view-model services and typed preload methods.
+- Phase 6 execution: Shared truth-state badges and capability-warning panels keep Unknown and Unsupported evidence explicit across every triage surface.
+- Phase 6 execution: The broader node IPC, renderer, boundary, typecheck, and lint suite passed together before closing the phase.
 
 ### Pending Todos
 
-- Begin Phase 6 planning and implementation for harness-neutral triage UI surfaces on top of the internal audit truth completed in Phase 5.
+- Plan Phase 7 for read-only git, GitHub, export, and import support over the newly completed triage surfaces.
+- Preserve Phase 6 truth-state guarantees while adding repo and GitHub context in Phase 7.
 
 ### Blockers/Concerns
 
-- Phase 6 still needs to surface the new internal audit truth without flattening capability gaps or breaking the current renderer safety boundaries.
+- Phase 7 must keep git and GitHub collection read-only and root-confidence-gated so the triage UI does not overstate repository truth.
 - Cache backend starts file-backed; revisit SQLite only if realistic fixture volume proves it necessary.
 
 ## Deferred Items
@@ -133,6 +144,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-23T19:23:07Z
-Stopped at: Phase 5 complete; Phase 6 planning not started
+Last session: 2026-05-24T03:12:00Z
+Stopped at: Phase 6 complete
 Resume file: .planning/ROADMAP.md

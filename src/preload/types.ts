@@ -1,8 +1,16 @@
 import type {
   AddDataSourceRequest,
   DataSourcesResponse,
+  GetOverviewRequest,
+  GetOverviewResponse,
   GetSessionByIdRequest,
+  GetSessionDetailResponse,
   GetSessionByIdResponse,
+  GetRunAuditResponse,
+  ListDiagnosticsRequest,
+  ListDiagnosticsResponse,
+  ListProjectsRequest,
+  ListProjectsResponse,
   ListSessionsRequest,
   ListSessionsResponse,
   ScanDataSourceRequest,
@@ -14,8 +22,13 @@ import type {
 
 export interface AgentWorkbenchBridge {
   getShellState(): Promise<ShellStateViewModel>;
+  getOverview(request?: GetOverviewRequest): Promise<GetOverviewResponse>;
+  listProjects(request?: ListProjectsRequest): Promise<ListProjectsResponse>;
   listSessions(request?: ListSessionsRequest): Promise<ListSessionsResponse>;
   getSessionById(request: GetSessionByIdRequest): Promise<GetSessionByIdResponse>;
+  getSessionDetail(request: GetSessionByIdRequest): Promise<GetSessionDetailResponse>;
+  getRunAudit(request: GetSessionByIdRequest): Promise<GetRunAuditResponse>;
+  listDiagnostics(request?: ListDiagnosticsRequest): Promise<ListDiagnosticsResponse>;
   listDataSources(): Promise<DataSourcesResponse>;
   addDataSource(request: AddDataSourceRequest): Promise<DataSourcesResponse>;
   updateDataSource(request: UpdateDataSourceRequest): Promise<DataSourcesResponse>;

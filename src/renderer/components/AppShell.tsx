@@ -12,20 +12,17 @@ interface AppShellProps {
   children: ReactNode;
 }
 
-const disabledNavigation = [
-  { label: "Overview", icon: LayoutDashboard },
-  { label: "Projects", icon: FolderKanban },
-  { label: "Diagnostics", icon: AlertCircle }
+const navigation = [
+  { label: "Overview", icon: LayoutDashboard, to: "/overview" },
+  { label: "Projects", icon: FolderKanban, to: "/projects" },
+  { label: "Data Sources", icon: Database, to: "/data-sources" },
+  { label: "Sessions", icon: Activity, to: "/sessions" },
+  { label: "Diagnostics", icon: AlertCircle, to: "/diagnostics" }
 ] as const;
-
-const routeTitles: Record<string, string> = {
-  "/data-sources": "Data Sources",
-  "/sessions": "Sessions"
-};
 
 export function AppShell({ children }: AppShellProps) {
   const location = useLocation();
-  const routeTitle = routeTitles[location.pathname] ?? "Sessions";
+  const routeTitle = getRouteTitle(location.pathname);
 
   return (
     <div className="app-shell">
@@ -37,45 +34,17 @@ export function AppShell({ children }: AppShellProps) {
           <span>Agent Workbench</span>
         </div>
         <nav className="nav-list">
-          {disabledNavigation.slice(0, 2).map((item) => (
-            <span
+          {navigation.map((item) => (
+            <NavLink
               key={item.label}
-              className="nav-item nav-item-disabled"
-              aria-disabled="true"
-              title="Available in a later phase"
+              className={({ isActive }) =>
+                isActive ? "nav-item nav-item-active" : "nav-item"
+              }
+              to={item.to}
             >
               <item.icon size={18} aria-hidden="true" />
               {item.label}
-            </span>
-          ))}
-          <NavLink
-            className={({ isActive }) =>
-              isActive ? "nav-item nav-item-active" : "nav-item"
-            }
-            to="/data-sources"
-          >
-            <Database size={18} aria-hidden="true" />
-            Data Sources
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              isActive ? "nav-item nav-item-active" : "nav-item"
-            }
-            to="/sessions"
-          >
-            <Activity size={18} aria-hidden="true" />
-            Sessions
-          </NavLink>
-          {disabledNavigation.slice(2).map((item) => (
-            <span
-              key={item.label}
-              className="nav-item nav-item-disabled"
-              aria-disabled="true"
-              title="Available in a later phase"
-            >
-              <item.icon size={18} aria-hidden="true" />
-              {item.label}
-            </span>
+            </NavLink>
           ))}
         </nav>
       </aside>
@@ -88,4 +57,29 @@ export function AppShell({ children }: AppShellProps) {
       </div>
     </div>
   );
+}
+
+function getRouteTitle(pathname: string): string {
+  if (pathname.startsWith("/sessions/") && pathname.endsWith("/run-audit")) {
+    return "Run Audit";
+  }
+
+  if (pathname.startsWith("/sessions/")) {
+    return "Session Detail";
+  }
+
+  switch (pathname) {
+    case "/overview":
+      return "Overview";
+    case "/projects":
+      return "Projects";
+    case "/data-sources":
+      return "Data Sources";
+    case "/diagnostics":
+      return "Diagnostics";
+    case "/sessions":
+      return "Sessions";
+    default:
+      return "Overview";
+  }
 }

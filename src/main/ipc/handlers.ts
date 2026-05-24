@@ -1,20 +1,44 @@
 import { z } from "zod";
 
 import {
+  createDiagnosticsViewModelService,
+  type DiagnosticsViewModelService
+} from "../app/diagnostics-view-model-service.js";
+import {
   createDataSourcesViewModelService,
   type DataSourcesViewModelService
 } from "../app/data-sources-view-model-service.js";
 import {
+  createRunAuditViewModelService,
+  type RunAuditViewModelService
+} from "../app/run-audit-view-model-service.js";
+import {
   createSessionViewModelService,
   type SessionViewModelService
 } from "../app/session-view-model-service.js";
+import {
+  createSessionDetailViewModelService,
+  type SessionDetailViewModelService
+} from "../app/session-detail-view-model-service.js";
+import {
+  createTriageViewModelService,
+  type TriageViewModelService
+} from "../app/triage-view-model-service.js";
 import { createWorkbenchRuntime } from "../app/workbench-runtime.js";
 import { IPC_CHANNELS } from "./channels.js";
 import {
   addDataSourceRequestSchema,
   dataSourcesResponseSchema,
+  getOverviewRequestSchema,
+  getOverviewResponseSchema,
   getSessionByIdRequestSchema,
   getSessionByIdResponseSchema,
+  getSessionDetailResponseSchema,
+  getRunAuditResponseSchema,
+  listDiagnosticsRequestSchema,
+  listDiagnosticsResponseSchema,
+  listProjectsRequestSchema,
+  listProjectsResponseSchema,
   listSessionsRequestSchema,
   listSessionsResponseSchema,
   setDataSourceEnabledRequestSchema,
@@ -23,7 +47,12 @@ import {
   validateDataSourceRequestSchema,
   scanDataSourceRequestSchema,
   type DataSourcesResponse,
+  type GetOverviewResponse,
   type GetSessionByIdResponse,
+  type GetSessionDetailResponse,
+  type GetRunAuditResponse,
+  type ListDiagnosticsResponse,
+  type ListProjectsResponse,
   type ListSessionsResponse,
   type SanitizedErrorViewModel,
   type ShellStateViewModel
@@ -38,7 +67,11 @@ export interface IpcMainLike {
 
 export interface IpcServices {
   dataSourcesService: DataSourcesViewModelService;
+  diagnosticsService: DiagnosticsViewModelService;
+  runAuditService: RunAuditViewModelService;
   sessionService: SessionViewModelService;
+  sessionDetailService: SessionDetailViewModelService;
+  triageService: TriageViewModelService;
 }
 
 export function registerIpcHandlers(
@@ -55,6 +88,40 @@ export function registerIpcHandlers(
     return shellStateViewModelSchema.parse(
       services.sessionService.getShellState()
     ) satisfies ShellStateViewModel;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getOverview, async (_event, payload) => {
+    const request = getOverviewRequestSchema.safeParse(payload ?? {});
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies GetOverviewResponse;
+    }
+
+    try {
+      return getOverviewResponseSchema.parse({
+        ok: true,
+        overview: await services.triageService.getOverview(request.data)
+      }) satisfies GetOverviewResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies GetOverviewResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.listProjects, async (_event, payload) => {
+    const request = listProjectsRequestSchema.safeParse(payload ?? {});
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies ListProjectsResponse;
+    }
+
+    try {
+      return listProjectsResponseSchema.parse({
+        ok: true,
+        projects: await services.triageService.listProjects(request.data)
+      }) satisfies ListProjectsResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies ListProjectsResponse;
+    }
   });
 
   ipcMain.handle(IPC_CHANNELS.listSessions, async (_event, payload) => {
@@ -94,6 +161,57 @@ export function registerIpcHandlers(
       }) satisfies GetSessionByIdResponse;
     } catch {
       return buildSessionLoadFailedError() satisfies GetSessionByIdResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getSessionDetail, async (_event, payload) => {
+    const request = getSessionByIdRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies GetSessionDetailResponse;
+    }
+
+    try {
+      return getSessionDetailResponseSchema.parse({
+        ok: true,
+        detail: await services.sessionDetailService.getSessionDetail(request.data)
+      }) satisfies GetSessionDetailResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies GetSessionDetailResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getRunAudit, async (_event, payload) => {
+    const request = getSessionByIdRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies GetRunAuditResponse;
+    }
+
+    try {
+      return getRunAuditResponseSchema.parse({
+        ok: true,
+        runAudit: await services.runAuditService.getRunAudit(request.data)
+      }) satisfies GetRunAuditResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies GetRunAuditResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.listDiagnostics, async (_event, payload) => {
+    const request = listDiagnosticsRequestSchema.safeParse(payload ?? {});
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies ListDiagnosticsResponse;
+    }
+
+    try {
+      return listDiagnosticsResponseSchema.parse({
+        ok: true,
+        diagnostics: await services.diagnosticsService.listDiagnostics(request.data)
+      }) satisfies ListDiagnosticsResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies ListDiagnosticsResponse;
     }
   });
 
@@ -169,6 +287,10 @@ function createDefaultIpcServices(): IpcServices {
 
   return {
     sessionService: createSessionViewModelService({ runtime }),
+    sessionDetailService: createSessionDetailViewModelService({ runtime }),
+    runAuditService: createRunAuditViewModelService({ runtime }),
+    triageService: createTriageViewModelService({ runtime }),
+    diagnosticsService: createDiagnosticsViewModelService({ runtime }),
     dataSourcesService: createDataSourcesViewModelService({ runtime })
   };
 }

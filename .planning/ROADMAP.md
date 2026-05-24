@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Source Registry, Scanner, Cache, and Data Sources UI** - Let users configure sources and run shared ingestion through a safe cache pipeline.
 - [x] **Phase 4: Gemini CLI Adapter End-to-End** - Parse Gemini fixtures into the same normalized flow as the fake adapter.
 - [x] **Phase 5: Shared Shell, Verification, and Run Audit** - Turn evidence into trustworthy command, verification, and audit classifications.
-- [ ] **Phase 6: Harness-Neutral Triage UI** - Deliver the user-facing dashboards, detail views, diagnostics, and capability-gated states.
+- [x] **Phase 6: Harness-Neutral Triage UI** - Deliver the user-facing dashboards, detail views, diagnostics, and capability-gated states.
 - [ ] **Phase 7: Git, GitHub, Export, and Import** - Add read-only repo/PR context plus portable archive workflows.
 - [ ] **Phase 8: Hardening, Packaging, and Readiness** - Verify the full desktop app, packaging path, and safety gates for V1.
 
@@ -164,11 +164,11 @@ Cross-cutting constraints:
 **Plans:** 5 plans
 
 Plans:
-- [ ] 06-01: Build dashboard view models and Overview/Projects/Sessions pages.
-- [ ] 06-02: Build Session Detail timeline and evidence cards.
-- [ ] 06-03: Build Run Audit page with claim-vs-evidence sections.
-- [ ] 06-04: Build Diagnostics page and capability warning patterns.
-- [ ] 06-05: Add UI tests for capability gates and adapter-neutral rendering.
+- [x] 06-01: Build dashboard view models and Overview/Projects/Sessions pages.
+- [x] 06-02: Build Session Detail timeline and evidence cards.
+- [x] 06-03: Build Run Audit page with claim-vs-evidence sections.
+- [x] 06-04: Build Diagnostics page and capability warning patterns.
+- [x] 06-05: Add UI tests for capability gates and adapter-neutral rendering.
 
 ### Phase 7: Git, GitHub, Export, and Import
 **Goal:** User can enrich audit views with safe read-only repo context, optional read-only GitHub context, and portable archives without mutating local repositories or remote PRs.
@@ -219,6 +219,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 3. Source Registry, Scanner, Cache, and Data Sources UI | 11/11 | Complete | 2026-05-23 |
 | 4. Gemini CLI Adapter End-to-End | 4/4 | Complete | 2026-05-23 |
 | 5. Shared Shell, Verification, and Run Audit | 4/4 | Complete | 2026-05-24 |
-| 6. Harness-Neutral Triage UI | 0/5 | Not started | - |
+| 6. Harness-Neutral Triage UI | 5/5 | Complete | 2026-05-24 |
 | 7. Git, GitHub, Export, and Import | 0/4 | Not started | - |
 | 8. Hardening, Packaging, and Readiness | 0/3 | Not started | - |

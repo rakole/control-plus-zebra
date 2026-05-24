@@ -77,6 +77,10 @@ The first milestone must prove neutrality before UI-heavy implementation starts:
 | Adapters emit evidence, not conclusions | Shared shell parsing, verification, and run audit must be consistent across harnesses | - Pending |
 | V1 is read-only | Keeps privacy and safety boundaries tight while the audit model matures | - Pending |
 | Unsupported capabilities render as unsupported/unknown | Prevents misleading dashboards that confuse missing evidence with zero problems | - Pending |
+| Phase 6 triage routes use dedicated main-owned view-model services and one explicit bridge method per surface | Keeps Overview, Projects, Sessions, Session Detail, Run Audit, and Diagnostics on sanitized DTOs without renderer-side derivation | Implemented in Phase 6 |
+| Session chronology and run-audit judgment stay on separate routes | Prevents the fast Sessions queue from becoming an overloaded evidence browser and keeps audit review product-facing | Implemented in Phase 6 |
+| Shared truth-state badges and capability-warning panels are reused across triage surfaces | Keeps Unknown and Unsupported evidence explicit and consistent instead of letting each page invent its own fallback language | Implemented in Phase 6 |
+| Phase 6 closes only after node IPC, renderer, boundary, typecheck, and lint suites pass together | Ensures the wider preload and routing surface stays adapter-neutral and regression-proof | Implemented in Phase 6 |
 
 ## Evolution
 
@@ -96,4 +100,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-23 after initialization*
+*Last updated: 2026-05-24 after Phase 6 execution*

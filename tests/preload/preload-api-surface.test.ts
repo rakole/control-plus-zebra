@@ -10,8 +10,13 @@ describe("preload API surface", () => {
     const typesSource = await readFile("src/preload/types.ts", "utf8");
 
     expect(typesSource).toContain("getShellState()");
+    expect(typesSource).toContain("getOverview(request?");
+    expect(typesSource).toContain("listProjects(request?");
     expect(typesSource).toContain("listSessions(request?");
     expect(typesSource).toContain("getSessionById(request");
+    expect(typesSource).toContain("getSessionDetail(request");
+    expect(typesSource).toContain("getRunAudit(request");
+    expect(typesSource).toContain("listDiagnostics(request?");
     expect(typesSource).toContain("listDataSources()");
     expect(typesSource).toContain("addDataSource(request");
     expect(typesSource).toContain("updateDataSource(request");
@@ -20,8 +25,13 @@ describe("preload API surface", () => {
     expect(typesSource).toContain("scanDataSource(request");
     expect(extractBridgeMethodNames(typesSource)).toEqual([
       "getShellState",
+      "getOverview",
+      "listProjects",
       "listSessions",
       "getSessionById",
+      "getSessionDetail",
+      "getRunAudit",
+      "listDiagnostics",
       "listDataSources",
       "addDataSource",
       "updateDataSource",
@@ -38,8 +48,13 @@ describe("preload API surface", () => {
     expect(preloadSource).toContain('contextBridge.exposeInMainWorld("agentWorkbench"');
     expect(extractBridgeMethodNames(preloadSource)).toEqual([
       "getShellState",
+      "getOverview",
+      "listProjects",
       "listSessions",
       "getSessionById",
+      "getSessionDetail",
+      "getRunAudit",
+      "listDiagnostics",
       "listDataSources",
       "addDataSource",
       "updateDataSource",
