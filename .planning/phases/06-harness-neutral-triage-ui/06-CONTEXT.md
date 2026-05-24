@@ -3,6 +3,8 @@
 **Gathered:** 2026-05-24
 **Status:** Ready for planning
 
+> Historical note (post-migration): this context document describes the Phase 6 planning-time renderer structure captured on 2026-05-24. Mentions below of `src/renderer/components/AppShell.tsx`, flat route files, and the older list/detail shell are historical phase context, not claims about the current post-migration tree.
+
 <domain>
 ## Phase Boundary
 

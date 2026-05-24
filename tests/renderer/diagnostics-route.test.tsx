@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,17 +16,69 @@ describe("Diagnostics route", () => {
     vi.clearAllMocks();
   });
 
-  it("renders grouped diagnostics and supports severity filtering", async () => {
+  it("renders grouped diagnostics through shared lists and supports severity filtering", async () => {
+    installBridgeMocks({
+      diagnostics: buildDiagnostics({
+        groups: [
+          {
+            groupId: "capability:warning",
+            title: "Capability Warnings",
+            sourceArea: "capability",
+            severity: "warning",
+            count: 1,
+            diagnostics: [
+              {
+                code: "capability.gitContextCapture",
+                severity: "warning",
+                sourceArea: "capability",
+                adapterId: "fake-test",
+                adapterDisplayName: "Fake Test Harness",
+                sessionId: "session-1",
+                sessionTitle: "Fixture session",
+                projectName: "Control Plus Zebra",
+                message: "Git Context Capture is Unsupported. Git evidence is unavailable."
+              }
+            ]
+          },
+          {
+            groupId: "cache:error",
+            title: "Cache Errors",
+            sourceArea: "cache",
+            severity: "error",
+            count: 1,
+            diagnostics: [
+              {
+                code: "cache.unreadable",
+                severity: "error",
+                sourceArea: "cache",
+                adapterId: "fake-test",
+                adapterDisplayName: "Fake Test Harness",
+                projectName: "Control Plus Zebra",
+                message: "Cache metadata could not be read."
+              }
+            ]
+          }
+        ]
+      })
+    });
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Diagnostics" })).toBeInTheDocument();
-    expect(screen.getByText("Capability Warnings")).toBeInTheDocument();
+    const route = screen.getByRole("region", { name: "Diagnostics route" });
+
+    const warningGroup = within(route).getByRole("region", { name: "Capability Warnings" });
+    expect(within(warningGroup).getByText("Git Context Capture is Unsupported. Git evidence is unavailable.")).toBeInTheDocument();
+    expect(within(warningGroup).getByText("Fake Test Harness")).toBeInTheDocument();
+
+    const errorGroup = within(route).getByRole("region", { name: "Cache Errors" });
+    expect(within(errorGroup).getByText("Cache metadata could not be read.")).toBeInTheDocument();
+    expect(within(errorGroup).getByText("error")).toBeInTheDocument();
 
     const user = userEvent.setup();
     await user.selectOptions(screen.getByRole("combobox"), "error");
-    expect(
-      await screen.findByText("No diagnostics match the current filters")
-    ).toBeInTheDocument();
+
+    expect(screen.queryByRole("region", { name: "Capability Warnings" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Cache Errors" })).toBeInTheDocument();
   });
 
   it("keeps unsupported and unknown states visible in grouped diagnostics", async () => {

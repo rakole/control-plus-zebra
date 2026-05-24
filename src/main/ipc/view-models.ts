@@ -16,7 +16,9 @@ const operationChannelSchema = z.enum([
   "dataSources:update",
   "dataSources:setEnabled",
   "dataSources:validate",
-  "dataSources:scan"
+  "dataSources:scan",
+  "theme:getState",
+  "theme:setPreference"
 ]);
 
 export const capabilityBadgeLabelSchema = z.enum(["Supported", "Unsupported", "Unknown"]);

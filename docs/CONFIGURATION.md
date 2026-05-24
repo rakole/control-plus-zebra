@@ -3,11 +3,13 @@
 
 ## Environment variables
 
-The application runtime does not currently read configuration from environment files. The only tracked environment variable reference in the repository is a test helper for refreshing golden fixtures.
+The application runtime does not currently read configuration from `.env` files. The only explicit environment-variable-like knob checked into the repository is a test helper for refreshing golden fixtures.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `UPDATE_GOLDENS` | Optional | unset | When set to `1`, `tests/adapters/fake-test/fake-adapter.golden.test.ts` rewrites `tests/fixtures/fake-test/phase1-session.normalized.json` with the latest normalized snapshot. |
+| `UPDATE_GOLDENS` | Optional | unset | When set to `1`, the fake and Gemini golden tests can rewrite their checked-in normalized fixture snapshots. |
+
+`MAIN_WINDOW_VITE_DEV_SERVER_URL` appears in `src/main/window.ts` as a dev-server signal, but it is injected by the Electron Forge and Vite toolchain rather than documented as a user-managed repo setting.
 
 ## Config file format
 
@@ -24,6 +26,7 @@ Agent Workbench is configured primarily through checked-in TypeScript and JSON f
 | `vitest.config.ts` | TypeScript | Splits tests into `node` and `renderer` projects. |
 | `tsconfig.json` | JSON | Enables strict TypeScript compilation and the `@/*` renderer path alias. |
 | `components.json` | JSON | Stores `shadcn` UI generation settings for the renderer layer. |
+| `.planning/config.json` | JSON | Stores project-local GSD workflow defaults such as `commit_docs`, verifier toggles, and execution mode. |
 
 Minimal checked-in JSON configuration example:
 
@@ -44,7 +47,8 @@ Minimal checked-in JSON configuration example:
 - No runtime environment variables are required for `npm start`, `npm run lint`, `npm run typecheck`, or the default test commands.
 - Source registration settings are required only when you add a data source through the UI or the view-model services. `src/main/core/registry/source-registry.ts` requires adapter and root path values when creating a source record.
 - Scan operations require an enabled and already validated source. `src/main/app/data-sources-view-model-service.ts` throws if a source is disabled or still invalid when `scanDataSource` is requested.
-- The `UPDATE_GOLDENS` flag is optional and affects only the fake adapter golden test.
+- Imported archives are optional and must be added through the archive import flow, not the normal add-source path. `src/main/app/data-sources-view-model-service.ts` rejects manual `archive-reader` source creation.
+- The `UPDATE_GOLDENS` flag is optional and only affects adapter golden snapshot refreshes.
 
 ## Defaults
 
@@ -52,6 +56,10 @@ Minimal checked-in JSON configuration example:
 |---------|---------|------------|
 | `WorkbenchRuntimeOptions.projectDir` | `process.cwd()` | `src/main/app/workbench-runtime.ts` |
 | `WorkbenchRuntimeOptions.appDataDir` | `path.join(projectDir, ".agent-workbench")` | `src/main/app/workbench-runtime.ts` |
+| Desktop bootstrap `appDataDir` | `app.getPath("userData")` | `src/main/electron-main.ts` |
+| Source registry path | `path.join(appDataDir, "sources.json")` | `src/main/app/workbench-runtime.ts` |
+| Raw artifact index path | `path.join(appDataDir, "raw-artifact-index.json")` | `src/main/app/workbench-runtime.ts` |
+| Normalized cache path | `path.join(appDataDir, "normalized-cache.json")` | `src/main/app/workbench-runtime.ts` |
 | New source `enabled` flag | `true` | `src/main/core/registry/source-registry.ts` |
 | Renderer window size | `1180x760`, minimum `800x680` | `src/main/window.ts` |
 | Main-process Vite target | `node24` | `vite.main.config.ts` |
@@ -63,3 +71,4 @@ Minimal checked-in JSON configuration example:
 - `src/main/security/content-security-policy.ts` switches between development and production Content Security Policy modes based on whether Electron was launched with `MAIN_WINDOW_VITE_DEV_SERVER_URL`.
 - Packaging behavior is defined in `forge.config.ts`; the current maker list only includes `@electron-forge/maker-zip` for `darwin`.
 - UI generation preferences live in `components.json`, so renderer scaffolding stays reproducible without environment-specific overrides.
+- Project-local docs and execution workflow defaults live in `.planning/config.json`, including `commit_docs: true` for this repository's current GSD setup.

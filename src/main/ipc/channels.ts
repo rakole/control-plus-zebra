@@ -14,7 +14,10 @@ export const IPC_CHANNELS = {
   updateDataSource: "dataSources:update",
   setDataSourceEnabled: "dataSources:setEnabled",
   validateDataSource: "dataSources:validate",
-  scanDataSource: "dataSources:scan"
+  scanDataSource: "dataSources:scan",
+  getThemeState: "theme:getState",
+  setThemePreference: "theme:setPreference",
+  themeStateChanged: "theme:stateChanged"
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -35,5 +38,7 @@ export const ALLOWED_IPC_CHANNELS = [
   IPC_CHANNELS.updateDataSource,
   IPC_CHANNELS.setDataSourceEnabled,
   IPC_CHANNELS.validateDataSource,
-  IPC_CHANNELS.scanDataSource
+  IPC_CHANNELS.scanDataSource,
+  IPC_CHANNELS.getThemeState,
+  IPC_CHANNELS.setThemePreference
 ] as const satisfies readonly IpcChannel[];

@@ -33,6 +33,7 @@ import {
   type TriageViewModelService
 } from "../app/triage-view-model-service.js";
 import { createWorkbenchRuntime } from "../app/workbench-runtime.js";
+import { createThemeService, type ThemeService } from "../theme/theme-service.js";
 import { IPC_CHANNELS } from "./channels.js";
 import {
   createArchiveRequestSchema,
@@ -74,6 +75,7 @@ import {
 
 type IpcHandler = (event: unknown, payload?: unknown) => unknown | Promise<unknown>;
 type IpcErrorResponse = { ok: false; error: SanitizedErrorViewModel };
+type ThemePreference = "system" | "light" | "dark";
 
 export interface IpcMainLike {
   handle(channel: string, listener: IpcHandler): void;
@@ -88,6 +90,7 @@ export interface IpcServices {
   sessionService: SessionViewModelService;
   sessionDetailService: SessionDetailViewModelService;
   triageService: TriageViewModelService;
+  themeService: ThemeService;
 }
 
 export function registerIpcHandlers(
@@ -330,6 +333,26 @@ export function registerIpcHandlers(
 
     return runDataSourcesOperation(() => services.dataSourcesService.scanDataSource(request.data));
   });
+
+  ipcMain.handle(IPC_CHANNELS.getThemeState, (_event, payload) => {
+    const request = z.undefined().safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError();
+    }
+
+    return services.themeService.getThemeState();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.setThemePreference, async (_event, payload) => {
+    const request = z.enum(["system", "light", "dark"]).safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError();
+    }
+
+    await services.themeService.setThemePreference(request.data satisfies ThemePreference);
+  });
 }
 
 function createDefaultIpcServices(): IpcServices {
@@ -343,7 +366,18 @@ function createDefaultIpcServices(): IpcServices {
     runAuditService: createRunAuditViewModelService({ runtime }),
     triageService: createTriageViewModelService({ runtime }),
     diagnosticsService: createDiagnosticsViewModelService({ runtime }),
-    dataSourcesService: createDataSourcesViewModelService({ runtime })
+    dataSourcesService: createDataSourcesViewModelService({ runtime }),
+    themeService: createThemeService({
+      nativeTheme: {
+        themeSource: "system",
+        shouldUseDarkColors: false,
+        shouldUseHighContrastColors: false,
+        on() {},
+        removeListener() {}
+      },
+      loadPreference: () => "system",
+      savePreference() {}
+    })
   };
 }
 

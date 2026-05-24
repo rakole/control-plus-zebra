@@ -24,6 +24,15 @@ import type {
   ValidateDataSourceRequest
 } from "../main/ipc/view-models.js";
 
+export type ThemePreference = "system" | "light" | "dark";
+export type EffectiveTheme = "light" | "dark";
+
+export interface ThemeState {
+  preference: ThemePreference;
+  effectiveTheme: EffectiveTheme;
+  shouldUseHighContrastColors: boolean;
+}
+
 export interface AgentWorkbenchBridge {
   getShellState(): Promise<ShellStateViewModel>;
   createArchive(request: CreateArchiveRequest): Promise<CreateArchiveResponse>;
@@ -43,8 +52,15 @@ export interface AgentWorkbenchBridge {
   scanDataSource(request: ScanDataSourceRequest): Promise<DataSourcesResponse>;
 }
 
+export interface AgentWorkbenchThemeBridge {
+  getThemeState(): Promise<ThemeState>;
+  setThemePreference(preference: ThemePreference): Promise<void>;
+  onThemeStateChanged(callback: (state: ThemeState) => void): () => void;
+}
+
 declare global {
   interface Window {
     agentWorkbench: AgentWorkbenchBridge;
+    agentWorkbenchTheme: AgentWorkbenchThemeBridge;
   }
 }

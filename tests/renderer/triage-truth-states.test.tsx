@@ -51,6 +51,7 @@ describe("triage truth states", () => {
     render(<App />);
 
     expect(await screen.findByText("Unknown")).toBeInTheDocument();
+    expect(screen.getAllByText("Unsupported").length).toBeGreaterThan(0);
     expect(screen.queryByText("Passed")).not.toBeInTheDocument();
     expect(screen.queryByText("Clean")).not.toBeInTheDocument();
   });

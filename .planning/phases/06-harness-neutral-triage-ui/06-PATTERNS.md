@@ -3,6 +3,8 @@
 **Mapped:** 2026-05-24
 **Scope:** Main-owned triage aggregation, typed IPC/preload expansion, renderer route growth, truthful unsupported/unknown states, and adapter-neutral UI coverage.
 
+Historical note: this pattern map reflects the pre-Wave 9.1 renderer layout used during Phase 6 execution. The current renderer now uses `src/renderer/components/{app,ui}`, feature-local `src/renderer/features/*/{routes,components}`, `src/renderer/routes/route-registry.tsx` as the only route-registry file, and foundation-only `src/renderer/styles.css`. Treat the path references below as phase-era implementation context, not the current renderer structure.
+
 ## Existing Patterns To Preserve
 
 | New Area | Closest Existing Analog | Pattern To Reuse |

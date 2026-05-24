@@ -7,6 +7,7 @@ import type { DataSourcesViewModelService } from "../../../src/main/app/data-sou
 import type { RunAuditViewModelService } from "../../../src/main/app/run-audit-view-model-service.js";
 import type { SessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import type { SessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
+import type { ThemeService } from "../../../src/main/theme/theme-service.js";
 import type { TriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import { IPC_CHANNELS, registerIpcHandlers } from "../../../src/main/ipc/index.js";
 import { dataSourcesResponseSchema } from "../../../src/main/ipc/view-models.js";
@@ -178,7 +179,9 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
         IPC_CHANNELS.updateDataSource,
         IPC_CHANNELS.setDataSourceEnabled,
         IPC_CHANNELS.validateDataSource,
-        IPC_CHANNELS.scanDataSource
+        IPC_CHANNELS.scanDataSource,
+        IPC_CHANNELS.getThemeState,
+        IPC_CHANNELS.setThemePreference
       ],
       adapters: []
     })),
@@ -228,6 +231,22 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
       groups: []
     }))
   };
+  const themeService: ThemeService = {
+    getThemeState() {
+      return {
+        preference: "system",
+        effectiveTheme: "light",
+        shouldUseHighContrastColors: false
+      };
+    },
+    setThemePreference() {},
+    onThemeStateChanged() {
+      return () => {};
+    },
+    registerWindow() {},
+    unregisterWindow() {},
+    dispose() {}
+  };
 
   return {
     archiveImportService,
@@ -237,6 +256,7 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
     runAuditService,
     sessionService,
     sessionDetailService,
+    themeService,
     triageService
   };
 }

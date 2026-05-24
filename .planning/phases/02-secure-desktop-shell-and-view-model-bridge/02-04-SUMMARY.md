@@ -61,6 +61,8 @@ status: complete
 
 # Phase 2 Plan 04: Sessions-First Renderer Route Summary
 
+Historical note: this summary records the Phase 2 renderer layout as it existed on 2026-05-23. After the Wave 9 renderer migration, current shared UI lives under `src/renderer/components/{app,ui}`, domain routes and components live under `src/renderer/features/*/{routes,components}`, `src/renderer/routes/` contains only `route-registry.tsx`, and `src/renderer/styles.css` is foundation-only. Keep the file/filepath list below as a phase artifact, not the current renderer map.
+
 **Bridge-backed Sessions route with read-only list/detail preview, explicit capability truth states, and renderer source-boundary proof.**
 
 ## Performance
