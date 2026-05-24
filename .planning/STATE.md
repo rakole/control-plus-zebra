@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: active
-stopped_at: Phase 6 complete
-last_updated: "2026-05-24T03:12:00Z"
-last_activity: 2026-05-24 - Completed Phase 6 with Overview, Projects, Sessions, Session Detail, Run Audit, Diagnostics, and cross-route truth-state regressions
+stopped_at: Phase 7 planned
+last_updated: "2026-05-24T06:54:57Z"
+last_activity: 2026-05-24 - Planned Phase 7 into four execution slices for read-only git, optional GitHub, archive export, and read-only archive import
 progress:
   total_phases: 8
   completed_phases: 6
-  total_plans: 32
+  total_plans: 36
   completed_plans: 32
   percent: 75
 ---
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 ## Current Position
 
 Phase: 7 of 8 (Git, GitHub, Export, and Import)
-Plan: Phase 7 context captured; ready for planning
+Plan: Phase 7 planned; 4 execution plans are ready
 Status: active
-Last activity: 2026-05-24 - Captured Phase 7 context for shared read-only git, optional GitHub snapshots, and archive export/import over the Phase 6 triage surfaces
+Last activity: 2026-05-24 - Planned Phase 7 into 07-01 git snapshots, 07-02 GitHub snapshots, 07-03 archive export, and 07-04 read-only archive import
 
 Progress: [███████---] 75%
 
@@ -125,10 +125,12 @@ Recent decisions affecting current work:
 - Phase 7 context: GitHub snapshots stay optional, read-only, and project-scoped, capturing PR, check, and review or merge summary only after validated git context exists.
 - Phase 7 context: Archive export defaults to normalized data plus diagnostics, with raw artifacts opt-in and warned as sensitive when included.
 - Phase 7 context: Imported archives register as persistent read-only `archive-reader` sources with explicit archive metadata and no live validate, scan, git, or GitHub operations.
+- Phase 7 planning: Execute in three waves - 07-01 shared git snapshots first, 07-02 and 07-03 in parallel after the git foundation lands, then 07-04 archive import once archive format and GitHub snapshot seams are fixed.
+- Phase 7 planning: Keep repo and GitHub truth project-scoped in shared derived cache, keep export normalized-only by default, and model imported archives as explicit read-only source records through a bundled `archive-reader` adapter.
 
 ### Pending Todos
 
-- Plan Phase 7 against the captured read-only git, GitHub, export, and import context.
+- Execute Phase 7 starting with 07-01 read-only git provider and root-confidence gating.
 - Preserve Phase 6 truth-state guarantees while adding repo and GitHub context in Phase 7.
 
 ### Blockers/Concerns
@@ -148,6 +150,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-24T06:05:49Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-git-github-export-and-import/07-CONTEXT.md
+Last session: 2026-05-24T06:54:57Z
+Stopped at: Phase 7 planning complete
+Resume file: .planning/phases/07-git-github-export-and-import/07-01-PLAN.md

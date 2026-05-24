@@ -184,10 +184,18 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
+**Wave 1**
 - [ ] 07-01: Implement read-only git provider and root-confidence gating.
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 07-02: Implement optional read-only GitHub provider and failure semantics.
 - [ ] 07-03: Implement harness-neutral export archive with privacy warnings.
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 07-04: Implement archive import as a read-only source.
+
+Cross-cutting constraints:
+- Repo and GitHub truth stay shared-main, project-scoped, and read-only; renderer routes consume typed DTOs only and never execute `git` or `gh` themselves.
+- Missing repo and GitHub evidence remains explicit as `Unknown`, `Unsupported`, or `No Matching PR`; no Phase 7 surface may flatten gaps into `Clean`, `Passed`, `0`, or a hidden section.
+- Raw export may include only indexed allowlisted artifacts behind an explicit privacy warning, and imported archives remain persistent read-only sources with no live validate, scan, watch, git, or GitHub operations.
 
 ### Phase 8: Hardening, Packaging, and Readiness
 **Goal:** User can run a packaged V1-ready desktop app whose smoke tests verify app launch, preload behavior, forbidden API boundaries, and end-to-end fixture audit flows.
