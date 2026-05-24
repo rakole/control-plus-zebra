@@ -5,50 +5,51 @@
     "adapter": {
       "adapterId": "fake-test",
       "capabilities": {
-        "sessionDiscovery": {
-          "status": "supported"
+        "discovery": {
+          "defaultRoots": true,
+          "projectRootMapping": "native",
+          "stableProjectId": true,
+          "stableSessionId": true
         },
-        "liveSessionObservation": {
-          "status": "unsupported",
-          "reason": "The Phase 1 fixture is static and has no live session feed."
+        "replay": {
+          "transcriptReplay": true,
+          "messageRoles": true,
+          "assistantMessages": true,
+          "lifecycleEvents": true,
+          "cancellationEvents": true,
+          "topicEvents": false,
+          "rawEventPointers": true
         },
-        "eventStreaming": {
-          "status": "unsupported",
-          "reason": "The Phase 1 fixture is parsed from a single JSON artifact."
+        "tools": {
+          "toolCalls": true,
+          "toolResults": true,
+          "fileReads": false,
+          "fileSearches": false,
+          "fileMutations": true,
+          "diffStats": false,
+          "shellCommands": true,
+          "shellOutputs": true,
+          "sidecarOutputs": true
         },
-        "messageCapture": {
-          "status": "supported"
+        "usage": {
+          "modelNames": false,
+          "tokenCounts": false,
+          "costEstimates": false
         },
-        "toolCallCapture": {
-          "status": "supported"
+        "live": {
+          "activeSessionDetection": "none",
+          "watchableArtifacts": false,
+          "incrementalParsing": false
         },
-        "shellCommandCapture": {
-          "status": "supported"
+        "audit": {
+          "agentClaimDetection": true,
+          "finalAnswerDetection": true,
+          "shellExitCodeEvidence": true,
+          "verificationCommandEvidence": true
         },
-        "outputArtifactCapture": {
-          "status": "supported"
-        },
-        "fileMutationCapture": {
-          "status": "supported"
-        },
-        "sourceValidation": {
-          "status": "supported"
-        },
-        "watchPlans": {
-          "status": "unsupported",
-          "reason": "Phase 1 does not model adapter-owned watch plans yet."
-        },
-        "gitContextCapture": {
-          "status": "unsupported",
-          "reason": "The fake fixture does not include git evidence."
-        },
-        "githubContextCapture": {
-          "status": "unsupported",
-          "reason": "The fake fixture does not include GitHub evidence."
-        },
-        "verificationSignals": {
-          "status": "unknown",
-          "reason": "The adapter emits shell evidence only; shared core derives verification later."
+        "export": {
+          "rawArtifactExport": true,
+          "normalizedExport": true
         }
       }
     },
@@ -56,50 +57,51 @@
       "adapterId": "fake-test",
       "sourceId": "source:fixture-source-01",
       "capabilities": {
-        "sessionDiscovery": {
-          "status": "supported"
+        "discovery": {
+          "defaultRoots": true,
+          "projectRootMapping": "native",
+          "stableProjectId": true,
+          "stableSessionId": true
         },
-        "liveSessionObservation": {
-          "status": "unsupported",
-          "reason": "Fixture data is static."
+        "replay": {
+          "transcriptReplay": true,
+          "messageRoles": true,
+          "assistantMessages": true,
+          "lifecycleEvents": true,
+          "cancellationEvents": true,
+          "topicEvents": false,
+          "rawEventPointers": true
         },
-        "eventStreaming": {
-          "status": "unsupported",
-          "reason": "Fixture playback is file-based."
+        "tools": {
+          "toolCalls": true,
+          "toolResults": true,
+          "fileReads": false,
+          "fileSearches": false,
+          "fileMutations": true,
+          "diffStats": false,
+          "shellCommands": true,
+          "shellOutputs": true,
+          "sidecarOutputs": true
         },
-        "messageCapture": {
-          "status": "supported"
+        "usage": {
+          "modelNames": false,
+          "tokenCounts": false,
+          "costEstimates": false
         },
-        "toolCallCapture": {
-          "status": "supported"
+        "live": {
+          "activeSessionDetection": "none",
+          "watchableArtifacts": false,
+          "incrementalParsing": false
         },
-        "shellCommandCapture": {
-          "status": "supported"
+        "audit": {
+          "agentClaimDetection": true,
+          "finalAnswerDetection": true,
+          "shellExitCodeEvidence": true,
+          "verificationCommandEvidence": true
         },
-        "outputArtifactCapture": {
-          "status": "supported"
-        },
-        "fileMutationCapture": {
-          "status": "supported"
-        },
-        "sourceValidation": {
-          "status": "supported"
-        },
-        "watchPlans": {
-          "status": "unsupported",
-          "reason": "Phase 1 does not model watch plans."
-        },
-        "gitContextCapture": {
-          "status": "unsupported",
-          "reason": "Fixture does not include git evidence."
-        },
-        "githubContextCapture": {
-          "status": "unsupported",
-          "reason": "Fixture does not include GitHub evidence."
-        },
-        "verificationSignals": {
-          "status": "unknown",
-          "reason": "Verification is derived later from shared shell evidence."
+        "export": {
+          "rawArtifactExport": true,
+          "normalizedExport": true
         }
       }
     },
@@ -109,50 +111,51 @@
         "sourceId": "source:fixture-source-01",
         "sessionId": "session:session-01",
         "capabilities": {
-          "sessionDiscovery": {
-            "status": "supported"
+          "discovery": {
+            "defaultRoots": true,
+            "projectRootMapping": "native",
+            "stableProjectId": true,
+            "stableSessionId": true
           },
-          "liveSessionObservation": {
-            "status": "unsupported",
-            "reason": "Fixture data is static."
+          "replay": {
+            "transcriptReplay": true,
+            "messageRoles": true,
+            "assistantMessages": true,
+            "lifecycleEvents": true,
+            "cancellationEvents": true,
+            "topicEvents": false,
+            "rawEventPointers": true
           },
-          "eventStreaming": {
-            "status": "unsupported",
-            "reason": "Fixture playback is file-based."
+          "tools": {
+            "toolCalls": true,
+            "toolResults": true,
+            "fileReads": false,
+            "fileSearches": false,
+            "fileMutations": true,
+            "diffStats": false,
+            "shellCommands": true,
+            "shellOutputs": true,
+            "sidecarOutputs": true
           },
-          "messageCapture": {
-            "status": "supported"
+          "usage": {
+            "modelNames": false,
+            "tokenCounts": false,
+            "costEstimates": false
           },
-          "toolCallCapture": {
-            "status": "supported"
+          "live": {
+            "activeSessionDetection": "none",
+            "watchableArtifacts": false,
+            "incrementalParsing": false
           },
-          "shellCommandCapture": {
-            "status": "supported"
+          "audit": {
+            "agentClaimDetection": true,
+            "finalAnswerDetection": true,
+            "shellExitCodeEvidence": true,
+            "verificationCommandEvidence": true
           },
-          "outputArtifactCapture": {
-            "status": "supported"
-          },
-          "fileMutationCapture": {
-            "status": "supported"
-          },
-          "sourceValidation": {
-            "status": "supported"
-          },
-          "watchPlans": {
-            "status": "unsupported",
-            "reason": "Phase 1 does not model watch plans."
-          },
-          "gitContextCapture": {
-            "status": "unsupported",
-            "reason": "Fixture does not include git evidence."
-          },
-          "githubContextCapture": {
-            "status": "unsupported",
-            "reason": "Fixture does not include GitHub evidence."
-          },
-          "verificationSignals": {
-            "status": "unknown",
-            "reason": "Verification is derived later from shared shell evidence."
+          "export": {
+            "rawArtifactExport": true,
+            "normalizedExport": true
           }
         }
       }
@@ -165,10 +168,11 @@
       "adapterId": "fake-test",
       "sourceId": "source:fixture-source-01",
       "nativeId": "project-01",
-      "name": "control-plus-zebra",
-      "rootPath": "/workspace/control-plus-zebra",
+      "displayName": "control-plus-zebra",
+      "primaryRootPath": "/workspace/control-plus-zebra",
       "confidence": {
-        "level": "high"
+        "level": "high",
+        "normalizedLevel": "confirmed"
       }
     }
   ],
@@ -182,125 +186,105 @@
       "projectId": "project:project-01",
       "title": "Phase 1 architecture proof",
       "startedAt": "2026-05-23T10:00:00.000Z",
-      "endedAt": "2026-05-23T10:00:06.000Z",
-      "lifecycleState": "completed",
+      "lastUpdatedAt": "2026-05-23T10:00:06.000Z",
+      "lifecycleStatus": "completed",
       "confidence": {
-        "level": "high"
+        "level": "high",
+        "normalizedLevel": "confirmed"
       }
     }
   ],
   "events": [
     {
-      "kind": "session-event",
+      "kind": "lifecycle",
       "id": "session-event:evt-01",
       "adapterId": "fake-test",
       "sourceId": "source:fixture-source-01",
       "sessionId": "session:session-01",
       "nativeId": "evt-01",
-      "eventKind": "lifecycle",
       "timestamp": "2026-05-23T10:00:00.000Z",
-      "ordinal": 1,
-      "summary": "Session started",
-      "confidence": {
-        "level": "high"
-      }
+      "orderKey": "000001:evt-01",
+      "actor": "harness",
+      "title": "Session started",
+      "text": "Session started"
     },
     {
-      "kind": "session-event",
+      "kind": "message",
       "id": "session-event:evt-02",
       "adapterId": "fake-test",
       "sourceId": "source:fixture-source-01",
       "sessionId": "session:session-01",
       "nativeId": "evt-02",
-      "eventKind": "message",
       "timestamp": "2026-05-23T10:00:01.000Z",
-      "ordinal": 2,
-      "summary": "user message",
-      "messageId": "session-message:evt-02",
-      "confidence": {
-        "level": "high"
-      }
+      "orderKey": "000002:evt-02",
+      "actor": "user",
+      "title": "user message",
+      "text": "user message"
     },
     {
-      "kind": "session-event",
+      "kind": "message",
       "id": "session-event:evt-03",
       "adapterId": "fake-test",
       "sourceId": "source:fixture-source-01",
       "sessionId": "session:session-01",
       "nativeId": "evt-03",
-      "eventKind": "message",
       "timestamp": "2026-05-23T10:00:02.000Z",
-      "ordinal": 3,
-      "summary": "assistant message",
-      "messageId": "session-message:evt-03",
-      "confidence": {
-        "level": "high"
-      }
+      "orderKey": "000003:evt-03",
+      "actor": "assistant",
+      "title": "assistant message",
+      "text": "assistant message"
     },
     {
-      "kind": "session-event",
+      "kind": "tool-call",
       "id": "session-event:evt-04",
       "adapterId": "fake-test",
       "sourceId": "source:fixture-source-01",
       "sessionId": "session:session-01",
       "nativeId": "evt-04",
-      "eventKind": "tool-call",
       "timestamp": "2026-05-23T10:00:03.000Z",
-      "ordinal": 4,
-      "summary": "write_file succeeded",
-      "toolCallId": "tool-call:evt-04",
-      "outputArtifactId": "output-artifact:artifact-01",
-      "fileMutationId": "file-mutation:mutation-01",
-      "confidence": {
-        "level": "high"
-      }
+      "orderKey": "000004:evt-04",
+      "actor": "tool",
+      "title": "write_file succeeded",
+      "text": "write_file succeeded"
     },
     {
-      "kind": "session-event",
+      "kind": "shell-command",
       "id": "session-event:evt-05",
       "adapterId": "fake-test",
       "sourceId": "source:fixture-source-01",
       "sessionId": "session:session-01",
       "nativeId": "evt-05",
-      "eventKind": "shell-command",
       "timestamp": "2026-05-23T10:00:04.000Z",
-      "ordinal": 5,
-      "summary": "npm run typecheck",
-      "shellCommandId": "shell-command:evt-05",
-      "confidence": {
-        "level": "high"
-      }
+      "orderKey": "000005:evt-05",
+      "actor": "harness",
+      "title": "npm run typecheck",
+      "text": "npm run typecheck"
     },
     {
-      "kind": "session-event",
+      "kind": "tool-result",
       "id": "session-event:evt-06",
       "adapterId": "fake-test",
       "sourceId": "source:fixture-source-01",
       "sessionId": "session:session-01",
       "nativeId": "evt-06",
-      "eventKind": "output-artifact",
       "timestamp": "2026-05-23T10:00:05.000Z",
-      "ordinal": 6,
-      "summary": "Implementation note saved for later audit.",
-      "outputArtifactId": "output-artifact:artifact-01",
-      "confidence": {
-        "level": "high"
-      }
+      "orderKey": "000006:evt-06",
+      "actor": "harness",
+      "title": "Implementation note saved for later audit.",
+      "text": "Implementation note saved for later audit."
     },
     {
-      "kind": "session-event",
+      "kind": "lifecycle",
       "id": "session-event:evt-07",
       "adapterId": "fake-test",
       "sourceId": "source:fixture-source-01",
       "sessionId": "session:session-01",
       "nativeId": "evt-07",
-      "eventKind": "lifecycle",
       "timestamp": "2026-05-23T10:00:06.000Z",
-      "ordinal": 7,
-      "summary": "Session completed",
-      "confidence": {
-        "level": "high"
-      }
+      "orderKey": "000007:evt-07",
+      "actor": "harness",
+      "title": "Session completed",
+      "text": "Session completed"
     }
   ],
   "messages": [
@@ -312,13 +296,12 @@
       "sessionId": "session:session-01",
       "nativeId": "evt-02",
       "role": "user",
-      "content": "Define the shared contracts and keep them harness-neutral.",
-      "ordinal": 2,
+      "text": "Define the shared contracts and keep them harness-neutral.",
       "timestamp": "2026-05-23T10:00:01.000Z",
-      "eventId": "session-event:evt-02",
-      "confidence": {
-        "level": "high"
-      }
+      "eventIds": [
+        "session-event:evt-02"
+      ],
+      "confidence": "confirmed"
     },
     {
       "kind": "session-message",
@@ -328,13 +311,12 @@
       "sessionId": "session:session-01",
       "nativeId": "evt-03",
       "role": "assistant",
-      "content": "I will add the shared contracts and prove them with a fake adapter.",
-      "ordinal": 3,
+      "text": "I will add the shared contracts and prove them with a fake adapter.",
       "timestamp": "2026-05-23T10:00:02.000Z",
-      "eventId": "session-event:evt-03",
-      "confidence": {
-        "level": "high"
-      }
+      "eventIds": [
+        "session-event:evt-03"
+      ],
+      "confidence": "confirmed"
     }
   ],
   "toolCalls": [
@@ -345,21 +327,18 @@
       "sourceId": "source:fixture-source-01",
       "sessionId": "session:session-01",
       "nativeId": "evt-04",
-      "toolName": "write_file",
-      "status": "succeeded",
-      "startedAt": "2026-05-23T10:00:03.000Z",
-      "inputSummary": "Created src/main/core/model/entities.ts",
-      "outputSummary": "Shared model scaffold written.",
-      "eventId": "session-event:evt-04",
-      "artifactIds": [
+      "nativeToolCallId": "evt-04",
+      "name": "write_file",
+      "normalizedKind": "write",
+      "statusRaw": "succeeded",
+      "statusNormalized": "completed",
+      "argsPreview": "Created src/main/core/model/entities.ts",
+      "resultPreview": "Shared model scaffold written.",
+      "outputArtifactIds": [
         "output-artifact:artifact-01"
       ],
-      "fileMutationIds": [
-        "file-mutation:mutation-01"
-      ],
-      "confidence": {
-        "level": "high"
-      }
+      "fileMutationId": "file-mutation:mutation-01",
+      "confidence": "confirmed"
     }
   ],
   "shellCommands": [
@@ -371,32 +350,25 @@
       "sessionId": "session:session-01",
       "nativeId": "evt-05",
       "command": "npm run typecheck",
-      "outputSource": "combined",
-      "exitCode": 0,
-      "startedAt": "2026-05-23T10:00:04.000Z",
-      "outputSummary": "Type checking passed.",
-      "eventId": "session-event:evt-05",
-      "confidence": {
-        "level": "high"
-      }
+      "outputInline": "Type checking passed.",
+      "rawExitCode": 0,
+      "confidence": "confirmed"
     }
   ],
   "outputArtifacts": [
     {
-      "kind": "output-artifact",
+      "kind": "sidecar",
       "id": "output-artifact:artifact-01",
       "adapterId": "fake-test",
       "sourceId": "source:fixture-source-01",
       "sessionId": "session:session-01",
       "nativeId": "artifact-01",
-      "artifactKind": "text",
+      "nativeRef": "artifacts/implementation-note.txt",
       "path": "artifacts/implementation-note.txt",
+      "contentKind": "plain-text",
       "mediaType": "text/plain",
-      "byteLength": 84,
-      "eventId": "session-event:evt-04",
-      "confidence": {
-        "level": "high"
-      }
+      "sizeBytes": 84,
+      "loaded": false
     }
   ],
   "fileMutations": [
@@ -409,11 +381,8 @@
       "nativeId": "mutation-01",
       "path": "src/main/core/model/entities.ts",
       "mutationKind": "created",
-      "eventId": "session-event:evt-04",
       "toolCallId": "tool-call:evt-04",
-      "confidence": {
-        "level": "high"
-      }
+      "confidence": "confirmed"
     }
   ],
   "diagnostics": [
@@ -426,7 +395,8 @@
       "adapterId": "fake-test",
       "sourceId": "source:fixture-source-01",
       "confidence": {
-        "level": "medium"
+        "level": "high",
+        "normalizedLevel": "confirmed"
       }
     }
   ]

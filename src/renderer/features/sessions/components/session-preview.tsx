@@ -7,7 +7,7 @@ import { MetadataGrid } from "../../../components/app/metadata-grid.js";
 import { Toolbar } from "../../../components/app/toolbar.js";
 import { TruthStateBadge } from "../../../components/app/truth-state-badge.js";
 import { formatTimestamp } from "../format.js";
-import type { SessionPreviewView } from "../types.js";
+import { flattenSessionCapabilities, type SessionPreviewView } from "../types.js";
 
 const evidenceLabels: Array<{
   key: keyof SessionPreviewView["evidenceSummary"];
@@ -58,7 +58,7 @@ export function SessionPreview({
     );
   }
 
-  const capabilityWarnings = session.capabilityBadges.filter(
+  const capabilityWarnings = flattenSessionCapabilities(session.capabilityGroups).filter(
     (badge) => badge.state !== "Supported"
   );
 
@@ -71,7 +71,7 @@ export function SessionPreview({
           </p>
           <h2 className="text-lg font-semibold text-foreground">{session.title}</h2>
           <p className="text-sm text-muted-foreground">
-            {session.projectName ?? "Unknown"} · {session.nativeSessionId}
+            {session.projectDisplayName ?? "Unknown"} · {session.nativeSessionId}
           </p>
         </div>
         <TruthStateBadge state={session.lifecycleState} />
@@ -96,7 +96,7 @@ export function SessionPreview({
           { label: "Harness", value: session.adapterDisplayName },
           { label: "Started", value: formatTimestamp(session.startedAt) ?? "Unknown" },
           { label: "Ended", value: formatTimestamp(session.endedAt) ?? "Unknown" },
-          { label: "Project", value: session.projectName ?? "Unknown" },
+          { label: "Project", value: session.projectDisplayName ?? "Unknown" },
           { label: "Verification", value: session.verificationState.label },
           { label: "Run Audit", value: session.runAuditState.label }
         ]}
@@ -107,7 +107,7 @@ export function SessionPreview({
         <div className="flex flex-wrap gap-2">
           {(capabilityWarnings.length > 0
             ? capabilityWarnings
-            : session.capabilityBadges.slice(0, 1)
+            : flattenSessionCapabilities(session.capabilityGroups).slice(0, 1)
           ).map((badge) => (
             <div
               key={badge.key}
@@ -128,7 +128,7 @@ export function SessionPreview({
         <div className="space-y-1">
           <h3 className="text-sm font-medium text-foreground">Evidence Summary</h3>
           <p className="text-xs/relaxed text-muted-foreground">
-            {session.firstPrompt ?? "No user prompt captured."}
+            {session.firstUserPrompt ?? "No user prompt captured."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

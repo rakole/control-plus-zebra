@@ -22,8 +22,8 @@ describe("Projects route", () => {
         buildProject(),
         buildProject({
           projectId: "project-2",
-          projectName: "agent-workbench-docs",
-          repoPath: {
+          projectDisplayName: "agent-workbench-docs",
+          primaryRootPath: {
             status: "value",
             displayValue: "/workspace/agent-workbench-docs",
             rawValue: "/workspace/agent-workbench-docs"

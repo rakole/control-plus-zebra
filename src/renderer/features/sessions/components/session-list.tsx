@@ -6,7 +6,7 @@ import { CapabilityBadge } from "../../../components/app/capability-badge.js";
 import { TruthStateBadge } from "../../../components/app/truth-state-badge.js";
 import { cn } from "../../../lib/utils.js";
 import { formatSessionRange } from "../format.js";
-import type { SessionSummary } from "../types.js";
+import { flattenSessionCapabilities, type SessionSummary } from "../types.js";
 
 interface SessionListProps {
   sessions: SessionSummary[];
@@ -64,7 +64,7 @@ export function SessionList({
         <div className="space-y-2 p-3">
           {sessions.map((session, index) => {
             const isSelected = session.sessionId === selectedSessionId;
-            const capabilityWarnings = session.capabilityBadges.filter(
+            const capabilityWarnings = flattenSessionCapabilities(session.capabilityGroups).filter(
               (badge) => badge.state !== "Supported"
             );
 
@@ -92,11 +92,11 @@ export function SessionList({
                         {session.title}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {session.adapterDisplayName} · {session.projectName ?? "Unknown Project"} ·{" "}
+                        {session.adapterDisplayName} · {session.projectDisplayName ?? "Unknown Project"} ·{" "}
                         {formatSessionRange(session)}
                       </p>
                       <p className="line-clamp-2 text-xs/relaxed text-muted-foreground">
-                        {session.firstPrompt ?? "No user prompt captured"}
+                        {session.firstUserPrompt ?? "No user prompt captured"}
                       </p>
                     </div>
                     <div className="flex max-w-[18rem] flex-wrap justify-end gap-1">

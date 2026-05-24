@@ -24,14 +24,22 @@ export function createGeminiArtifactContext(
   rootPath: string,
   artifacts: RawArtifactRef[]
 ): AdapterContext {
+  const allowlistedArtifacts = artifacts.flatMap((artifact) =>
+    artifact.path
+      ? [
+          {
+            artifactId: artifact.id,
+            path: artifact.path
+          }
+        ]
+      : []
+  );
+
   return {
     projectDir: process.cwd(),
     platform: process.platform,
     safeFilesystem: createSafeFilesystem({
-      allowedArtifacts: artifacts.map((artifact) => ({
-        artifactId: artifact.id,
-        path: artifact.path
-      })),
+      allowedArtifacts: allowlistedArtifacts,
       allowedRootPaths: [rootPath]
     })
   };

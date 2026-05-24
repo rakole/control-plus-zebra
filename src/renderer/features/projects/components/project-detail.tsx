@@ -51,7 +51,7 @@ export function ProjectDetail({
               Repository context
             </p>
             <h2 className="break-words text-lg font-semibold text-foreground">
-              {project.projectName}
+              {project.projectDisplayName}
             </h2>
             <p className="text-sm text-muted-foreground">
               {project.observedHarnesses.join(", ")} · {project.sessionCount} session
@@ -69,7 +69,7 @@ export function ProjectDetail({
           <SectionCard title={<h3>Repository Metadata</h3>}>
             <MetadataGrid
               items={[
-                { label: "Repo Path", value: project.repoPath.displayValue },
+                { label: "Repo Path", value: project.primaryRootPath.displayValue },
                 { label: "Validated Repo Root", value: project.validatedRepoRoot.displayValue },
                 { label: "Branch", value: project.branch.displayValue },
                 { label: "HEAD", value: project.head.displayValue },

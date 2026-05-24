@@ -111,8 +111,8 @@ function toStableNormalizedSnapshot(
       adapterId: project.adapterId,
       sourceId: stableSourceId,
       nativeId: project.nativeId,
-      name: project.name,
-      ...(project.rootPath ? { rootPath: project.rootPath } : {}),
+      displayName: project.displayName,
+      ...(project.primaryRootPath ? { primaryRootPath: project.primaryRootPath } : {}),
       confidence: project.confidence
     })),
     sessions: normalized.sessions.map((session) => ({
@@ -124,8 +124,8 @@ function toStableNormalizedSnapshot(
       ...(session.projectId ? { projectId: rewriteId(session.projectId, idMap) } : {}),
       ...(session.title ? { title: session.title } : {}),
       ...(session.startedAt ? { startedAt: session.startedAt } : {}),
-      ...(session.endedAt ? { endedAt: session.endedAt } : {}),
-      lifecycleState: session.lifecycleState,
+      ...(session.lastUpdatedAt ? { lastUpdatedAt: session.lastUpdatedAt } : {}),
+      lifecycleStatus: session.lifecycleStatus,
       confidence: session.confidence
     })),
     events: normalized.events.map((event) => ({
@@ -135,17 +135,11 @@ function toStableNormalizedSnapshot(
       sourceId: stableSourceId,
       sessionId: rewriteId(event.sessionId, idMap),
       nativeId: event.nativeId,
-      eventKind: event.eventKind,
       ...(event.timestamp ? { timestamp: event.timestamp } : {}),
-      ordinal: event.ordinal,
-      ...(event.summary ? { summary: event.summary } : {}),
-      ...(event.messageId ? { messageId: rewriteId(event.messageId, idMap) } : {}),
-      ...(event.toolCallId ? { toolCallId: rewriteId(event.toolCallId, idMap) } : {}),
-      ...(event.shellCommandId ? { shellCommandId: rewriteId(event.shellCommandId, idMap) } : {}),
-      ...(event.outputArtifactId
-        ? { outputArtifactId: rewriteId(event.outputArtifactId, idMap) }
-        : {}),
-      ...(event.fileMutationId ? { fileMutationId: rewriteId(event.fileMutationId, idMap) } : {}),
+      orderKey: event.orderKey,
+      ...(event.actor ? { actor: event.actor } : {}),
+      ...(event.title ? { title: event.title } : {}),
+      ...(event.text ? { text: event.text } : {}),
       confidence: event.confidence
     })),
     messages: normalized.messages.map((message) => ({
@@ -156,10 +150,9 @@ function toStableNormalizedSnapshot(
       sessionId: rewriteId(message.sessionId, idMap),
       nativeId: message.nativeId,
       role: message.role,
-      content: message.content,
-      ordinal: message.ordinal,
+      ...(message.text ? { text: message.text } : {}),
       ...(message.timestamp ? { timestamp: message.timestamp } : {}),
-      ...(message.eventId ? { eventId: rewriteId(message.eventId, idMap) } : {}),
+      eventIds: rewriteIdList(message.eventIds, idMap),
       confidence: message.confidence
     })),
     toolCalls: normalized.toolCalls.map((toolCall) => ({
@@ -169,17 +162,16 @@ function toStableNormalizedSnapshot(
       sourceId: stableSourceId,
       sessionId: rewriteId(toolCall.sessionId, idMap),
       nativeId: toolCall.nativeId,
-      toolName: toolCall.toolName,
-      status: toolCall.status,
-      ...(toolCall.startedAt ? { startedAt: toolCall.startedAt } : {}),
-      ...(toolCall.endedAt ? { endedAt: toolCall.endedAt } : {}),
-      ...(toolCall.inputSummary ? { inputSummary: toolCall.inputSummary } : {}),
-      ...(toolCall.outputSummary ? { outputSummary: toolCall.outputSummary } : {}),
-      ...(toolCall.eventId ? { eventId: rewriteId(toolCall.eventId, idMap) } : {}),
-      ...(toolCall.artifactIds ? { artifactIds: rewriteIdList(toolCall.artifactIds, idMap) } : {}),
-      ...(toolCall.fileMutationIds
-        ? { fileMutationIds: rewriteIdList(toolCall.fileMutationIds, idMap) }
-        : {}),
+      nativeToolCallId: toolCall.nativeToolCallId,
+      name: toolCall.name,
+      normalizedKind: toolCall.normalizedKind,
+      ...(toolCall.statusRaw ? { statusRaw: toolCall.statusRaw } : {}),
+      ...(toolCall.statusNormalized ? { statusNormalized: toolCall.statusNormalized } : {}),
+      ...(toolCall.argsPreview ? { argsPreview: toolCall.argsPreview } : {}),
+      ...(toolCall.resultPreview ? { resultPreview: toolCall.resultPreview } : {}),
+      outputArtifactIds: rewriteIdList(toolCall.outputArtifactIds, idMap),
+      ...(toolCall.fileMutationId ? { fileMutationId: rewriteId(toolCall.fileMutationId, idMap) } : {}),
+      ...(toolCall.shellCommandId ? { shellCommandId: rewriteId(toolCall.shellCommandId, idMap) } : {}),
       confidence: toolCall.confidence
     })),
     shellCommands: normalized.shellCommands.map((shellCommand) => ({
@@ -189,14 +181,13 @@ function toStableNormalizedSnapshot(
       sourceId: stableSourceId,
       sessionId: rewriteId(shellCommand.sessionId, idMap),
       nativeId: shellCommand.nativeId,
+      ...(shellCommand.toolCallId ? { toolCallId: rewriteId(shellCommand.toolCallId, idMap) } : {}),
       command: shellCommand.command,
-      outputSource: shellCommand.outputSource,
       ...(shellCommand.cwd ? { cwd: shellCommand.cwd } : {}),
-      ...(shellCommand.exitCode !== undefined ? { exitCode: shellCommand.exitCode } : {}),
-      ...(shellCommand.startedAt ? { startedAt: shellCommand.startedAt } : {}),
-      ...(shellCommand.endedAt ? { endedAt: shellCommand.endedAt } : {}),
-      ...(shellCommand.outputSummary ? { outputSummary: shellCommand.outputSummary } : {}),
-      ...(shellCommand.eventId ? { eventId: rewriteId(shellCommand.eventId, idMap) } : {}),
+      ...(shellCommand.outputInline ? { outputInline: shellCommand.outputInline } : {}),
+      outputArtifactIds: rewriteIdList(shellCommand.outputArtifactIds, idMap),
+      ...(shellCommand.rawStatus ? { rawStatus: shellCommand.rawStatus } : {}),
+      ...(shellCommand.rawExitCode !== undefined ? { rawExitCode: shellCommand.rawExitCode } : {}),
       confidence: shellCommand.confidence
     })),
     outputArtifacts: normalized.outputArtifacts.map((artifact) => ({
@@ -204,14 +195,14 @@ function toStableNormalizedSnapshot(
       id: rewriteId(artifact.id, idMap),
       adapterId: artifact.adapterId,
       sourceId: stableSourceId,
-      sessionId: rewriteId(artifact.sessionId, idMap),
+	      ...(artifact.sessionId ? { sessionId: rewriteId(artifact.sessionId, idMap) } : {}),
       nativeId: artifact.nativeId,
-      artifactKind: artifact.artifactKind,
+      ...(artifact.nativeRef ? { nativeRef: artifact.nativeRef } : {}),
       ...(artifact.path ? { path: artifact.path } : {}),
-      ...(artifact.uri ? { uri: artifact.uri } : {}),
+      ...(artifact.contentKind ? { contentKind: artifact.contentKind } : {}),
       ...(artifact.mediaType ? { mediaType: artifact.mediaType } : {}),
-      ...(artifact.byteLength !== undefined ? { byteLength: artifact.byteLength } : {}),
-      ...(artifact.eventId ? { eventId: rewriteId(artifact.eventId, idMap) } : {}),
+      ...(artifact.sizeBytes !== undefined ? { sizeBytes: artifact.sizeBytes } : {}),
+      ...(artifact.loaded !== undefined ? { loaded: artifact.loaded } : {}),
       confidence: artifact.confidence
     })),
     fileMutations: normalized.fileMutations.map((mutation) => ({
@@ -223,7 +214,6 @@ function toStableNormalizedSnapshot(
       nativeId: mutation.nativeId,
       path: mutation.path,
       mutationKind: mutation.mutationKind,
-      ...(mutation.eventId ? { eventId: rewriteId(mutation.eventId, idMap) } : {}),
       ...(mutation.toolCallId ? { toolCallId: rewriteId(mutation.toolCallId, idMap) } : {}),
       confidence: mutation.confidence
     })),

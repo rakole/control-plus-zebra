@@ -163,15 +163,15 @@ export class GitHubSnapshotProvider {
   ): ProjectGitHubSnapshotResult {
     const diagnostics = [
       buildDiagnostic(
-        project.adapterId,
+        project.adapterId ?? "unknown-adapter",
         code,
         message,
         "warning",
         "project",
         code === "github.pr.no-match" ? HIGH_CONFIDENCE : MEDIUM_CONFIDENCE,
         {
-          sourceId: project.sourceId,
-          nativeId: `${project.nativeId}:${code}`,
+          ...(project.sourceId ? { sourceId: project.sourceId } : {}),
+          nativeId: `${project.nativeId ?? project.id}:${code}`,
           relatedEntityIds: [project.id]
         }
       )

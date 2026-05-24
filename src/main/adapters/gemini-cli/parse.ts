@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type { AdapterContext, RawArtifactRef } from "../../core/adapter-contract/types.js";
+import { adapterReadTextFile } from "../../core/adapter-contract/context-helpers.js";
 import type { RawHarnessEvent } from "../../core/adapter-contract/index.js";
 import { createSafeFilesystem } from "../../core/security/safe-filesystem.js";
 import {
@@ -25,17 +26,27 @@ export async function* parseGeminiCliArtifact(
   artifact: RawArtifactRef,
   context: AdapterContext
 ): AsyncIterable<GeminiRawEvent> {
-  const safeFilesystem =
-    context.safeFilesystem ??
-    createSafeFilesystem({
-      allowedArtifactPaths: [artifact.path],
-      allowedRootPaths: [artifact.path]
-    });
-
   let artifactText: string;
 
   try {
-    artifactText = await safeFilesystem.readTextFile(artifact.path);
+    if (!artifact.path) {
+      throw new Error("Gemini artifact is missing a readable path.");
+    }
+
+    artifactText = await adapterReadTextFile(
+      {
+        ...context,
+        allowedRoots: context.allowedRoots ?? [artifact.path],
+        safeFilesystem:
+          context.safeFilesystem ??
+          createSafeFilesystem({
+            allowedArtifactPaths: [artifact.path],
+            allowedRootPaths: [artifact.path]
+          })
+      },
+      artifact.path,
+      artifact.id
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown read error";
     yield buildParseDiagnosticEvent(
@@ -66,6 +77,10 @@ export async function* parseGeminiCliArtifact(
         sourceId: artifact.sourceId,
         artifactId: artifact.id,
         kind: "gemini.project-root",
+        nativeType: "project-root",
+        raw: repoRootPath,
+        source: buildPointer(artifact),
+        diagnostics: [],
         payload: {
           kind: "project-root",
           repoRootPath,
@@ -146,7 +161,12 @@ function* parseLogsArtifact(
       sourceId: artifact.sourceId,
       artifactId: artifact.id,
       kind: "gemini.logs-entry",
+      nativeType: "logs-entry",
+      nativeId: `${artifact.nativeId ?? artifact.nativeRef ?? artifact.id}:${index}`,
       timestamp: logEntry.timestamp,
+      raw: entry,
+      source: buildPointer(artifact, undefined, index),
+      diagnostics: [],
       payload: {
         kind: "logs-entry",
         entry: logEntry,
@@ -161,7 +181,7 @@ function* parseChatArtifact(
   artifactText: string
 ): Iterable<GeminiRawEvent> {
   const lines = artifactText.split(/\r?\n/);
-  let sessionIdFromHeader = deriveSessionIdFromChatPath(artifact.path);
+  let sessionIdFromHeader = deriveSessionIdFromChatPath(artifact.path ?? artifact.nativeId ?? "");
 
   for (const [index, line] of lines.entries()) {
     const lineNumber = index + 1;
@@ -196,7 +216,12 @@ function* parseChatArtifact(
         sourceId: artifact.sourceId,
         artifactId: artifact.id,
         kind: "gemini.session-header",
+        nativeType: "session-header",
+        nativeId: headerResult.data.sessionId,
         ...(headerResult.data.startTime ? { timestamp: headerResult.data.startTime } : {}),
+        raw: parsed,
+        source: buildPointer(artifact, lineNumber),
+        diagnostics: [],
         payload: {
           kind: "session-header",
           sessionId: headerResult.data.sessionId,
@@ -220,10 +245,15 @@ function* parseChatArtifact(
         sourceId: artifact.sourceId,
         artifactId: artifact.id,
         kind: "gemini.metadata-patch",
+        nativeType: "metadata-patch",
+        nativeId: sessionIdFromHeader ?? path.basename(artifact.path ?? artifact.id),
         ...(timestamp ? { timestamp } : {}),
+        raw: parsed,
+        source: buildPointer(artifact, lineNumber),
+        diagnostics: [],
         payload: {
           kind: "metadata-patch",
-          sessionId: sessionIdFromHeader ?? path.basename(artifact.path),
+          sessionId: sessionIdFromHeader ?? path.basename(artifact.path ?? artifact.id),
           patch: metadataPatchResult.data.$set,
           origin: buildOrigin(artifact.nativeId, lineNumber)
         }
@@ -252,10 +282,15 @@ function* parseChatArtifact(
       sourceId: artifact.sourceId,
       artifactId: artifact.id,
       kind: "gemini.transcript-record",
+      nativeType: "transcript-record",
+      nativeId: transcriptResult.data.id,
       timestamp: transcriptResult.data.timestamp,
+      raw: parsed,
+      source: buildPointer(artifact, lineNumber),
+      diagnostics: [],
       payload: {
         kind: "transcript-record",
-        sessionId: sessionIdFromHeader ?? path.basename(artifact.path),
+        sessionId: sessionIdFromHeader ?? path.basename(artifact.path ?? artifact.id),
         record: transcriptResult.data,
         origin: buildOrigin(artifact.nativeId, lineNumber)
       }
@@ -267,8 +302,8 @@ function* parseToolOutputArtifact(
   artifact: RawArtifactRef,
   artifactText: string
 ): Iterable<GeminiRawEvent> {
-  const relativePath = artifact.nativeId;
-  const sessionId = deriveSessionIdFromToolOutputPath(artifact.path);
+  const relativePath = artifact.nativeId ?? artifact.nativeRef ?? artifact.id;
+  const sessionId = deriveSessionIdFromToolOutputPath(artifact.path ?? artifact.id);
 
   if (!sessionId) {
     yield buildParseDiagnosticEvent(
@@ -306,7 +341,9 @@ function* parseToolOutputArtifact(
     }
   }
 
-  const { toolCallId, toolName } = deriveToolOutputIdentity(path.basename(artifact.path));
+  const { toolCallId, toolName } = deriveToolOutputIdentity(
+    path.basename(artifact.path ?? artifact.id)
+  );
 
   yield {
     id: `${artifact.id}:tool-output`,
@@ -314,6 +351,11 @@ function* parseToolOutputArtifact(
     sourceId: artifact.sourceId,
     artifactId: artifact.id,
     kind: "gemini.tool-output-sidecar",
+    nativeType: "tool-output-sidecar",
+    nativeId: relativePath,
+    raw: artifactText,
+    source: buildPointer(artifact),
+    diagnostics: [],
     payload: {
       kind: "tool-output-sidecar",
       sessionId,
@@ -340,6 +382,14 @@ function buildParseDiagnosticEvent(
     sourceId: artifact.sourceId,
     artifactId: artifact.id,
     kind: "gemini.parse-diagnostic",
+    nativeType: "parse-diagnostic",
+    raw: {
+      code: `gemini-cli.parse.${suffix}`,
+      message,
+      sessionId
+    },
+    source: buildPointer(artifact),
+    diagnostics: [],
     payload: {
       kind: "parse-diagnostic",
       diagnostic: {
@@ -353,13 +403,27 @@ function buildParseDiagnosticEvent(
   };
 }
 
+function buildPointer(
+  artifact: RawArtifactRef,
+  lineNumber?: number,
+  index?: number
+) {
+  return {
+    rawArtifactId: artifact.id,
+    artifactPath: artifact.path,
+    nativeRef: artifact.nativeRef ?? artifact.nativeId,
+    ...(lineNumber ? { lineNumber } : {}),
+    ...(index !== undefined ? { recordIndex: index } : {})
+  };
+}
+
 function buildOrigin(
-  artifactNativeId: string,
+  artifactNativeId: string | undefined,
   lineNumber?: number,
   index?: number
 ): GeminiArtifactOrigin {
   return {
-    artifactNativeId,
+    artifactNativeId: artifactNativeId ?? "unknown-artifact",
     ...(lineNumber ? { lineNumber } : {}),
     ...(index !== undefined ? { index } : {})
   };

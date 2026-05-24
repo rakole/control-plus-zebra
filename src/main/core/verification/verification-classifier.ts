@@ -119,19 +119,16 @@ export function hasTerminalAssistantResponse(
   session: Session,
   sessionMessages: SessionMessage[]
 ): boolean {
-  if (session.lifecycleState !== "completed") {
+  if (session.lifecycleStatus !== "completed") {
     return false;
   }
 
   const orderedMessages = sessionMessages
     .filter((message) => message.sessionId === session.id)
-    .sort((left, right) => left.ordinal - right.ordinal);
+    .sort(compareMessagesForVerification);
   const lastMessage = orderedMessages.at(-1);
 
-  return (
-    lastMessage?.role === "assistant" &&
-    lastMessage.content.trim().length > 0
-  );
+  return lastMessage?.role === "assistant" && (lastMessage.text ?? "").trim().length > 0;
 }
 
 function deriveIntentResult(
@@ -160,10 +157,19 @@ function resolveShellCapabilityState(args: {
   sourceCapabilities?: CapabilityEnvelope;
 }) {
   return (
-    args.sessionCapabilities?.capabilities.shellCommandCapture ??
-    args.sourceCapabilities?.capabilities.shellCommandCapture ??
-    args.adapterCapabilities.capabilities.shellCommandCapture
+    toCapabilityState(args.sessionCapabilities?.capabilities.tools?.shellCommands) ??
+    toCapabilityState(args.sourceCapabilities?.capabilities.tools?.shellCommands) ??
+    toCapabilityState(args.adapterCapabilities.capabilities.tools?.shellCommands) ??
+    { status: "unknown" as const }
   );
+}
+
+function toCapabilityState(value: boolean | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return { status: value ? "supported" : "unsupported" } as const;
 }
 
 function collectReasonCodes(
@@ -220,6 +226,24 @@ function deriveVerificationIntentStatus(
   }
 
   return "unknown";
+}
+
+function compareMessagesForVerification(left: SessionMessage, right: SessionMessage): number {
+  const leftTimestamp = left.timestamp ?? "";
+  const rightTimestamp = right.timestamp ?? "";
+
+  if (leftTimestamp !== rightTimestamp) {
+    return leftTimestamp.localeCompare(rightTimestamp);
+  }
+
+  const leftEventId = left.eventIds?.[0] ?? "";
+  const rightEventId = right.eventIds?.[0] ?? "";
+
+  if (leftEventId !== rightEventId) {
+    return leftEventId.localeCompare(rightEventId);
+  }
+
+  return left.id.localeCompare(right.id);
 }
 
 function hasExplicitSuccessfulShellOutcome(command: ParsedShellCommand): boolean {

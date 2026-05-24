@@ -7,10 +7,10 @@ import type {
   SourceRootConfig,
   SourceRootValidation
 } from "../../core/adapter-contract/types.js";
+import { adapterStatFile } from "../../core/adapter-contract/context-helpers.js";
 import { buildDiagnostic } from "../../core/diagnostics/diagnostic.js";
 import { HIGH_CONFIDENCE } from "../../core/model/confidence.js";
 import { createRawArtifactId, createSourceId } from "../../core/model/identifiers.js";
-import { createSafeFilesystem } from "../../core/security/safe-filesystem.js";
 import { fakeTestCapabilities, fakeTestDescriptor } from "./descriptor.js";
 
 export async function validateFakeTestSourceRoot(
@@ -18,14 +18,15 @@ export async function validateFakeTestSourceRoot(
   context: AdapterContext
 ): Promise<SourceRootValidation> {
   const resolvedPath = path.resolve(root.rootPath);
-  const safeFilesystem =
-    context.safeFilesystem ??
-    createSafeFilesystem({
-      allowedRootPaths: [resolvedPath]
-    });
 
   try {
-    const fileStat = await safeFilesystem.statPath(resolvedPath);
+    const fileStat = await adapterStatFile(
+      {
+        ...context,
+        allowedRoots: context.allowedRoots ?? [resolvedPath]
+      },
+      resolvedPath
+    );
 
     if (fileStat.kind !== "file") {
       return {
@@ -98,12 +99,13 @@ export async function* discoverFakeTestArtifacts(
   source: DiscoveredHarnessSource,
   context: AdapterContext
 ): AsyncIterable<RawArtifactRef> {
-  const safeFilesystem =
-    context.safeFilesystem ??
-    createSafeFilesystem({
-      allowedRootPaths: [source.rootPath]
-    });
-  const fileStat = await safeFilesystem.statPath(source.rootPath);
+  const fileStat = await adapterStatFile(
+    {
+      ...context,
+      allowedRoots: context.allowedRoots ?? [source.rootPath]
+    },
+    source.rootPath
+  );
 
   yield {
     id: createRawArtifactId({
@@ -113,12 +115,17 @@ export async function* discoverFakeTestArtifacts(
     }),
     adapterId: source.adapterId,
     sourceId: source.id,
-    nativeId: source.rootPath,
+    nativeRef: source.rootPath,
     path: source.rootPath,
+    artifactKind: "session-log",
+    parseStrategy: "json",
+    nativeId: source.rootPath,
     artifactType: "fake-session-fixture",
     mediaType: "application/json",
+    ...(fileStat.sizeBytes !== undefined ? { sizeBytes: fileStat.sizeBytes } : {}),
     ...(fileStat.byteLength !== undefined ? { byteLength: fileStat.byteLength } : {}),
-    ...(fileStat.inode !== undefined ? { inode: fileStat.inode } : {}),
-    mtimeMs: fileStat.mtimeMs
+    ...(fileStat.inode !== undefined ? { inode: String(fileStat.inode) } : {}),
+    ...(fileStat.mtime ? { mtime: fileStat.mtime } : {}),
+    ...(fileStat.mtimeMs !== undefined ? { mtimeMs: fileStat.mtimeMs } : {})
   };
 }

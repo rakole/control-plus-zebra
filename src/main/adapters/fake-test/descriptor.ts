@@ -1,39 +1,56 @@
-import { capabilityState, type HarnessCapabilities } from "../../core/model/capabilities.js";
+import type { AdapterCapabilities, GroupedHarnessCapabilities } from "../../core/adapter-contract/types.js";
 import type { HarnessDescriptor } from "../../core/adapter-contract/session-source-adapter.js";
 
-export const fakeTestCapabilities: HarnessCapabilities = {
-  sessionDiscovery: capabilityState("supported"),
-  liveSessionObservation: capabilityState(
-    "unsupported",
-    "The Phase 1 fixture is static and has no live session feed."
-  ),
-  eventStreaming: capabilityState(
-    "unsupported",
-    "The Phase 1 fixture is parsed from a single JSON artifact."
-  ),
-  messageCapture: capabilityState("supported"),
-  toolCallCapture: capabilityState("supported"),
-  shellCommandCapture: capabilityState("supported"),
-  outputArtifactCapture: capabilityState("supported"),
-  fileMutationCapture: capabilityState("supported"),
-  sourceValidation: capabilityState("supported"),
-  watchPlans: capabilityState(
-    "unsupported",
-    "Phase 1 does not model adapter-owned watch plans yet."
-  ),
-  gitContextCapture: capabilityState(
-    "unsupported",
-    "The fake fixture does not include git evidence."
-  ),
-  githubContextCapture: capabilityState(
-    "unsupported",
-    "The fake fixture does not include GitHub evidence."
-  ),
-  verificationSignals: capabilityState(
-    "unknown",
-    "The adapter emits shell evidence only; shared core derives verification later."
-  )
-};
+const fakeTestCapabilityGroups = {
+  discovery: {
+    defaultRoots: true,
+    projectRootMapping: "native",
+    stableProjectId: true,
+    stableSessionId: true
+  },
+  replay: {
+    transcriptReplay: true,
+    messageRoles: true,
+    assistantMessages: true,
+    lifecycleEvents: true,
+    cancellationEvents: true,
+    topicEvents: false,
+    rawEventPointers: true
+  },
+  tools: {
+    toolCalls: true,
+    toolResults: true,
+    fileReads: false,
+    fileSearches: false,
+    fileMutations: true,
+    diffStats: false,
+    shellCommands: true,
+    shellOutputs: true,
+    sidecarOutputs: true
+  },
+  usage: {
+    modelNames: false,
+    tokenCounts: false,
+    costEstimates: false
+  },
+  live: {
+    activeSessionDetection: "none",
+    watchableArtifacts: false,
+    incrementalParsing: false
+  },
+  audit: {
+    agentClaimDetection: true,
+    finalAnswerDetection: true,
+    shellExitCodeEvidence: true,
+    verificationCommandEvidence: true
+  },
+  export: {
+    rawArtifactExport: true,
+    normalizedExport: true
+  }
+} satisfies GroupedHarnessCapabilities;
+
+export const fakeTestCapabilities: AdapterCapabilities = fakeTestCapabilityGroups;
 
 export const fakeTestDescriptor: HarnessDescriptor = {
   id: "fake-test",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { capabilityState, type CapabilityEnvelope } from "../../../src/main/core/model/capabilities.js";
+import type { CapabilityEnvelope } from "../../../src/main/core/model/capabilities.js";
 import { HIGH_CONFIDENCE, LOW_CONFIDENCE } from "../../../src/main/core/model/confidence.js";
 import type { Diagnostic } from "../../../src/main/core/diagnostics/diagnostic.js";
 import type {
@@ -18,20 +18,53 @@ function createCapabilities(gitStatus: "supported" | "unsupported" | "unknown"):
   return {
     adapterId: "fake-test",
     sourceId: "source-01",
-    capabilities: {
-      sessionDiscovery: capabilityState("supported"),
-      liveSessionObservation: capabilityState("unsupported"),
-      eventStreaming: capabilityState("unsupported"),
-      messageCapture: capabilityState("supported"),
-      toolCallCapture: capabilityState("supported"),
-      shellCommandCapture: capabilityState("supported"),
-      outputArtifactCapture: capabilityState("supported"),
-      fileMutationCapture: capabilityState("supported"),
-      sourceValidation: capabilityState("supported"),
-      watchPlans: capabilityState("unsupported"),
-      gitContextCapture: capabilityState(gitStatus),
-      githubContextCapture: capabilityState("unsupported"),
-      verificationSignals: capabilityState("unknown")
+	    capabilities: {
+	      discovery: {
+	        defaultRoots: true,
+	        projectRootMapping: "native",
+	        stableProjectId: true,
+	        stableSessionId: true
+	      },
+	      replay: {
+	        transcriptReplay: false,
+	        messageRoles: true,
+	        assistantMessages: true,
+	        lifecycleEvents: true,
+	        cancellationEvents: true,
+	        topicEvents: false,
+	        rawEventPointers: true
+	      },
+	      tools: {
+	        toolCalls: true,
+	        toolResults: true,
+	        fileReads: true,
+	        fileSearches: true,
+	        fileMutations: true,
+	        diffStats: false,
+	        shellCommands: true,
+	        shellOutputs: true,
+	        sidecarOutputs: true
+	      },
+	      usage: {
+	        modelNames: true,
+	        tokenCounts: false,
+	        costEstimates: false
+	      },
+	      live: {
+	        activeSessionDetection: "none",
+	        watchableArtifacts: false,
+	        incrementalParsing: false
+	      },
+	      audit: {
+	        agentClaimDetection: true,
+	        finalAnswerDetection: true,
+	        shellExitCodeEvidence: true,
+	        verificationCommandEvidence: true
+	      },
+	      export: {
+	        rawArtifactExport: true,
+	        normalizedExport: true
+	      }
     }
   };
 }
@@ -43,7 +76,7 @@ function createSession(overrides: Partial<Session> = {}): Session {
     adapterId: "fake-test",
     sourceId: "source-01",
     nativeId: "native-session-01",
-    lifecycleState: "completed",
+    lifecycleStatus: "completed",
     confidence: HIGH_CONFIDENCE,
     diagnosticIds: [],
     ...overrides
@@ -59,8 +92,8 @@ function createMessage(overrides: Partial<SessionMessage> = {}): SessionMessage 
     sessionId: "session-01",
     nativeId: "native-message-01",
     role: "assistant",
-    content: "I completed the change and verified it.",
-    ordinal: 2,
+    text: "I completed the change and verified it.",
+    eventIds: ["message-event-01"],
     timestamp: "2026-05-24T10:00:00.000Z",
     confidence: HIGH_CONFIDENCE,
     ...overrides
@@ -69,14 +102,13 @@ function createMessage(overrides: Partial<SessionMessage> = {}): SessionMessage 
 
 function createEvent(overrides: Partial<SessionEvent> = {}): SessionEvent {
   return {
-    kind: "session-event",
+    kind: "message",
     id: "event-01",
     adapterId: "fake-test",
     sourceId: "source-01",
     sessionId: "session-01",
     nativeId: "native-event-01",
-    eventKind: "message",
-    ordinal: 2,
+    orderKey: "000002:native-event-01",
     confidence: HIGH_CONFIDENCE,
     ...overrides
   };
@@ -115,8 +147,9 @@ function createToolCall(overrides: Partial<ToolCall> = {}): ToolCall {
     sourceId: "source-01",
     sessionId: "session-01",
     nativeId: "native-tool-01",
-    toolName: "run_shell_command",
-    status: "succeeded",
+    name: "run_shell_command",
+    statusNormalized: "completed",
+    statusRaw: "succeeded",
     confidence: HIGH_CONFIDENCE,
     ...overrides
   };
@@ -187,14 +220,14 @@ describe("run audit engine", () => {
 
     const active = deriveRunAuditForSession({
       ...baseArgs,
-      session: createSession({ lifecycleState: "active" }),
+      session: createSession({ lifecycleStatus: "active" }),
       sessionEvents: [],
       sessionFileMutations: [],
       verification: createVerification("failed")
     });
     const cancelled = deriveRunAuditForSession({
       ...baseArgs,
-      session: createSession({ lifecycleState: "cancelled" }),
+      session: createSession({ lifecycleStatus: "cancelled" }),
       sessionEvents: [],
       sessionFileMutations: [],
       verification: createVerification("failed")
@@ -210,8 +243,8 @@ describe("run audit engine", () => {
       ...baseArgs,
       session: createSession(),
       sessionEvents: [
-        createEvent({ id: "message-event-01", messageId: "message-01", eventKind: "message", ordinal: 2 }),
-        createEvent({ id: "tool-event-02", eventKind: "tool-call", ordinal: 3, toolCallId: "tool-call-01" })
+        createEvent({ id: "message-event-01", kind: "message", orderKey: "000002:message" }),
+        createEvent({ id: "tool-event-02", kind: "tool-call", orderKey: "000003:tool" })
       ],
       sessionFileMutations: [],
       verification: createVerification("passed")
@@ -220,21 +253,21 @@ describe("run audit engine", () => {
       ...baseArgs,
       diagnostics: [createDiagnostic()],
       session: createSession(),
-      sessionEvents: [createEvent({ id: "message-event-01", messageId: "message-01" })],
+      sessionEvents: [createEvent({ id: "message-event-01", kind: "message" })],
       sessionFileMutations: [],
       verification: createVerification("passed")
     });
     const clean = deriveRunAuditForSession({
       ...baseArgs,
       session: createSession(),
-      sessionEvents: [createEvent({ id: "message-event-01", messageId: "message-01" })],
+      sessionEvents: [createEvent({ id: "message-event-01", kind: "message" })],
       sessionFileMutations: [],
       sessionToolCalls: [],
       verification: createVerification("passed")
     });
     const unknown = deriveRunAuditForSession({
       ...baseArgs,
-      session: createSession({ lifecycleState: "unknown" }),
+      session: createSession({ lifecycleStatus: "unknown" }),
       sessionEvents: [],
       sessionFileMutations: [],
       sessionMessages: [],
@@ -257,7 +290,7 @@ describe("run audit engine", () => {
       diagnostics: [],
       parsedShellCommands: [createShellCommand()],
       projectGitSnapshot: createProjectGitSnapshot(),
-      session: createSession({ lifecycleState: "cancelled" }),
+      session: createSession({ lifecycleStatus: "cancelled" }),
       sessionEvents: [],
       sessionFileMutations: [],
       sessionMessages: [createMessage()],
@@ -277,12 +310,12 @@ describe("run audit engine", () => {
       projectGitSnapshot: createProjectGitSnapshot(),
       session: createSession(),
       sessionEvents: [
-        createEvent({ id: "message-event-01", messageId: "message-01", eventKind: "message", ordinal: 2 }),
-        createEvent({ id: "tool-event-02", eventKind: "tool-call", ordinal: 3, toolCallId: "tool-call-02" })
+        createEvent({ id: "message-event-01", kind: "message", orderKey: "000002:message" }),
+        createEvent({ id: "tool-event-02", kind: "tool-call", orderKey: "000003:tool" })
       ],
       sessionFileMutations: [],
       sessionMessages: [createMessage()],
-      sessionToolCalls: [createToolCall({ id: "tool-call-02", status: "started" })],
+      sessionToolCalls: [createToolCall({ id: "tool-call-02", statusNormalized: "pending", statusRaw: "started" })],
       verification: createVerification("passed")
     });
 
@@ -299,7 +332,7 @@ describe("run audit engine", () => {
       parsedShellCommands: [createShellCommand()],
       projectGitSnapshot: createProjectGitSnapshot("unknown"),
       session: createSession(),
-      sessionEvents: [createEvent({ id: "message-event-01", messageId: "message-01" })],
+      sessionEvents: [createEvent({ id: "message-event-01", kind: "message" })],
       sessionFileMutations: [],
       sessionMessages: [createMessage()],
       sessionToolCalls: [],
@@ -319,7 +352,7 @@ describe("run audit engine", () => {
       parsedShellCommands: [createShellCommand()],
       projectGitSnapshot: createProjectGitSnapshot(),
       session: createSession(),
-      sessionEvents: [createEvent({ id: "message-event-01", messageId: "message-01" })],
+      sessionEvents: [createEvent({ id: "message-event-01", kind: "message" })],
       sessionFileMutations: [],
       sessionMessages: [createMessage()],
       sessionToolCalls: [],
@@ -347,7 +380,7 @@ describe("run audit engine", () => {
         }
       }),
       session: createSession(),
-      sessionEvents: [createEvent({ id: "message-event-01", messageId: "message-01" })],
+      sessionEvents: [createEvent({ id: "message-event-01", kind: "message" })],
       sessionFileMutations: [],
       sessionMessages: [createMessage()],
       sessionToolCalls: [],
@@ -366,7 +399,7 @@ describe("run audit engine", () => {
       parsedShellCommands: [createShellCommand()],
       projectGitSnapshot: createProjectGitSnapshot("unknown"),
       session: createSession(),
-      sessionEvents: [createEvent({ id: "message-event-01", messageId: "message-01" })],
+      sessionEvents: [createEvent({ id: "message-event-01", kind: "message" })],
       sessionFileMutations: [],
       sessionMessages: [createMessage()],
       sessionToolCalls: [],

@@ -33,10 +33,10 @@ export function DiagnosticsGroups({ groups }: DiagnosticsGroupsProps) {
                         <span>{diagnostic.sessionTitle}</span>
                       </>
                     ) : null}
-                    {diagnostic.projectName ? (
+                    {diagnostic.projectDisplayName ? (
                       <>
                         <span aria-hidden="true">·</span>
-                        <span>{diagnostic.projectName}</span>
+                        <span>{diagnostic.projectDisplayName}</span>
                       </>
                     ) : null}
                   </span>

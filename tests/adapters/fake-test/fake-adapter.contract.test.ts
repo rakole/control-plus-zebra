@@ -32,8 +32,8 @@ runAdapterContractSuite({
     fileMutations: 1,
     diagnostics: 1
   },
-  assertExercisedAdapter(adapterRun) {
-    expect(adapterRun.validation.capabilities?.shellCommandCapture.status).toBe("supported");
+	  assertExercisedAdapter(adapterRun) {
+	    expect(adapterRun.validation.capabilities?.tools.shellCommands).toBe(true);
     expect(adapterRun.sources[0]?.metadata).toMatchObject({
       sourceKind: "fixture-file",
       artifactType: "fake-session-fixture"
@@ -53,12 +53,12 @@ runAdapterContractSuite({
       adapterId: "fake-test",
       sourceId: adapterRun.source.id,
       nativeId: "session-01",
-      lifecycleState: "completed"
+      lifecycleStatus: "completed"
     });
-    expect(normalized.shellCommands[0]).toMatchObject({
-      command: "npm run typecheck",
-      exitCode: 0,
-      outputSource: "combined"
-    });
+	    expect(normalized.shellCommands[0]).toMatchObject({
+	      command: "npm run typecheck",
+	      rawExitCode: 0,
+	      outputInline: "Type checking passed."
+	    });
   }
 });

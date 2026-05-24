@@ -46,10 +46,10 @@ export function ProjectList({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 space-y-1">
                       <p className="truncate text-sm font-medium text-foreground">
-                        {project.projectName}
+                        {project.projectDisplayName}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {project.repoPath.displayValue}
+                        {project.primaryRootPath.displayValue}
                       </p>
                       <p className="text-xs/relaxed text-muted-foreground">
                         {project.observedHarnesses.join(", ")} · {project.sessionCount} session

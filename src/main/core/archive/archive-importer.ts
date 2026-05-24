@@ -263,7 +263,7 @@ function rebaseArchivePayload(
   const archivedSourceDiagnostics = document.payload.sourceDiagnostics as Diagnostic[];
   const mergedNormalized = mergeNormalizedResults(
     document.payload.cacheRecords.map(
-      (record) => record.normalized as AdapterNormalizationResult
+      (record) => record.normalized as unknown as AdapterNormalizationResult
     )
   );
 
@@ -279,9 +279,9 @@ function rebaseArchivePayload(
     importedSourceId,
     (project) =>
       createProjectId({
-        adapterId: project.adapterId,
+        adapterId: project.adapterId ?? ARCHIVE_READER_ADAPTER_ID,
         sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(project.sourceId, project.nativeId)
+        nativeId: buildImportedNativeId(project)
       })
   );
   const sessionIds = buildIdMap(
@@ -291,7 +291,7 @@ function rebaseArchivePayload(
       createSessionId({
         adapterId: session.adapterId,
         sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(session.sourceId, session.nativeId)
+        nativeId: buildImportedNativeId(session)
       })
   );
   const eventIds = buildIdMap(
@@ -301,7 +301,7 @@ function rebaseArchivePayload(
       createSessionEventId({
         adapterId: event.adapterId,
         sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(event.sourceId, event.nativeId)
+        nativeId: buildImportedNativeId(event)
       })
   );
   const messageIds = buildIdMap(
@@ -311,7 +311,7 @@ function rebaseArchivePayload(
       createSessionMessageId({
         adapterId: message.adapterId,
         sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(message.sourceId, message.nativeId)
+        nativeId: buildImportedNativeId(message)
       })
   );
   const toolCallIds = buildIdMap(
@@ -321,7 +321,7 @@ function rebaseArchivePayload(
       createToolCallId({
         adapterId: toolCall.adapterId,
         sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(toolCall.sourceId, toolCall.nativeId)
+        nativeId: buildImportedNativeId(toolCall)
       })
   );
   const shellCommandIds = buildIdMap(
@@ -331,7 +331,7 @@ function rebaseArchivePayload(
       createShellCommandEvidenceId({
         adapterId: command.adapterId,
         sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(command.sourceId, command.nativeId)
+        nativeId: buildImportedNativeId(command)
       })
   );
   const outputArtifactIds = buildIdMap(
@@ -341,7 +341,7 @@ function rebaseArchivePayload(
       createOutputArtifactId({
         adapterId: artifact.adapterId,
         sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(artifact.sourceId, artifact.nativeId)
+        nativeId: buildImportedNativeId(artifact)
       })
   );
   const fileMutationIds = buildIdMap(
@@ -351,7 +351,7 @@ function rebaseArchivePayload(
       createFileMutationEvidenceId({
         adapterId: mutation.adapterId,
         sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(mutation.sourceId, mutation.nativeId)
+        nativeId: buildImportedNativeId(mutation)
       })
   );
   const diagnosticIds = buildDiagnosticIdMap(
@@ -401,31 +401,49 @@ function rebaseArchivePayload(
       )
     },
     projects: mergedNormalized.projects.map((project) =>
-      rebaseProject(project, diagnosticIds, importedSourceId, projectIds)
+      rebaseProject(
+        project,
+        diagnosticIds,
+        importedSourceId,
+        projectIds,
+        sessionIds
+      )
     ),
     sessions: mergedNormalized.sessions.map((session) =>
-      rebaseSession(session, diagnosticIds, importedSourceId, projectIds, sessionIds)
+      rebaseSession(session, diagnosticIds, importedSourceId, {
+        messageIds,
+        outputArtifactIds,
+        projectIds,
+        sessionIds,
+        shellCommandIds,
+        toolCallIds,
+        eventIds,
+        fileMutationIds
+      })
     ),
     events: mergedNormalized.events.map((event) =>
       rebaseEvent(event, diagnosticIds, importedSourceId, {
         eventIds,
-        fileMutationIds,
-        messageIds,
-        outputArtifactIds,
-        sessionIds,
-        shellCommandIds,
-        toolCallIds
+        sessionIds
       })
     ),
     messages: mergedNormalized.messages.map((message) =>
-      rebaseMessage(message, diagnosticIds, importedSourceId, eventIds, sessionIds, messageIds)
+      rebaseMessage(
+        message,
+        diagnosticIds,
+        importedSourceId,
+        eventIds,
+        sessionIds,
+        messageIds,
+        toolCallIds
+      )
     ),
     toolCalls: mergedNormalized.toolCalls.map((toolCall) =>
       rebaseToolCall(toolCall, diagnosticIds, importedSourceId, {
-        eventIds,
         fileMutationIds,
         outputArtifactIds,
         sessionIds,
+        shellCommandIds,
         toolCallIds
       })
     ),
@@ -443,7 +461,6 @@ function rebaseArchivePayload(
         artifact,
         diagnosticIds,
         importedSourceId,
-        eventIds,
         outputArtifactIds,
         sessionIds
       )
@@ -453,19 +470,18 @@ function rebaseArchivePayload(
         mutation,
         diagnosticIds,
         importedSourceId,
-        eventIds,
         fileMutationIds,
         sessionIds,
         toolCallIds
       )
     ),
     diagnostics
-  } as AdapterNormalizationResult;
+      } as unknown as AdapterNormalizationResult;
 
   return {
     normalized,
     derived: rebaseDerivedRecords(
-      document.payload.cacheRecords as NormalizedCacheRecord[],
+      document.payload.cacheRecords as unknown as NormalizedCacheRecord[],
       diagnosticIds,
       outputArtifactIds,
       projectIds,
@@ -482,12 +498,16 @@ function rebaseProject(
   project: Project,
   diagnosticIds: Map<string, string>,
   importedSourceId: string,
-  projectIds: Map<string, string>
+  projectIds: Map<string, string>,
+  sessionIds: Map<string, string>
 ): Project {
   return {
     ...project,
     id: projectIds.get(project.id) ?? project.id,
     sourceId: importedSourceId,
+    ...(project.sessionIds
+      ? { sessionIds: mapIds(project.sessionIds, sessionIds) }
+      : {}),
     ...(project.diagnosticIds
       ? { diagnosticIds: mapIds(project.diagnosticIds, diagnosticIds) }
       : {})
@@ -498,20 +518,83 @@ function rebaseSession(
   session: Session,
   diagnosticIds: Map<string, string>,
   importedSourceId: string,
-  projectIds: Map<string, string>,
-  sessionIds: Map<string, string>
+  idMaps: {
+    eventIds: Map<string, string>;
+    fileMutationIds: Map<string, string>;
+    messageIds: Map<string, string>;
+    outputArtifactIds: Map<string, string>;
+    projectIds: Map<string, string>;
+    sessionIds: Map<string, string>;
+    shellCommandIds: Map<string, string>;
+    toolCallIds: Map<string, string>;
+  }
 ): Session {
-  return {
+  const rebasedSession = {
     ...session,
-    id: sessionIds.get(session.id) ?? session.id,
-    sourceId: importedSourceId,
-    ...(session.projectId
-      ? { projectId: projectIds.get(session.projectId) ?? session.projectId }
-      : {}),
-    ...(session.diagnosticIds
-      ? { diagnosticIds: mapIds(session.diagnosticIds, diagnosticIds) }
-      : {})
-  };
+    id: idMaps.sessionIds.get(session.id) ?? session.id,
+    sourceId: importedSourceId
+  } as Session;
+
+  if (session.projectId) {
+    rebasedSession.projectId =
+      idMaps.projectIds.get(session.projectId) ?? session.projectId;
+  }
+
+  if (session.messageIds) {
+    rebasedSession.messageIds = mapIds(session.messageIds, idMaps.messageIds);
+  }
+
+  if (session.eventIds) {
+    rebasedSession.eventIds = mapIds(session.eventIds, idMaps.eventIds);
+  }
+
+  if (session.toolCallIds) {
+    rebasedSession.toolCallIds = mapIds(session.toolCallIds, idMaps.toolCallIds);
+  }
+
+  if (session.fileMutationIds) {
+    rebasedSession.fileMutationIds = mapIds(
+      session.fileMutationIds,
+      idMaps.fileMutationIds
+    );
+  }
+
+  if (session.shellCommandIds) {
+    rebasedSession.shellCommandIds = mapIds(
+      session.shellCommandIds,
+      idMaps.shellCommandIds
+    );
+  }
+
+  if (session.outputArtifactIds) {
+    rebasedSession.outputArtifactIds = mapIds(
+      session.outputArtifactIds,
+      idMaps.outputArtifactIds
+    );
+  }
+
+  if (session.verification) {
+    rebasedSession.verification = rebaseSessionVerification(
+      session.verification,
+      diagnosticIds,
+      idMaps.shellCommandIds
+    ) as NonNullable<Session["verification"]>;
+  }
+
+  if (session.runAudit) {
+    rebasedSession.runAudit = rebaseSessionRunAudit(session.runAudit, diagnosticIds, {
+      sessionIds: idMaps.sessionIds,
+      messageIds: idMaps.messageIds,
+      shellCommandIds: idMaps.shellCommandIds,
+      toolCallIds: idMaps.toolCallIds
+    }) as NonNullable<Session["runAudit"]>;
+  }
+
+  if (session.diagnosticIds) {
+    rebasedSession.diagnosticIds = mapIds(session.diagnosticIds, diagnosticIds);
+  }
+
+  return rebasedSession;
 }
 
 function rebaseEvent(
@@ -520,12 +603,7 @@ function rebaseEvent(
   importedSourceId: string,
   idMaps: {
     eventIds: Map<string, string>;
-    fileMutationIds: Map<string, string>;
-    messageIds: Map<string, string>;
-    outputArtifactIds: Map<string, string>;
     sessionIds: Map<string, string>;
-    shellCommandIds: Map<string, string>;
-    toolCallIds: Map<string, string>;
   }
 ): SessionEvent {
   return {
@@ -533,26 +611,6 @@ function rebaseEvent(
     id: idMaps.eventIds.get(event.id) ?? event.id,
     sourceId: importedSourceId,
     sessionId: idMaps.sessionIds.get(event.sessionId) ?? event.sessionId,
-    ...(event.messageId ? { messageId: idMaps.messageIds.get(event.messageId) ?? event.messageId } : {}),
-    ...(event.toolCallId ? { toolCallId: idMaps.toolCallIds.get(event.toolCallId) ?? event.toolCallId } : {}),
-    ...(event.shellCommandId
-      ? {
-          shellCommandId:
-            idMaps.shellCommandIds.get(event.shellCommandId) ?? event.shellCommandId
-        }
-      : {}),
-    ...(event.outputArtifactId
-      ? {
-          outputArtifactId:
-            idMaps.outputArtifactIds.get(event.outputArtifactId) ?? event.outputArtifactId
-        }
-      : {}),
-    ...(event.fileMutationId
-      ? {
-          fileMutationId:
-            idMaps.fileMutationIds.get(event.fileMutationId) ?? event.fileMutationId
-        }
-      : {}),
     ...(event.diagnosticIds
       ? { diagnosticIds: mapIds(event.diagnosticIds, diagnosticIds) }
       : {})
@@ -565,14 +623,18 @@ function rebaseMessage(
   importedSourceId: string,
   eventIds: Map<string, string>,
   sessionIds: Map<string, string>,
-  messageIds: Map<string, string>
+  messageIds: Map<string, string>,
+  toolCallIds: Map<string, string>
 ): SessionMessage {
   return {
     ...message,
     id: messageIds.get(message.id) ?? message.id,
     sourceId: importedSourceId,
     sessionId: sessionIds.get(message.sessionId) ?? message.sessionId,
-    ...(message.eventId ? { eventId: eventIds.get(message.eventId) ?? message.eventId } : {}),
+    ...(message.toolCallIds
+      ? { toolCallIds: mapIds(message.toolCallIds, toolCallIds) }
+      : {}),
+    ...(message.eventIds ? { eventIds: mapIds(message.eventIds, eventIds) } : {}),
     ...(message.diagnosticIds
       ? { diagnosticIds: mapIds(message.diagnosticIds, diagnosticIds) }
       : {})
@@ -584,10 +646,10 @@ function rebaseToolCall(
   diagnosticIds: Map<string, string>,
   importedSourceId: string,
   idMaps: {
-    eventIds: Map<string, string>;
     fileMutationIds: Map<string, string>;
     outputArtifactIds: Map<string, string>;
     sessionIds: Map<string, string>;
+    shellCommandIds: Map<string, string>;
     toolCallIds: Map<string, string>;
   }
 ): ToolCall {
@@ -596,12 +658,27 @@ function rebaseToolCall(
     id: idMaps.toolCallIds.get(toolCall.id) ?? toolCall.id,
     sourceId: importedSourceId,
     sessionId: idMaps.sessionIds.get(toolCall.sessionId) ?? toolCall.sessionId,
-    ...(toolCall.eventId ? { eventId: idMaps.eventIds.get(toolCall.eventId) ?? toolCall.eventId } : {}),
-    ...(toolCall.artifactIds
-      ? { artifactIds: mapIds(toolCall.artifactIds, idMaps.outputArtifactIds) }
+    ...(toolCall.outputArtifactIds
+      ? {
+          outputArtifactIds: mapIds(
+            toolCall.outputArtifactIds,
+            idMaps.outputArtifactIds
+          )
+        }
       : {}),
-    ...(toolCall.fileMutationIds
-      ? { fileMutationIds: mapIds(toolCall.fileMutationIds, idMaps.fileMutationIds) }
+    ...(toolCall.fileMutationId
+      ? {
+          fileMutationId:
+            idMaps.fileMutationIds.get(toolCall.fileMutationId) ??
+            toolCall.fileMutationId
+        }
+      : {}),
+    ...(toolCall.shellCommandId
+      ? {
+          shellCommandId:
+            idMaps.shellCommandIds.get(toolCall.shellCommandId) ??
+            toolCall.shellCommandId
+        }
       : {}),
     ...(toolCall.diagnosticIds
       ? { diagnosticIds: mapIds(toolCall.diagnosticIds, diagnosticIds) }
@@ -626,12 +703,16 @@ function rebaseShellCommand(
     id: idMaps.shellCommandIds.get(command.id) ?? command.id,
     sourceId: importedSourceId,
     sessionId: idMaps.sessionIds.get(command.sessionId) ?? command.sessionId,
-    ...(command.eventId ? { eventId: idMaps.eventIds.get(command.eventId) ?? command.eventId } : {}),
+    ...(command.outputArtifactIds
+      ? {
+          outputArtifactIds: mapIds(
+            command.outputArtifactIds,
+            idMaps.outputArtifactIds
+          )
+        }
+      : {}),
     ...(command.toolCallId
       ? { toolCallId: idMaps.toolCallIds.get(command.toolCallId) ?? command.toolCallId }
-      : {}),
-    ...(command.artifactIds
-      ? { artifactIds: mapIds(command.artifactIds, idMaps.outputArtifactIds) }
       : {}),
     ...(command.diagnosticIds
       ? { diagnosticIds: mapIds(command.diagnosticIds, diagnosticIds) }
@@ -643,7 +724,6 @@ function rebaseOutputArtifact(
   artifact: OutputArtifact,
   diagnosticIds: Map<string, string>,
   importedSourceId: string,
-  eventIds: Map<string, string>,
   outputArtifactIds: Map<string, string>,
   sessionIds: Map<string, string>
 ): OutputArtifact {
@@ -656,9 +736,25 @@ function rebaseOutputArtifact(
     ...artifactWithoutPath,
     id: nextArtifactId,
     sourceId: importedSourceId,
-    sessionId: sessionIds.get(artifact.sessionId) ?? artifact.sessionId,
     uri: `awb-archive://${encodeURIComponent(importedSourceId)}/${encodeURIComponent(nextArtifactId)}`,
-    ...(artifact.eventId ? { eventId: eventIds.get(artifact.eventId) ?? artifact.eventId } : {}),
+    ...(artifact.sessionId
+      ? { sessionId: sessionIds.get(artifact.sessionId) ?? artifact.sessionId }
+      : {}),
+    ...(artifact.ref
+      ? {
+          ref: {
+            ...artifact.ref,
+            sourceId: importedSourceId,
+            ...(artifact.ref.id ? { id: nextArtifactId } : {}),
+            ...(artifact.ref.sessionId
+              ? {
+                  sessionId:
+                    sessionIds.get(artifact.ref.sessionId) ?? artifact.ref.sessionId
+                }
+              : {})
+          }
+        }
+      : {}),
     ...(artifact.diagnosticIds
       ? { diagnosticIds: mapIds(artifact.diagnosticIds, diagnosticIds) }
       : {})
@@ -669,7 +765,6 @@ function rebaseFileMutation(
   mutation: FileMutationEvidence,
   diagnosticIds: Map<string, string>,
   importedSourceId: string,
-  eventIds: Map<string, string>,
   fileMutationIds: Map<string, string>,
   sessionIds: Map<string, string>,
   toolCallIds: Map<string, string>
@@ -679,7 +774,6 @@ function rebaseFileMutation(
     id: fileMutationIds.get(mutation.id) ?? mutation.id,
     sourceId: importedSourceId,
     sessionId: sessionIds.get(mutation.sessionId) ?? mutation.sessionId,
-    ...(mutation.eventId ? { eventId: eventIds.get(mutation.eventId) ?? mutation.eventId } : {}),
     ...(mutation.toolCallId
       ? { toolCallId: toolCallIds.get(mutation.toolCallId) ?? mutation.toolCallId }
       : {}),
@@ -823,7 +917,105 @@ function rebaseDerivedProject(
   };
 }
 
-function buildIdMap<T extends { id: string; adapterId: string; nativeId: string; sourceId: string }>(
+function rebaseSessionVerification(
+  verification: NonNullable<Session["verification"]>,
+  diagnosticIds: Map<string, string>,
+  shellCommandIds: Map<string, string>
+) {
+  if (!("commandIds" in verification) || !Array.isArray(verification.commandIds)) {
+    const legacyVerification = verification as {
+      failedCommandIds?: string[];
+      passedCommandIds?: string[];
+    };
+
+    return {
+      ...verification,
+      ...(legacyVerification.failedCommandIds
+        ? {
+            failedCommandIds: mapIds(
+              legacyVerification.failedCommandIds,
+              shellCommandIds
+            )
+          }
+        : {}),
+      ...(legacyVerification.passedCommandIds
+        ? {
+            passedCommandIds: mapIds(
+              legacyVerification.passedCommandIds,
+              shellCommandIds
+            )
+          }
+        : {})
+    } as Session["verification"];
+  }
+
+  return {
+    ...verification,
+    commandIds: mapIds(verification.commandIds, shellCommandIds),
+    intentResults: verification.intentResults.map((result) => ({
+      ...result,
+      latestCommandId:
+        shellCommandIds.get(result.latestCommandId) ?? result.latestCommandId,
+      commandIds: mapIds(result.commandIds, shellCommandIds),
+      ...(result.diagnosticIds
+        ? { diagnosticIds: mapIds(result.diagnosticIds, diagnosticIds) }
+        : {})
+    })),
+      ...(verification.diagnosticIds
+      ? { diagnosticIds: mapIds(verification.diagnosticIds, diagnosticIds) }
+      : {})
+  } as Session["verification"];
+}
+
+function rebaseSessionRunAudit(
+  runAudit: NonNullable<Session["runAudit"]>,
+  diagnosticIds: Map<string, string>,
+  idMaps: {
+    sessionIds: Map<string, string>;
+    messageIds: Map<string, string>;
+    shellCommandIds: Map<string, string>;
+    toolCallIds: Map<string, string>;
+  }
+) {
+  if (
+    !("supportingCommandIds" in runAudit) ||
+    !Array.isArray(runAudit.supportingCommandIds)
+  ) {
+    const legacyRunAudit = runAudit as { sessionId?: string };
+
+    return {
+      ...runAudit,
+      ...(legacyRunAudit.sessionId
+        ? {
+            sessionId:
+              idMaps.sessionIds.get(legacyRunAudit.sessionId) ??
+              legacyRunAudit.sessionId
+          }
+        : {})
+    } as Session["runAudit"];
+  }
+
+  return {
+    ...runAudit,
+    supportingCommandIds: mapIds(
+      runAudit.supportingCommandIds,
+      idMaps.shellCommandIds
+    ),
+    supportingToolCallIds: mapIds(
+      runAudit.supportingToolCallIds,
+      idMaps.toolCallIds
+    ),
+    supportingMessageIds: mapIds(
+      runAudit.supportingMessageIds,
+      idMaps.messageIds
+    ),
+    ...(runAudit.diagnosticIds
+      ? { diagnosticIds: mapIds(runAudit.diagnosticIds, diagnosticIds) }
+      : {})
+  } as Session["runAudit"];
+}
+
+function buildIdMap<T extends { id: string; adapterId?: string; nativeId?: string; sourceId?: string }>(
   entities: T[],
   importedSourceId: string,
   createId: (entity: T, importedSourceId: string) => string
@@ -881,8 +1073,16 @@ function mapIds(ids: string[], idMap: Map<string, string>): string[] {
   return ids.map((id) => idMap.get(id) ?? id);
 }
 
-function buildImportedNativeId(sourceId: string, nativeId: string): string {
-  return `${sourceId}:${nativeId}`;
+function buildImportedNativeId(entity: {
+  id: string;
+  nativeId?: string;
+  sourceId?: string;
+}): string {
+  if (entity.sourceId && entity.nativeId) {
+    return `${entity.sourceId}:${entity.nativeId}`;
+  }
+
+  return entity.id;
 }
 
 function buildHash(value: string): string {

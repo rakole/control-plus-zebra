@@ -2,21 +2,11 @@ import path from "node:path";
 
 import type {
   AdapterNormalizationInput,
-  AdapterNormalizationResult
+  AdapterNormalizationResult,
+  RawArtifactRef
 } from "../../core/adapter-contract/index.js";
 import { buildDiagnostic } from "../../core/diagnostics/diagnostic.js";
-import type { CapabilityEnvelope, HarnessCapabilities } from "../../core/model/capabilities.js";
 import { HIGH_CONFIDENCE, MEDIUM_CONFIDENCE } from "../../core/model/confidence.js";
-import type {
-  FileMutationEvidence,
-  OutputArtifact,
-  Project,
-  Session,
-  SessionEvent,
-  SessionMessage,
-  ShellCommandEvidence,
-  ToolCall
-} from "../../core/model/entities.js";
 import {
   createFileMutationEvidenceId,
   createOutputArtifactId,
@@ -36,13 +26,30 @@ import type {
   GeminiTranscriptRecord
 } from "./types.js";
 
+const CONFIRMED = "confirmed";
+const INFERRED = "inferred";
+const UNKNOWN = "unknown";
+
+type EventLocator = {
+  artifactId?: string;
+  path?: string;
+  nativeId?: string;
+  lineNumber?: number;
+  recordIndex?: number;
+};
+
 type SessionAccumulator = {
   header?: GeminiSessionHeader;
+  headerLocator?: EventLocator;
   lastUpdated?: string;
-  logEntries: Array<GeminiLogsEntry & { index?: number }>;
+  logEntries: Array<{
+    entry: GeminiLogsEntry;
+    locator: EventLocator;
+  }>;
   sidecars: Array<{
     artifactId: string;
     format: "json" | "text" | "unknown";
+    locator: EventLocator;
     mediaType?: string;
     relativePath: string;
     sessionId: string;
@@ -51,35 +58,124 @@ type SessionAccumulator = {
     toolName?: string;
   }>;
   transcriptRecords: Array<{
-    artifactNativeId: string;
-    lineNumber?: number;
+    locator: EventLocator;
     record: GeminiTranscriptRecord;
   }>;
 };
 
-function buildCapabilityEnvelope(
-  capabilities: HarnessCapabilities,
-  sourceId?: string,
-  sessionId?: string
-): CapabilityEnvelope {
+type NormalizedMessage = {
+  id: string;
+  sessionId: string;
+  adapterId: string;
+  sourceId?: string;
+  nativeId?: string;
+  kind?: string;
+  role: "user" | "assistant" | "system" | "tool" | "unknown";
+  timestamp?: string;
+  text?: string;
+  modelName?: string;
+  toolCallIds: string[];
+  eventIds: string[];
+  source: Record<string, string | number>;
+  confidence: string;
+};
+
+type NormalizedEvent = {
+  id: string;
+  sessionId: string;
+  adapterId: string;
+  sourceId?: string;
+  nativeId?: string;
+  kind: string;
+  timestamp?: string;
+  orderKey: string;
+  actor?: "user" | "assistant" | "system" | "tool" | "harness" | "unknown";
+  title?: string;
+  text?: string;
+  raw: Record<string, string | number>;
+  diagnostics: never[];
+};
+
+type NormalizedToolCall = {
+  id: string;
+  sessionId: string;
+  adapterId: string;
+  sourceId?: string;
+  nativeId?: string;
+  kind?: string;
+  nativeToolCallId: string;
+  name: string;
+  normalizedKind: string;
+  statusRaw?: string;
+  statusNormalized?: string;
+  argsPreview?: string;
+  resultPreview?: string;
+  outputArtifactIds: string[];
+  fileMutationId?: string;
+  shellCommandId?: string;
+  source: Record<string, string | number>;
+  confidence: string;
+  diagnostics: never[];
+};
+
+type NormalizedShellCommand = {
+  id: string;
+  sessionId: string;
+  adapterId: string;
+  sourceId?: string;
+  nativeId?: string;
+  kind?: string;
+  toolCallId?: string;
+  command?: string;
+  cwd?: string;
+  outputInline?: string;
+  outputArtifactIds: string[];
+  rawStatus?: string;
+  rawExitCode?: number;
+  source: Record<string, string | number>;
+  confidence: string;
+};
+
+type NormalizedOutputArtifact = {
+  id: string;
+  adapterId: string;
+  sourceId: string;
+  sessionId?: string;
+  nativeId?: string;
+  nativeRef?: string;
+  path?: string;
+  kind: string;
+  contentKind: string;
+  mediaType?: string;
+  sizeBytes?: number;
+  mtime?: string;
+  preview?: string;
+  loaded: boolean;
+  source: Record<string, string | number>;
+  diagnostics: never[];
+};
+
+type NormalizedFileMutation = {
+  id: string;
+  sessionId: string;
+  adapterId: string;
+  sourceId?: string;
+  nativeId?: string;
+  kind?: string;
+  path: string;
+  mutationKind: string;
+  toolCallId?: string;
+  source: Record<string, string | number>;
+  confidence: string;
+  diagnostics: never[];
+};
+
+function buildCapabilityEnvelope(sourceId?: string, sessionId?: string) {
   return {
     adapterId: geminiCliDescriptor.id,
     ...(sourceId ? { sourceId } : {}),
     ...(sessionId ? { sessionId } : {}),
-    capabilities
-  };
-}
-
-function buildSessionCapabilityEnvelope(
-  capabilities: HarnessCapabilities,
-  sourceId: string,
-  sessionId: string
-): CapabilityEnvelope & { sessionId: string } {
-  return {
-    adapterId: geminiCliDescriptor.id,
-    sourceId,
-    sessionId,
-    capabilities
+    capabilities: geminiCliDescriptor.capabilities
   };
 }
 
@@ -92,12 +188,126 @@ export interface GeminiNormalizationExtras {
   outputArtifactBindings: Map<string, GeminiOutputArtifactBinding>;
 }
 
+function buildOrderKey(order: number, nativeId: string): string {
+  return `${String(order).padStart(6, "0")}:${nativeId}`;
+}
+
+function buildRawPointer(
+  locator: EventLocator | undefined,
+  pointer: string,
+  eventId?: string
+): Record<string, string | number> {
+  return {
+    ...(locator?.artifactId ? { artifactId: locator.artifactId } : {}),
+    ...(locator?.path ? { path: locator.path } : {}),
+    ...(locator?.nativeId ? { nativeId: locator.nativeId } : {}),
+    ...(locator?.lineNumber !== undefined ? { lineNumber: locator.lineNumber } : {}),
+    ...(locator?.recordIndex !== undefined ? { recordIndex: locator.recordIndex } : {}),
+    ...(eventId ? { eventId } : {}),
+    pointer
+  };
+}
+
+function mapToolKind(name: string) {
+  switch (name) {
+    case "read_file":
+      return "read";
+    case "grep":
+    case "search_file":
+    case "glob":
+      return "search";
+    case "create_file":
+    case "write_file":
+      return "write";
+    case "replace":
+    case "edit_file":
+      return "replace";
+    case "run_shell_command":
+      return "shell";
+    case "update_topic":
+      return "topic";
+    case "web_fetch":
+      return "network";
+    case "mcp":
+      return "mcp";
+    default:
+      return "unknown";
+  }
+}
+
+function mapToolStatus(status?: string) {
+  switch (status) {
+    case "success":
+    case "succeeded":
+    case "completed":
+      return "completed";
+    case "failed":
+    case "error":
+    case "cancelled":
+      return "failed";
+    case "started":
+    case "running":
+    case "pending":
+      return "pending";
+    default:
+      return "unknown";
+  }
+}
+
+function summarizeArgs(args: Record<string, unknown>): string {
+  const keys = Object.keys(args).sort();
+  return keys.map((key) => `${key}=${summarizeUnknown(args[key])}`).join(", ");
+}
+
+function summarizeUnknown(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return String(value);
+  }
+}
+
+function optionalString(summary: string | undefined): string | undefined {
+  return summary && summary.trim().length > 0 ? summary : undefined;
+}
+
+function mapArtifactShape(sidecar: { format: "json" | "text" | "unknown"; mediaType?: string }) {
+  if (sidecar.format === "json" || sidecar.mediaType === "application/json") {
+    return {
+      kind: "sidecar",
+      contentKind: "json-output-wrapper"
+    };
+  }
+
+  if (sidecar.mediaType?.startsWith("image/")) {
+    return {
+      kind: "screenshot",
+      contentKind: "binary"
+    };
+  }
+
+  if (sidecar.format === "text") {
+    return {
+      kind: "sidecar",
+      contentKind: "plain-text"
+    };
+  }
+
+  return {
+    kind: "unknown",
+    contentKind: "unknown"
+  };
+}
+
 export async function normalizeGeminiCliEvents(
   input: AdapterNormalizationInput<GeminiRawEvent>
 ): Promise<AdapterNormalizationResult & { extras: GeminiNormalizationExtras }> {
   const adapterId = geminiCliDescriptor.id;
   const sourceId = input.source.id;
-  const sourceCapabilities = geminiCliDescriptor.capabilities;
   const parseDiagnostics = input.rawEvents
     .filter(
       (event): event is GeminiRawEvent & { payload: { kind: "parse-diagnostic" } } =>
@@ -125,38 +335,36 @@ export async function normalizeGeminiCliEvents(
     (event): event is GeminiRawEvent & { payload: { kind: "project-root"; repoRootPath: string } } =>
       event.payload.kind === "project-root"
   );
-  const projectRootPath = projectRootPayload?.payload.repoRootPath;
-  const projectNativeId = path.basename(projectRootPath ?? input.source.displayName);
+  const projectRootPath = projectRootPayload?.payload.repoRootPath ?? input.source.rootPath;
+  const projectNativeId = path.basename(projectRootPath || input.source.displayName);
   const projectId = createProjectId({
     adapterId,
     sourceId,
     nativeId: projectNativeId
   });
-
-  const projects: Project[] = [
-    {
-      kind: "project",
-      id: projectId,
-      adapterId,
-      sourceId,
-      nativeId: projectNativeId,
-      name: path.basename(projectRootPath ?? input.source.displayName),
-      ...(projectRootPath ? { rootPath: projectRootPath } : {}),
-      confidence: HIGH_CONFIDENCE
-    }
-  ];
-
   const sessionData = collectSessionData(input.rawEvents);
-  const sessions: Session[] = [];
-  const events: SessionEvent[] = [];
-  const messages: SessionMessage[] = [];
-  const toolCalls: ToolCall[] = [];
-  const shellCommands: ShellCommandEvidence[] = [];
-  const outputArtifacts: OutputArtifact[] = [];
-  const fileMutations: FileMutationEvidence[] = [];
-  const diagnostics = [...parseDiagnostics];
+  const rawArtifactsById = new Map(input.artifacts.map((artifact) => [artifact.id, artifact]));
   const outputArtifactBindings = new Map<string, GeminiOutputArtifactBinding>();
-  const sessionCapabilitySnapshots: Array<CapabilityEnvelope & { sessionId: string }> = [];
+  const diagnostics = [...parseDiagnostics];
+
+  const sessions: Record<string, unknown>[] = [];
+  const events: NormalizedEvent[] = [];
+  const messages: NormalizedMessage[] = [];
+  const toolCalls: NormalizedToolCall[] = [];
+  const shellCommands: NormalizedShellCommand[] = [];
+  const outputArtifacts: NormalizedOutputArtifact[] = [];
+  const fileMutations: NormalizedFileMutation[] = [];
+  const sessionCapabilitySnapshots: Array<Record<string, unknown>> = [];
+  const projectRawArtifactRefs = uniqueRawArtifactRefs(
+    input.artifacts
+      .filter((artifact) => artifact.artifactKind === "output-artifact")
+      .map((artifact) => toRawArtifactRef(artifact))
+  );
+  const sessionSummaries: Array<{
+    id: string;
+    latestActivityAt?: string;
+    latestUserPrompt?: string;
+  }> = [];
 
   for (const [sessionNativeId, session] of [...sessionData.entries()].sort((left, right) =>
     left[0].localeCompare(right[0])
@@ -168,7 +376,13 @@ export async function normalizeGeminiCliEvents(
     });
     const timeline = buildTimeline(session);
     const lifecycle = deriveLifecycle(timeline);
-    const sessionDiagnosticsStart = diagnostics.length;
+    const sessionOutputArtifacts = new Map<string, NormalizedOutputArtifact>();
+    const sessionToolCalls = new Map<string, NormalizedToolCall>();
+    const sessionShellCommands = new Map<string, NormalizedShellCommand>();
+    const sessionFileMutations = new Map<string, NormalizedFileMutation>();
+    const sessionMessages: NormalizedMessage[] = [];
+    const sessionEvents: NormalizedEvent[] = [];
+    let ordinal = 1;
 
     if (lifecycle.conflictMessage) {
       diagnostics.push(
@@ -188,50 +402,51 @@ export async function normalizeGeminiCliEvents(
       );
     }
 
-    const toolCallMap = new Map<string, ToolCall>();
-    const shellCommandMap = new Map<string, ShellCommandEvidence>();
-    const fileMutationMap = new Map<string, FileMutationEvidence>();
-
-    let ordinal = 1;
-
+    const lifecycleEventNativeId = `${sessionNativeId}:lifecycle`;
     const lifecycleEventId = createSessionEventId({
       adapterId,
       sourceId,
-      nativeId: `${sessionNativeId}:lifecycle`
+      nativeId: lifecycleEventNativeId
     });
-    events.push({
-      kind: "session-event",
-      id: lifecycleEventId,
-      adapterId,
-      sourceId,
-      sessionId,
-      nativeId: `${sessionNativeId}:lifecycle`,
-      eventKind: "lifecycle",
+	    sessionEvents.push({
+	      id: lifecycleEventId,
+	      sessionId,
+	      adapterId,
+	      sourceId,
+	      nativeId: lifecycleEventNativeId,
+	      kind: "lifecycle",
       ...(lifecycle.timestamp ? { timestamp: lifecycle.timestamp } : {}),
-      ordinal: ordinal,
-      summary: lifecycle.summary,
-      confidence: HIGH_CONFIDENCE
+	      orderKey: buildOrderKey(ordinal, lifecycleEventNativeId),
+      actor: "harness",
+      title: lifecycle.summary,
+      text: lifecycle.summary,
+      raw: buildRawPointer(session.headerLocator, `event:${lifecycleEventNativeId}`, lifecycleEventId),
+      diagnostics: []
     });
     ordinal += 1;
 
     if (session.header?.projectHash) {
+      const metadataNativeId = `${sessionNativeId}:header-metadata`;
       const metadataEventId = createSessionEventId({
         adapterId,
         sourceId,
-        nativeId: `${sessionNativeId}:header-metadata`
+        nativeId: metadataNativeId
       });
-      events.push({
-        kind: "session-event",
-        id: metadataEventId,
-        adapterId,
-        sourceId,
-        sessionId,
-        nativeId: `${sessionNativeId}:header-metadata`,
-        eventKind: "metadata",
+      const summary = `Project hash ${session.header.projectHash}`;
+	      sessionEvents.push({
+	        id: metadataEventId,
+	        sessionId,
+	        adapterId,
+	        sourceId,
+	        nativeId: metadataNativeId,
+	        kind: "metadata",
         ...(session.header.startTime ? { timestamp: session.header.startTime } : {}),
-        ordinal: ordinal,
-        summary: `Project hash ${session.header.projectHash}`,
-        confidence: HIGH_CONFIDENCE
+	        orderKey: buildOrderKey(ordinal, metadataNativeId),
+        actor: "harness",
+        title: summary,
+        text: summary,
+        raw: buildRawPointer(session.headerLocator, `event:${metadataNativeId}`, metadataEventId),
+        diagnostics: []
       });
       ordinal += 1;
     }
@@ -241,45 +456,52 @@ export async function normalizeGeminiCliEvents(
       const role = toMessageRole(record.record.type);
 
       if (recordText) {
+        const messageNativeId = `${record.record.id}:${record.locator.lineNumber ?? ordinal}`;
+        const eventNativeId = `${record.locator.nativeId ?? record.record.id}:message:${record.locator.lineNumber ?? ordinal}`;
         const messageEventId = createSessionEventId({
           adapterId,
           sourceId,
-          nativeId: `${sessionNativeId}:message:${record.artifactNativeId}:${record.lineNumber ?? ordinal}`
+          nativeId: eventNativeId
         });
         const messageId = createSessionMessageId({
           adapterId,
           sourceId,
-          nativeId: `${sessionNativeId}:message:${record.record.id}:${record.lineNumber ?? ordinal}`
+          nativeId: messageNativeId
         });
+        const summary = `${role} message`;
 
-        messages.push({
-          kind: "session-message",
-          id: messageId,
-          adapterId,
-          sourceId,
-          sessionId,
-          nativeId: `${record.record.id}:${record.lineNumber ?? ordinal}`,
-          role,
-          content: recordText,
-          ordinal: messages.filter((message) => message.sessionId === sessionId).length + 1,
-          timestamp: record.record.timestamp,
-          eventId: messageEventId,
-          confidence: HIGH_CONFIDENCE
-        });
+	        const message: NormalizedMessage = {
+	          id: messageId,
+	          sessionId,
+	          adapterId,
+	          sourceId,
+	          nativeId: messageNativeId,
+	          kind: "session-message",
+	          role,
+	          ...(record.record.timestamp ? { timestamp: record.record.timestamp } : {}),
+	          text: recordText,
+	          ...(record.record.model ? { modelName: record.record.model } : {}),
+	          toolCallIds: [],
+	          eventIds: [messageEventId],
+	          source: buildRawPointer(record.locator, `message:${messageNativeId}`, messageEventId),
+          confidence: CONFIRMED
+        };
 
-        events.push({
-          kind: "session-event",
-          id: messageEventId,
-          adapterId,
-          sourceId,
-          sessionId,
-          nativeId: `${record.artifactNativeId}:message:${record.lineNumber ?? ordinal}`,
-          eventKind: "message",
-          timestamp: record.record.timestamp,
-          ordinal,
-          summary: `${role} message`,
-          messageId,
-          confidence: HIGH_CONFIDENCE
+        sessionMessages.push(message);
+	        sessionEvents.push({
+	          id: messageEventId,
+	          sessionId,
+	          adapterId,
+	          sourceId,
+	          nativeId: eventNativeId,
+	          kind: "message",
+	          ...(record.record.timestamp ? { timestamp: record.record.timestamp } : {}),
+	          orderKey: buildOrderKey(ordinal, eventNativeId),
+          actor: role,
+          title: summary,
+          text: summary,
+          raw: buildRawPointer(record.locator, `event:${eventNativeId}`, messageEventId),
+          diagnostics: []
         });
         ordinal += 1;
       }
@@ -290,105 +512,157 @@ export async function normalizeGeminiCliEvents(
           sourceId,
           nativeId: toolCallRecord.id
         });
+        const eventNativeId = `${toolCallRecord.id}:${record.locator.lineNumber ?? toolIndex + 1}`;
         const toolCallEventId = createSessionEventId({
           adapterId,
           sourceId,
-          nativeId: `${sessionNativeId}:tool-call:${toolCallRecord.id}:${record.lineNumber ?? toolIndex + 1}`
+          nativeId: eventNativeId
         });
         const matchingSidecars = session.sidecars.filter(
           (sidecar) => sidecar.toolCallId === toolCallRecord.id
         );
-        const outputArtifactIds = matchingSidecars.map((sidecar) =>
-          createOutputArtifactId({
+        const outputArtifactIds = matchingSidecars.flatMap((sidecar) => {
+          const matchingArtifact = rawArtifactsById.get(sidecar.artifactId);
+          const outputArtifactId = createOutputArtifactId({
             adapterId,
             sourceId,
             nativeId: sidecar.relativePath
-          })
-        );
-        const fileMutationIds = buildFileMutationsForToolCall({
+          });
+
+          if (!sessionOutputArtifacts.has(outputArtifactId)) {
+            const shape = mapArtifactShape(sidecar);
+	            sessionOutputArtifacts.set(outputArtifactId, {
+	              id: outputArtifactId,
+	              adapterId,
+	              sourceId,
+	              sessionId,
+	              nativeId: sidecar.relativePath,
+	              nativeRef: sidecar.relativePath,
+	              path: sidecar.relativePath,
+	              kind: shape.kind,
+	              contentKind: shape.contentKind,
+	              ...(sidecar.mediaType ? { mediaType: sidecar.mediaType } : {}),
+	              ...(matchingArtifact?.sizeBytes !== undefined
+                ? { sizeBytes: matchingArtifact.sizeBytes }
+                : matchingArtifact?.byteLength !== undefined
+                  ? { sizeBytes: matchingArtifact.byteLength }
+                  : {}),
+              ...(matchingArtifact?.mtime ? { mtime: matchingArtifact.mtime } : {}),
+              ...(sidecar.textPreview ? { preview: sidecar.textPreview } : {}),
+              loaded: false,
+              source: buildRawPointer(
+                sidecar.locator,
+                `artifact:${sidecar.relativePath}`
+              ),
+              diagnostics: []
+            });
+          }
+
+          if (matchingArtifact?.path) {
+            outputArtifactBindings.set(outputArtifactId, {
+              path: matchingArtifact.path,
+              rawArtifactId: matchingArtifact.id
+            });
+          }
+
+          return [outputArtifactId];
+        });
+        const fileMutationId = buildFileMutationForToolCall({
           adapterId,
-          eventId: toolCallEventId,
-          fileMutationMap,
-          fileMutations,
+          fileMutationMap: sessionFileMutations,
           sessionId,
           sourceId,
           toolCallId,
-          toolCallRecord
+          toolCallRecord,
+          locator: record.locator
         });
-
-        const toolCall = {
-          kind: "tool-call",
-          id: toolCallId,
-          adapterId,
-          sourceId,
-          sessionId,
-          nativeId: toolCallRecord.id,
-          toolName: toolCallRecord.name,
-          status: mapToolCallStatus(toolCallRecord.status),
-          ...(toolCallRecord.timestamp ?? record.record.timestamp
-            ? { startedAt: toolCallRecord.timestamp ?? record.record.timestamp }
-            : {}),
-          ...(toolCallRecord.timestamp ?? record.record.timestamp
-            ? { endedAt: toolCallRecord.timestamp ?? record.record.timestamp }
-            : {}),
-          ...(toolCallRecord.args
-            ? withOptionalSummary("inputSummary", summarizeArgs(toolCallRecord.args))
-            : {}),
-          ...(toolCallRecord.resultDisplay !== undefined
-            ? withOptionalSummary("outputSummary", summarizeUnknown(toolCallRecord.resultDisplay))
-            : {}),
-          eventId: toolCallEventId,
-          ...(outputArtifactIds.length > 0 ? { artifactIds: outputArtifactIds } : {}),
-          ...(fileMutationIds.length > 0 ? { fileMutationIds } : {}),
-          confidence: HIGH_CONFIDENCE
-        } satisfies ToolCall;
-
-        toolCallMap.set(toolCallId, toolCall);
-        events.push({
-          kind: "session-event",
-          id: toolCallEventId,
-          adapterId,
-          sourceId,
-          sessionId,
-          nativeId: `${toolCallRecord.id}:${record.lineNumber ?? toolIndex + 1}`,
-          eventKind: "tool-call",
-          timestamp: toolCallRecord.timestamp ?? record.record.timestamp,
-          ordinal,
-          summary: `${toolCallRecord.name} ${toolCall.status}`,
-          toolCallId,
-          confidence: HIGH_CONFIDENCE
-        });
-        ordinal += 1;
-
         const shellCommand = buildShellCommandForToolCall({
           adapterId,
-          eventId: toolCallEventId,
           outputArtifactIds,
           sessionId,
           sourceId,
           toolCallId,
-          toolCallRecord
+          toolCallRecord,
+          locator: record.locator
         });
 
+	        sessionToolCalls.set(toolCallId, {
+	          id: toolCallId,
+	          sessionId,
+	          adapterId,
+	          sourceId,
+	          nativeId: toolCallRecord.id,
+	          kind: "tool-call",
+	          nativeToolCallId: toolCallRecord.id,
+	          name: toolCallRecord.name,
+	          normalizedKind: mapToolKind(toolCallRecord.name),
+	          ...(toolCallRecord.status ? { statusRaw: toolCallRecord.status } : {}),
+	          ...(toolCallRecord.status ? { statusNormalized: mapToolStatus(toolCallRecord.status) } : {}),
+	          ...(toolCallRecord.args
+	            ? (() => {
+	                const argsPreview = optionalString(summarizeArgs(toolCallRecord.args));
+	                return argsPreview ? { argsPreview } : {};
+	              })()
+	            : {}),
+	          ...(toolCallRecord.resultDisplay !== undefined
+	            ? (() => {
+	                const resultPreview = optionalString(summarizeUnknown(toolCallRecord.resultDisplay));
+	                return resultPreview ? { resultPreview } : {};
+	              })()
+	            : {}),
+	          outputArtifactIds,
+	          ...(fileMutationId ? { fileMutationId } : {}),
+	          ...(shellCommand ? { shellCommandId: shellCommand.id } : {}),
+          source: buildRawPointer(record.locator, `tool:${toolCallRecord.id}`, toolCallEventId),
+          confidence: CONFIRMED,
+          diagnostics: []
+        });
+
+        const toolSummary = `${toolCallRecord.name} ${toolCallRecord.status ?? "unknown"}`;
+	        sessionEvents.push({
+	          id: toolCallEventId,
+	          sessionId,
+	          adapterId,
+	          sourceId,
+	          nativeId: eventNativeId,
+	          kind: "tool-call",
+          ...(toolCallRecord.timestamp ?? record.record.timestamp
+            ? { timestamp: toolCallRecord.timestamp ?? record.record.timestamp }
+            : {}),
+	          orderKey: buildOrderKey(ordinal, eventNativeId),
+          actor: "tool",
+          title: toolSummary,
+          text: toolSummary,
+          raw: buildRawPointer(record.locator, `event:${eventNativeId}`, toolCallEventId),
+          diagnostics: []
+        });
+        ordinal += 1;
+
         if (shellCommand) {
-          shellCommandMap.set(shellCommand.id, shellCommand);
-          events.push({
-            kind: "session-event",
-            id: createSessionEventId({
-              adapterId,
-              sourceId,
-              nativeId: `${sessionNativeId}:shell:${toolCallRecord.id}`
-            }),
+          sessionShellCommands.set(shellCommand.id, shellCommand);
+          const shellEventNativeId = `shell:${toolCallRecord.id}`;
+          const shellEventId = createSessionEventId({
             adapterId,
             sourceId,
-            sessionId,
-            nativeId: `shell:${toolCallRecord.id}`,
-            eventKind: "shell-command",
-            timestamp: shellCommand.startedAt ?? record.record.timestamp,
-            ordinal,
-            summary: shellCommand.command,
-            shellCommandId: shellCommand.id,
-            confidence: HIGH_CONFIDENCE
+            nativeId: shellEventNativeId
+          });
+          const shellSummary = shellCommand.command ?? "run_shell_command";
+	          sessionEvents.push({
+	            id: shellEventId,
+	            sessionId,
+	            adapterId,
+	            sourceId,
+	            nativeId: shellEventNativeId,
+	            kind: "shell-command",
+            ...(toolCallRecord.timestamp ?? record.record.timestamp
+              ? { timestamp: toolCallRecord.timestamp ?? record.record.timestamp }
+              : {}),
+	            orderKey: buildOrderKey(ordinal, shellEventNativeId),
+            actor: "harness",
+            title: shellSummary,
+            text: shellSummary,
+            raw: buildRawPointer(record.locator, `event:${shellEventNativeId}`, shellEventId),
+            diagnostics: []
           });
           ordinal += 1;
         }
@@ -414,47 +688,46 @@ export async function normalizeGeminiCliEvents(
     }
 
     if (timeline.length === 0 && session.logEntries.length > 0) {
-      for (const logEntry of sortLogEntries(session.logEntries)) {
-        const role = toMessageRole(logEntry.type);
+      for (const [index, logRecord] of sortLogEntries(session.logEntries).entries()) {
+        const role = toMessageRole(logRecord.entry.type);
+        const messageNativeId = `logs:${logRecord.entry.messageId}`;
+        const eventNativeId = `${logRecord.locator.nativeId ?? "logs"}:message:${logRecord.entry.messageId}`;
         const messageEventId = createSessionEventId({
           adapterId,
           sourceId,
-          nativeId: `${sessionNativeId}:log-message:${logEntry.messageId}`
+          nativeId: eventNativeId
         });
         const messageId = createSessionMessageId({
           adapterId,
           sourceId,
-          nativeId: `${sessionNativeId}:log-message:${logEntry.messageId}`
+          nativeId: messageNativeId
         });
+        const summary = `${role} message`;
 
-        messages.push({
-          kind: "session-message",
+        sessionMessages.push({
           id: messageId,
-          adapterId,
-          sourceId,
           sessionId,
-          nativeId: `logs:${logEntry.messageId}`,
+          adapterId,
           role,
-          content: logEntry.message,
-          ordinal: messages.filter((message) => message.sessionId === sessionId).length + 1,
-          timestamp: logEntry.timestamp,
-          eventId: messageEventId,
-          confidence: HIGH_CONFIDENCE
+          timestamp: logRecord.entry.timestamp,
+          text: logRecord.entry.message,
+          toolCallIds: [],
+          eventIds: [messageEventId],
+          source: buildRawPointer(logRecord.locator, `message:${messageNativeId}`, messageEventId),
+          confidence: CONFIRMED
         });
-
-        events.push({
-          kind: "session-event",
+        sessionEvents.push({
           id: messageEventId,
-          adapterId,
-          sourceId,
           sessionId,
-          nativeId: `logs:${logEntry.messageId}`,
-          eventKind: "message",
-          timestamp: logEntry.timestamp,
-          ordinal,
-          summary: `${role} message`,
-          messageId,
-          confidence: HIGH_CONFIDENCE
+          adapterId,
+          kind: "message",
+          timestamp: logRecord.entry.timestamp,
+          orderKey: buildOrderKey(ordinal, `${eventNativeId}:${index + 1}`),
+          actor: role,
+          title: summary,
+          text: summary,
+          raw: buildRawPointer(logRecord.locator, `event:${eventNativeId}`, messageEventId),
+          diagnostics: []
         });
         ordinal += 1;
       }
@@ -466,90 +739,172 @@ export async function normalizeGeminiCliEvents(
         sourceId,
         nativeId: sidecar.relativePath
       });
+      const outputArtifactEventNativeId = `artifact:${sidecar.relativePath}`;
       const outputArtifactEventId = createSessionEventId({
         adapterId,
         sourceId,
-        nativeId: `${sessionNativeId}:artifact:${sidecar.relativePath}`
+        nativeId: outputArtifactEventNativeId
       });
-      const artifactKind =
-        sidecar.format === "json" ? "json" : sidecar.mediaType?.startsWith("text/") ? "text" : "text";
-      const matchingArtifact = input.artifacts.find(
-        (artifact) => artifact.id === sidecar.artifactId
-      );
+      const matchingArtifact = rawArtifactsById.get(sidecar.artifactId);
 
-      outputArtifacts.push({
-        kind: "output-artifact",
-        id: outputArtifactId,
-        adapterId,
-        sourceId,
-        sessionId,
-        nativeId: sidecar.relativePath,
-        artifactKind,
-        path: sidecar.relativePath,
-        ...(sidecar.mediaType ? { mediaType: sidecar.mediaType } : {}),
-        ...(matchingArtifact?.byteLength !== undefined
-          ? { byteLength: matchingArtifact.byteLength }
-          : {}),
-        eventId: outputArtifactEventId,
-        confidence: HIGH_CONFIDENCE
-      });
-      if (matchingArtifact) {
+      if (!sessionOutputArtifacts.has(outputArtifactId)) {
+        const shape = mapArtifactShape(sidecar);
+	        sessionOutputArtifacts.set(outputArtifactId, {
+	          id: outputArtifactId,
+	          adapterId,
+	          sourceId,
+	          sessionId,
+	          nativeId: sidecar.relativePath,
+	          nativeRef: sidecar.relativePath,
+	          path: sidecar.relativePath,
+	          kind: shape.kind,
+	          contentKind: shape.contentKind,
+	          ...(sidecar.mediaType ? { mediaType: sidecar.mediaType } : {}),
+          ...(matchingArtifact?.sizeBytes !== undefined
+            ? { sizeBytes: matchingArtifact.sizeBytes }
+            : matchingArtifact?.byteLength !== undefined
+              ? { sizeBytes: matchingArtifact.byteLength }
+              : {}),
+          ...(matchingArtifact?.mtime ? { mtime: matchingArtifact.mtime } : {}),
+          ...(sidecar.textPreview ? { preview: sidecar.textPreview } : {}),
+          loaded: false,
+          source: buildRawPointer(sidecar.locator, `artifact:${sidecar.relativePath}`),
+          diagnostics: []
+        });
+      }
+
+      if (matchingArtifact?.path) {
         outputArtifactBindings.set(outputArtifactId, {
           path: matchingArtifact.path,
           rawArtifactId: matchingArtifact.id
         });
       }
 
-      events.push({
-        kind: "session-event",
-        id: outputArtifactEventId,
-        adapterId,
-        sourceId,
-        sessionId,
-        nativeId: `artifact:${sidecar.relativePath}`,
-        eventKind: "output-artifact",
-        ordinal,
-        summary: sidecar.relativePath,
-        outputArtifactId,
-        confidence: HIGH_CONFIDENCE
+	      sessionEvents.push({
+	        id: outputArtifactEventId,
+	        sessionId,
+	        adapterId,
+	        sourceId,
+	        nativeId: outputArtifactEventNativeId,
+	        kind: "tool-result",
+	        orderKey: buildOrderKey(ordinal, outputArtifactEventNativeId),
+        actor: "harness",
+        title: sidecar.relativePath,
+        text: sidecar.relativePath,
+        raw: buildRawPointer(
+          sidecar.locator,
+          `event:${outputArtifactEventNativeId}`,
+          outputArtifactEventId
+        ),
+        diagnostics: []
       });
       ordinal += 1;
     }
 
-    const diagnosticsForSession = diagnostics.slice(sessionDiagnosticsStart).map((diagnostic) => diagnostic.id);
+    const firstUserPrompt = sessionMessages.find((message) => message.role === "user")?.text;
+    const latestUserPrompt = [...sessionMessages]
+      .reverse()
+      .find((message) => message.role === "user")?.text;
+    const lastUpdatedAt =
+      session.lastUpdated ??
+      session.header?.lastUpdated ??
+      [...timeline].reverse().find((record) => record.record.timestamp)?.record.timestamp ??
+      [...session.logEntries].reverse().find((entry) => entry.entry.timestamp)?.entry.timestamp;
     const startedAt =
-      session.header?.startTime ?? timeline[0]?.record.timestamp ?? session.logEntries[0]?.timestamp;
-
-    sessions.push({
-      kind: "session",
-      id: sessionId,
-      adapterId,
-      sourceId,
-      nativeId: sessionNativeId,
-      projectId,
-      title: buildSessionTitle(session),
-      ...(startedAt ? { startedAt } : {}),
-      ...(lifecycle.endedAt ? { endedAt: lifecycle.endedAt } : {}),
-      lifecycleState: lifecycle.state,
-      ...(diagnosticsForSession.length > 0 ? { diagnosticIds: diagnosticsForSession } : {}),
-      confidence: HIGH_CONFIDENCE
-    });
-    sessionCapabilitySnapshots.push(
-      buildSessionCapabilityEnvelope(sourceCapabilities, sourceId, sessionId)
+      session.header?.startTime ??
+      timeline[0]?.record.timestamp ??
+      session.logEntries[0]?.entry.timestamp;
+    const sessionRawArtifactRefs = uniqueRawArtifactRefs(
+      session.sidecars
+        .map((sidecar) => rawArtifactsById.get(sidecar.artifactId))
+        .filter((artifact): artifact is RawArtifactRef => Boolean(artifact))
+        .map((artifact) => toRawArtifactRef(artifact))
     );
-    toolCalls.push(...toolCallMap.values());
-    shellCommands.push(...shellCommandMap.values());
+	    sessions.push({
+	      id: sessionId,
+	      adapterId,
+	      sourceId,
+	      nativeId: sessionNativeId,
+	      nativeSessionId: sessionNativeId,
+	      kind: "session",
+	      projectId,
+      ...(buildSessionTitle(session) ? { title: buildSessionTitle(session) } : {}),
+      ...(firstUserPrompt ? { firstUserPrompt } : {}),
+      ...(latestUserPrompt ? { latestUserPrompt } : {}),
+      ...(startedAt ? { startedAt } : {}),
+      ...(lastUpdatedAt ? { lastUpdatedAt } : {}),
+      ...(startedAt && lastUpdatedAt
+        ? { durationMs: Math.max(0, Date.parse(lastUpdatedAt) - Date.parse(startedAt)) }
+        : {}),
+	      lifecycleStatus: lifecycle.state,
+      capabilities: geminiCliDescriptor.capabilities,
+      parseConfidence: timeline.length > 0 || session.logEntries.length > 0 ? CONFIRMED : UNKNOWN,
+      messageIds: sessionMessages.map((message) => message.id),
+      eventIds: sessionEvents.map((event) => event.id),
+      toolCallIds: [...sessionToolCalls.values()].map((toolCall) => toolCall.id),
+      fileMutationIds: [...sessionFileMutations.values()].map((mutation) => mutation.id),
+      shellCommandIds: [...sessionShellCommands.values()].map((command) => command.id),
+      outputArtifactIds: [...sessionOutputArtifacts.values()].map((artifact) => artifact.id),
+	      usage: {},
+      rawArtifactRefs: sessionRawArtifactRefs,
+      diagnostics: []
+    });
+    sessionCapabilitySnapshots.push(buildCapabilityEnvelope(sourceId, sessionId));
+    sessionSummaries.push({
+      id: sessionId,
+      ...(lastUpdatedAt ? { latestActivityAt: lastUpdatedAt } : {}),
+      ...(latestUserPrompt ? { latestUserPrompt } : {})
+    });
+    events.push(...sessionEvents);
+    messages.push(...sessionMessages);
+    toolCalls.push(...sessionToolCalls.values());
+    shellCommands.push(...sessionShellCommands.values());
+    outputArtifacts.push(...sessionOutputArtifacts.values());
+    fileMutations.push(...sessionFileMutations.values());
   }
+
+  const latestSessionSummary = [...sessionSummaries]
+    .filter((summary) => summary.latestActivityAt)
+    .sort((left, right) => (right.latestActivityAt ?? "").localeCompare(left.latestActivityAt ?? ""))[0];
+	  const project = {
+	    id: projectId,
+	    adapterId,
+	    sourceId,
+	    nativeId: projectNativeId,
+	    kind: "project",
+	    displayName: path.basename(projectRootPath || input.source.displayName),
+	    name: path.basename(projectRootPath || input.source.displayName),
+	    ...(projectRootPath ? { primaryRootPath: projectRootPath } : {}),
+	    ...(projectRootPath ? { rootPath: projectRootPath } : {}),
+    rootConfidence: projectRootPath ? CONFIRMED : INFERRED,
+    harnessRefs: [
+      {
+        adapterId,
+        sourceId,
+        nativeProjectId: projectNativeId,
+        ...(projectRootPath ? { nativeProjectPath: projectRootPath } : {}),
+        ...(projectRootPath ? { projectRootPath } : {}),
+        projectRootConfidence: projectRootPath ? CONFIRMED : INFERRED,
+        rawArtifactRefs: projectRawArtifactRefs
+      }
+    ],
+    sessionIds: sessions.map((session) => session.id as string),
+    ...(latestSessionSummary?.latestActivityAt
+      ? { latestActivityAt: latestSessionSummary.latestActivityAt }
+      : {}),
+    ...(latestSessionSummary?.latestUserPrompt ? { latestPrompt: latestSessionSummary.latestUserPrompt } : {}),
+    diagnostics: []
+  };
 
   return {
     adapterId,
     sourceId,
     capabilities: {
-      adapter: buildCapabilityEnvelope(sourceCapabilities),
-      source: buildCapabilityEnvelope(sourceCapabilities, sourceId),
+      adapter: buildCapabilityEnvelope(),
+      source: buildCapabilityEnvelope(sourceId),
       sessions: sessionCapabilitySnapshots
     },
-    projects,
+    projects: [project],
     sessions,
     events,
     messages,
@@ -561,7 +916,7 @@ export async function normalizeGeminiCliEvents(
     extras: {
       outputArtifactBindings
     }
-  };
+  } as unknown as AdapterNormalizationResult & { extras: GeminiNormalizationExtras };
 }
 
 function collectSessionData(rawEvents: GeminiRawEvent[]): Map<string, SessionAccumulator> {
@@ -572,6 +927,7 @@ function collectSessionData(rawEvents: GeminiRawEvent[]): Map<string, SessionAcc
       case "session-header": {
         const entry = getOrCreateSessionAccumulator(sessions, event.payload.sessionId);
         entry.header = event.payload.header;
+        entry.headerLocator = toEventLocator(event);
         break;
       }
       case "metadata-patch": {
@@ -584,33 +940,25 @@ function collectSessionData(rawEvents: GeminiRawEvent[]): Map<string, SessionAcc
       case "logs-entry": {
         const entry = getOrCreateSessionAccumulator(sessions, event.payload.entry.sessionId);
         entry.logEntries.push({
-          sessionId: event.payload.entry.sessionId,
-          message: event.payload.entry.message,
-          messageId: event.payload.entry.messageId,
-          timestamp: event.payload.entry.timestamp,
-          type: event.payload.entry.type,
-          ...(event.payload.origin.index !== undefined
-            ? { index: event.payload.origin.index }
-            : {})
+          entry: event.payload.entry,
+          locator: toEventLocator(event)
         });
         break;
       }
       case "transcript-record": {
         const entry = getOrCreateSessionAccumulator(sessions, event.payload.sessionId);
         entry.transcriptRecords.push({
-          artifactNativeId: event.payload.origin.artifactNativeId,
-          ...(event.payload.origin.lineNumber !== undefined
-            ? { lineNumber: event.payload.origin.lineNumber }
-            : {}),
-          record: event.payload.record
+          record: event.payload.record,
+          locator: toEventLocator(event)
         });
         break;
       }
       case "tool-output-sidecar": {
         const entry = getOrCreateSessionAccumulator(sessions, event.payload.sessionId);
         entry.sidecars.push({
-          artifactId: event.artifactId,
+          artifactId: event.artifactId ?? event.id ?? event.payload.relativePath,
           format: event.payload.format,
+          locator: toEventLocator(event),
           relativePath: event.payload.relativePath,
           sessionId: event.payload.sessionId,
           ...(event.payload.mediaType ? { mediaType: event.payload.mediaType } : {}),
@@ -648,34 +996,43 @@ function getOrCreateSessionAccumulator(
   return created;
 }
 
+function toEventLocator(event: GeminiRawEvent): EventLocator {
+  return {
+    ...(event.artifactId ? { artifactId: event.artifactId } : {}),
+    ...(event.source?.artifactPath ? { path: event.source.artifactPath } : {}),
+    ...(event.source?.nativeRef ? { nativeId: event.source.nativeRef } : {}),
+    ...(event.source?.lineNumber !== undefined ? { lineNumber: event.source.lineNumber } : {}),
+    ...(event.source?.recordIndex !== undefined ? { recordIndex: event.source.recordIndex } : {})
+  };
+}
+
 function buildTimeline(session: SessionAccumulator) {
   return [...session.transcriptRecords].sort((left, right) => {
     if (left.record.timestamp !== right.record.timestamp) {
       return left.record.timestamp.localeCompare(right.record.timestamp);
     }
 
-    return (left.lineNumber ?? 0) - (right.lineNumber ?? 0);
+    return (left.locator.lineNumber ?? 0) - (right.locator.lineNumber ?? 0);
   });
 }
 
 function sortLogEntries(entries: SessionAccumulator["logEntries"]) {
   return [...entries].sort((left, right) => {
-    if (left.timestamp !== right.timestamp) {
-      return left.timestamp.localeCompare(right.timestamp);
+    if (left.entry.timestamp !== right.entry.timestamp) {
+      return left.entry.timestamp.localeCompare(right.entry.timestamp);
     }
 
-    if (left.messageId !== right.messageId) {
-      return left.messageId - right.messageId;
+    if (left.entry.messageId !== right.entry.messageId) {
+      return left.entry.messageId - right.entry.messageId;
     }
 
-    return (left.index ?? 0) - (right.index ?? 0);
+    return (left.locator.recordIndex ?? 0) - (right.locator.recordIndex ?? 0);
   });
 }
 
 function deriveLifecycle(timeline: SessionAccumulator["transcriptRecords"]): {
   conflictMessage?: string;
-  endedAt?: string;
-  state: Session["lifecycleState"];
+  state: "active" | "completed" | "cancelled" | "unknown";
   summary: string;
   timestamp?: string;
 } {
@@ -700,7 +1057,6 @@ function deriveLifecycle(timeline: SessionAccumulator["transcriptRecords"]): {
       return {
         state: "completed",
         timestamp: lastAssistantResponse.record.timestamp,
-        endedAt: lastAssistantResponse.record.timestamp,
         summary: "Completed with conflicting cancellation evidence.",
         conflictMessage:
           "Gemini timeline contained both a cancellation signal and a later completed assistant response."
@@ -710,7 +1066,6 @@ function deriveLifecycle(timeline: SessionAccumulator["transcriptRecords"]): {
     return {
       state: "cancelled",
       timestamp: cancellationRecord.record.timestamp,
-      endedAt: cancellationRecord.record.timestamp,
       summary: "Cancelled"
     };
   }
@@ -719,7 +1074,6 @@ function deriveLifecycle(timeline: SessionAccumulator["transcriptRecords"]): {
     return {
       state: "cancelled",
       timestamp: cancellationRecord.record.timestamp,
-      endedAt: cancellationRecord.record.timestamp,
       summary: "Cancelled"
     };
   }
@@ -728,7 +1082,6 @@ function deriveLifecycle(timeline: SessionAccumulator["transcriptRecords"]): {
     return {
       state: "completed",
       timestamp: lastAssistantResponse.record.timestamp,
-      endedAt: lastAssistantResponse.record.timestamp,
       summary: "Completed"
     };
   }
@@ -742,8 +1095,8 @@ function deriveLifecycle(timeline: SessionAccumulator["transcriptRecords"]): {
         summary: "Active"
       }
     : {
-        state: "active",
-        summary: "Active"
+        state: "unknown",
+        summary: "Unknown"
       };
 }
 
@@ -756,10 +1109,10 @@ function buildSessionTitle(session: SessionAccumulator): string {
   }
 
   const firstLog = session.logEntries[0];
-  return firstLog?.message.slice(0, 80) ?? "Gemini CLI session";
+  return firstLog?.entry.message.slice(0, 80) ?? "Gemini CLI session";
 }
 
-function toMessageRole(type: string): SessionMessage["role"] {
+function toMessageRole(type: string): "user" | "assistant" | "system" | "tool" | "unknown" {
   switch (type) {
     case "user":
       return "user";
@@ -769,62 +1122,21 @@ function toMessageRole(type: string): SessionMessage["role"] {
       return "tool";
     case "system":
     case "info":
-    default:
       return "system";
-  }
-}
-
-function mapToolCallStatus(status?: string): ToolCall["status"] {
-  switch (status) {
-    case "success":
-    case "succeeded":
-      return "succeeded";
-    case "failed":
-    case "error":
-      return "failed";
-    case "cancelled":
-      return "cancelled";
-    case "started":
-    case "running":
-      return "started";
     default:
       return "unknown";
   }
 }
 
-function summarizeArgs(args: Record<string, unknown>): string {
-  const keys = Object.keys(args).sort();
-  return keys.map((key) => `${key}=${summarizeUnknown(args[key])}`).join(", ");
-}
-
-function summarizeUnknown(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  try {
-    return JSON.stringify(value) ?? "";
-  } catch {
-    return String(value);
-  }
-}
-
-function withOptionalSummary<TKey extends "inputSummary" | "outputSummary">(
-  key: TKey,
-  summary: string
-): Partial<Record<TKey, string>> {
-  return summary.trim().length > 0 ? ({ [key]: summary } as Partial<Record<TKey, string>>) : {};
-}
-
 function buildShellCommandForToolCall(args: {
   adapterId: string;
-  eventId: string;
+  locator: EventLocator;
   outputArtifactIds: string[];
   sessionId: string;
   sourceId: string;
   toolCallId: string;
   toolCallRecord: GeminiToolCallRecord;
-}): ShellCommandEvidence | null {
+}): NormalizedShellCommand | null {
   if (args.toolCallRecord.name !== "run_shell_command") {
     return null;
   }
@@ -833,53 +1145,50 @@ function buildShellCommandForToolCall(args: {
     typeof args.toolCallRecord.args?.command === "string"
       ? args.toolCallRecord.args.command
       : "run_shell_command";
-
-  return {
-    kind: "shell-command",
-    id: createShellCommandEvidenceId({
-      adapterId: args.adapterId,
-      sourceId: args.sourceId,
-      nativeId: `shell:${args.toolCallRecord.id}`
-    }),
+  const shellCommandId = createShellCommandEvidenceId({
     adapterId: args.adapterId,
     sourceId: args.sourceId,
-    sessionId: args.sessionId,
-    nativeId: args.toolCallRecord.id,
-    command,
-    outputSource: "combined",
+    nativeId: `shell:${args.toolCallRecord.id}`
+  });
+  const outputInline =
+    args.toolCallRecord.resultDisplay !== undefined
+      ? optionalString(summarizeUnknown(args.toolCallRecord.resultDisplay))
+      : undefined;
+
+	  return {
+	    id: shellCommandId,
+	    sessionId: args.sessionId,
+	    adapterId: args.adapterId,
+	    sourceId: args.sourceId,
+	    nativeId: `shell:${args.toolCallRecord.id}`,
+	    kind: "shell-command",
+	    toolCallId: args.toolCallId,
+	    command,
     ...(typeof args.toolCallRecord.args?.cwd === "string"
       ? { cwd: args.toolCallRecord.args.cwd }
       : {}),
-    ...(args.toolCallRecord.timestamp ? { startedAt: args.toolCallRecord.timestamp } : {}),
-    ...(args.toolCallRecord.timestamp ? { endedAt: args.toolCallRecord.timestamp } : {}),
-    ...(args.toolCallRecord.resultDisplay !== undefined
-      ? withOptionalSummary("outputSummary", summarizeUnknown(args.toolCallRecord.resultDisplay))
-      : {}),
-    eventId: args.eventId,
-    toolCallId: args.toolCallId,
-    ...(args.outputArtifactIds.length > 0 ? { artifactIds: args.outputArtifactIds } : {}),
-    ...(args.toolCallRecord.status
-      ? { rawToolStatus: mapToolCallStatus(args.toolCallRecord.status) }
-      : {}),
-    confidence: HIGH_CONFIDENCE
+	    ...(outputInline ? { outputInline } : {}),
+	    outputArtifactIds: args.outputArtifactIds,
+	    ...(args.toolCallRecord.status ? { rawStatus: args.toolCallRecord.status } : {}),
+	    source: buildRawPointer(args.locator, `shell:${args.toolCallRecord.id}`),
+	    confidence: CONFIRMED
   };
 }
 
-function buildFileMutationsForToolCall(args: {
+function buildFileMutationForToolCall(args: {
   adapterId: string;
-  eventId: string;
-  fileMutationMap: Map<string, FileMutationEvidence>;
-  fileMutations: FileMutationEvidence[];
+  fileMutationMap: Map<string, NormalizedFileMutation>;
+  locator: EventLocator;
   sessionId: string;
   sourceId: string;
   toolCallId: string;
   toolCallRecord: GeminiToolCallRecord;
-}): string[] {
+}): string | undefined {
   const mutationKind = mapFileMutationKind(args.toolCallRecord.name);
   const filePath = extractMutationPath(args.toolCallRecord.args);
 
   if (!mutationKind || !filePath) {
-    return [];
+    return undefined;
   }
 
   const mutationId = createFileMutationEvidenceId({
@@ -887,29 +1196,28 @@ function buildFileMutationsForToolCall(args: {
     sourceId: args.sourceId,
     nativeId: `${args.toolCallRecord.id}:${filePath}`
   });
-  const mutation = {
-    kind: "file-mutation",
-    id: mutationId,
-    adapterId: args.adapterId,
-    sourceId: args.sourceId,
-    sessionId: args.sessionId,
-    nativeId: `${args.toolCallRecord.id}:${filePath}`,
-    path: filePath,
-    mutationKind,
-    eventId: args.eventId,
-    toolCallId: args.toolCallId,
-    confidence: HIGH_CONFIDENCE
-  } satisfies FileMutationEvidence;
 
   if (!args.fileMutationMap.has(mutationId)) {
-    args.fileMutationMap.set(mutationId, mutation);
-    args.fileMutations.push(mutation);
+	    args.fileMutationMap.set(mutationId, {
+	      id: mutationId,
+	      sessionId: args.sessionId,
+	      adapterId: args.adapterId,
+	      sourceId: args.sourceId,
+	      nativeId: `${args.toolCallRecord.id}:${filePath}`,
+	      kind: "file-mutation",
+	      path: filePath,
+	      mutationKind,
+	      toolCallId: args.toolCallId,
+      source: buildRawPointer(args.locator, `file:${args.toolCallRecord.id}:${filePath}`),
+      confidence: CONFIRMED,
+      diagnostics: []
+    });
   }
 
-  return [mutationId];
+  return mutationId;
 }
 
-function mapFileMutationKind(toolName: string): FileMutationEvidence["mutationKind"] | null {
+function mapFileMutationKind(toolName: string): "created" | "updated" | "deleted" | null {
   switch (toolName) {
     case "create_file":
     case "write_file":
@@ -924,9 +1232,7 @@ function mapFileMutationKind(toolName: string): FileMutationEvidence["mutationKi
   }
 }
 
-function extractMutationPath(
-  args?: Record<string, unknown>
-): string | undefined {
+function extractMutationPath(args?: Record<string, unknown>): string | undefined {
   if (!args) {
     return undefined;
   }
@@ -941,4 +1247,39 @@ function extractMutationPath(
   }
 
   return undefined;
+}
+
+function toRawArtifactRef(artifact: RawArtifactRef) {
+  return {
+    id: artifact.id,
+    adapterId: artifact.adapterId,
+    sourceId: artifact.sourceId,
+    ...(artifact.path ? { path: artifact.path } : {}),
+    ...(artifact.nativeRef ?? artifact.nativeId ? { nativeRef: artifact.nativeRef ?? artifact.nativeId } : {}),
+    artifactKind: artifact.artifactKind ?? "unknown",
+    ...(artifact.sizeBytes !== undefined
+      ? { sizeBytes: artifact.sizeBytes }
+      : artifact.byteLength !== undefined
+        ? { sizeBytes: artifact.byteLength }
+        : {}),
+    ...(artifact.mtime ? { mtime: artifact.mtime } : {}),
+    ...(artifact.inode !== undefined ? { inode: String(artifact.inode) } : {}),
+    parseStrategy: artifact.parseStrategy ?? "unknown"
+  };
+}
+
+function uniqueRawArtifactRefs<T extends { id: string }>(artifacts: T[]): T[] {
+  const seen = new Set<string>();
+  const deduped: T[] = [];
+
+  for (const artifact of artifacts) {
+    if (seen.has(artifact.id)) {
+      continue;
+    }
+
+    seen.add(artifact.id);
+    deduped.push(artifact);
+  }
+
+  return deduped;
 }

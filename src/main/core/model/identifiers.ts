@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
-export type AdapterId = string;
+export type HarnessId = string;
+export type AdapterId = HarnessId;
 export type SourceId = string;
 export type ProjectId = string;
 export type SessionId = string;
@@ -12,6 +13,8 @@ export type OutputArtifactId = string;
 export type FileMutationEvidenceId = string;
 export type DiagnosticId = string;
 export type RawArtifactId = string;
+export type NativeId = string;
+export type EventOrderKey = string;
 
 export type StableEntityKind =
   | "source"
@@ -26,10 +29,87 @@ export type StableEntityKind =
   | "diagnostic"
   | "raw-artifact";
 
+export type RawArtifactKind =
+  | "session-log"
+  | "message-index"
+  | "project-root-map"
+  | "output-artifact"
+  | "history"
+  | "metadata"
+  | "unknown";
+
+export type RawArtifactParseStrategy =
+  | "stream-jsonl"
+  | "json"
+  | "text"
+  | "adapter-native"
+  | "unknown";
+
 export interface StableIdentityParts {
-  adapterId: AdapterId;
-  nativeId: string;
+  adapterId: HarnessId;
+  nativeId: NativeId;
   sourceId?: SourceId;
+}
+
+export interface RawArtifactRef {
+  id: RawArtifactId;
+  adapterId: HarnessId;
+  sourceId: SourceId;
+  path?: string | undefined;
+  nativeRef?: NativeId | undefined;
+  artifactKind: RawArtifactKind;
+  sizeBytes?: number | undefined;
+  mtime?: string | undefined;
+  inode?: string | undefined;
+  parseStrategy?: RawArtifactParseStrategy | undefined;
+}
+
+export interface OutputArtifactRef {
+  adapterId: HarnessId;
+  sourceId: SourceId;
+  id?: OutputArtifactId;
+  sessionId?: SessionId;
+  nativeRef?: NativeId;
+  path?: string;
+}
+
+export interface RawEventPointer {
+  adapterId?: HarnessId | undefined;
+  sourceId?: SourceId | undefined;
+  artifactId?: RawArtifactId | undefined;
+  rawArtifactId?: RawArtifactId | undefined;
+  eventId?: string | undefined;
+  nativeId?: NativeId | undefined;
+  nativeRef?: NativeId | undefined;
+  path?: string | undefined;
+  artifactPath?: string | undefined;
+  line?: number | undefined;
+  lineNumber?: number | undefined;
+  recordIndex?: number | undefined;
+  column?: number | undefined;
+  byteOffset?: number | undefined;
+  jsonPointer?: string | undefined;
+  pointer?: string | undefined;
+}
+
+export interface SourcePointer {
+  adapterId: HarnessId;
+  sourceId: SourceId;
+  artifactId?: RawArtifactId;
+  nativeRef?: NativeId;
+  path?: string;
+  rawEvent?: RawEventPointer;
+}
+
+export interface DiagnosticSourcePointer {
+  adapterId: HarnessId;
+  entityId?: string;
+  entityKind?: StableEntityKind;
+  sourceId?: SourceId;
+  artifactId?: RawArtifactId;
+  nativeRef?: NativeId;
+  path?: string;
+  rawEvent?: RawEventPointer;
 }
 
 function hashStableParts(parts: ReadonlyArray<string>): string {
@@ -48,7 +128,7 @@ function buildStableId(kind: StableEntityKind, parts: StableIdentityParts): stri
   return `${kind}_${hashStableParts(tokens)}`;
 }
 
-export function createSourceId(adapterId: AdapterId, nativeId: string): SourceId {
+export function createSourceId(adapterId: HarnessId, nativeId: NativeId): SourceId {
   return buildStableId("source", { adapterId, nativeId });
 }
 

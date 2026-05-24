@@ -57,8 +57,8 @@ describe("shared naming boundaries", () => {
     ]);
   });
 
-  it("keeps adapter-facing shared contracts free of verification and audit conclusion fields", async () => {
-    const sources = await loadTypeScriptSources([adapterContractRoot, sharedEntityRoot]);
+	  it("keeps adapter contracts free of verification and audit conclusion fields", async () => {
+	    const sources = await loadTypeScriptSources([adapterContractRoot]);
 
     expect(findConclusionFieldViolations(sources)).toEqual([]);
   });

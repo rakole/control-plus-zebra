@@ -11,29 +11,9 @@ import type {
   SourceRootValidation
 } from "../../src/main/core/adapter-contract/index.js";
 import { buildDiagnostic } from "../../src/main/core/diagnostics/diagnostic.js";
-import { capabilityState } from "../../src/main/core/model/capabilities.js";
-import { HIGH_CONFIDENCE, MEDIUM_CONFIDENCE } from "../../src/main/core/model/confidence.js";
+import { HIGH_CONFIDENCE } from "../../src/main/core/model/confidence.js";
 
 import { runAdapterContractSuite } from "./run-adapter-contract.js";
-
-const stubCapabilities = {
-  sessionDiscovery: capabilityState("supported"),
-  liveSessionObservation: capabilityState("unsupported", "Static contract proof."),
-  eventStreaming: capabilityState("unsupported", "The stub returns one parsed artifact."),
-  messageCapture: capabilityState("supported"),
-  toolCallCapture: capabilityState("supported"),
-  shellCommandCapture: capabilityState("supported"),
-  outputArtifactCapture: capabilityState("supported"),
-  fileMutationCapture: capabilityState("supported"),
-  sourceValidation: capabilityState("supported"),
-  watchPlans: capabilityState("unsupported", "Watch plans are not part of the stub."),
-  gitContextCapture: capabilityState("unsupported", "The stub does not emit git evidence."),
-  githubContextCapture: capabilityState("unsupported", "The stub does not emit GitHub evidence."),
-  verificationSignals: capabilityState(
-    "unknown",
-    "Verification remains a shared-core concern."
-  )
-};
 
 type StubRawPayload =
   | {
@@ -47,23 +27,72 @@ type StubRawPayload =
 
 type StubRawEvent = RawHarnessEvent<StubRawPayload>;
 
-const stubSourceId = "source_stub-contract";
-const stubSessionId = "session_stub-contract";
-const stubProjectId = "project_stub-contract";
-const stubEventId = "session-event_stub-contract-message";
-const stubMessageId = "session-message_stub-contract-message";
-const stubToolCallId = "tool-call_stub-contract-write";
-const stubShellCommandId = "shell-command_stub-contract-typecheck";
-const stubArtifactEntityId = "output-artifact_stub-contract-note";
-const stubFileMutationId = "file-mutation_stub-contract-entities";
-const stubArtifactRefId = "raw-artifact_stub-contract";
+const groupedCapabilities = {
+  discovery: {
+    defaultRoots: true,
+    projectRootMapping: "native",
+    stableProjectId: true,
+    stableSessionId: true
+  },
+  replay: {
+    transcriptReplay: true,
+    messageRoles: true,
+    assistantMessages: true,
+    lifecycleEvents: true,
+    cancellationEvents: true,
+    topicEvents: false,
+    rawEventPointers: true
+  },
+  tools: {
+    toolCalls: true,
+    toolResults: true,
+    fileReads: true,
+    fileSearches: false,
+    fileMutations: true,
+    diffStats: false,
+    shellCommands: true,
+    shellOutputs: true,
+    sidecarOutputs: true
+  },
+  usage: {
+    modelNames: false,
+    tokenCounts: false,
+    costEstimates: false
+  },
+  live: {
+    activeSessionDetection: "none",
+    watchableArtifacts: false,
+    incrementalParsing: false
+  },
+  audit: {
+    agentClaimDetection: false,
+    finalAnswerDetection: true,
+    shellExitCodeEvidence: true,
+    verificationCommandEvidence: true
+  },
+  export: {
+    rawArtifactExport: false,
+    normalizedExport: true
+  }
+} as const;
 
-const stubAdapter: SessionSourceAdapter<StubRawEvent> = {
+const stubSourceId = "source:stub-contract";
+const stubSessionId = "session:stub-contract";
+const stubProjectId = "project:stub-contract";
+const stubArtifactId = "raw-artifact:stub-contract-fixture";
+const stubOutputArtifactId = "output-artifact:stub-contract-note";
+const stubEventId = "session-event:stub-contract-message";
+const stubMessageId = "session-message:stub-contract-message";
+const stubToolCallId = "tool-call:stub-contract-write";
+const stubShellCommandId = "shell-command:stub-contract-typecheck";
+const stubFileMutationId = "file-mutation:stub-contract-entities";
+
+const stubAdapter = {
   descriptor: {
     id: "stub-contract",
     displayName: "Stub Contract Harness",
     vendor: "Agent Workbench",
-    adapterVersion: "0.1.0",
+    adapterVersion: "0.2.0",
     supportedPlatforms: ["darwin", "linux", "win32"],
     defaultRoots: [
       {
@@ -71,15 +100,22 @@ const stubAdapter: SessionSourceAdapter<StubRawEvent> = {
         label: "Stub contract fixture",
         kind: "file"
       }
-    ],
-    capabilities: stubCapabilities
+    ]
+  },
+  async getDefaultSourceRoots() {
+    return [
+      {
+        path: "tests/fixtures/stub-contract/session.fixture.json",
+        label: "Stub contract fixture",
+        kind: "file"
+      }
+    ];
   },
   async validateSourceRoot(root: SourceRootConfig): Promise<SourceRootValidation> {
     return {
       ok: true,
       normalizedPath: root.rootPath,
-      diagnostics: [],
-      capabilities: stubCapabilities
+      diagnostics: []
     };
   },
   async *discoverSources(root: SourceRootConfig): AsyncIterable<DiscoveredHarnessSource> {
@@ -97,14 +133,14 @@ const stubAdapter: SessionSourceAdapter<StubRawEvent> = {
   },
   async *discoverArtifacts(source: DiscoveredHarnessSource): AsyncIterable<RawArtifactRef> {
     yield {
-      id: stubArtifactRefId,
+      id: stubArtifactId,
       adapterId: "stub-contract",
       sourceId: source.id,
-      nativeId: "stub-artifact",
       path: source.rootPath,
-      artifactType: "stub-session-fixture",
-      mediaType: "application/json"
-    };
+      nativeRef: "stub-artifact",
+      artifactKind: "session-log",
+      parseStrategy: "json"
+    } as unknown as RawArtifactRef;
   },
   async *parseArtifact(artifact: RawArtifactRef): AsyncIterable<StubRawEvent> {
     yield {
@@ -141,180 +177,270 @@ const stubAdapter: SessionSourceAdapter<StubRawEvent> = {
       capabilities: {
         adapter: {
           adapterId: "stub-contract",
-          capabilities: stubCapabilities
+          capabilities: groupedCapabilities
         },
         source: {
           adapterId: "stub-contract",
           sourceId: input.source.id,
-          capabilities: stubCapabilities
+          capabilities: groupedCapabilities
         },
         sessions: [
           {
             adapterId: "stub-contract",
             sourceId: input.source.id,
             sessionId: stubSessionId,
-            capabilities: stubCapabilities
+            capabilities: groupedCapabilities
           }
         ]
       },
       projects: [
         {
-          kind: "project",
           id: stubProjectId,
-          adapterId: "stub-contract",
-          sourceId: input.source.id,
-          nativeId: "project-01",
-          name: "stub-project",
-          confidence: HIGH_CONFIDENCE
+          displayName: "stub-project",
+          primaryRootPath: input.source.rootPath,
+          rootConfidence: "confirmed",
+          harnessRefs: [
+            {
+              adapterId: "stub-contract",
+              sourceId: input.source.id,
+              nativeProjectId: "project-01",
+              nativeProjectPath: input.source.rootPath,
+              projectRootPath: input.source.rootPath,
+              projectRootConfidence: "confirmed",
+              rawArtifactRefs: [
+                {
+                  id: stubArtifactId,
+                  adapterId: "stub-contract",
+                  sourceId: input.source.id,
+                  path: input.source.rootPath,
+                  nativeRef: "stub-artifact",
+                  artifactKind: "session-log",
+                  parseStrategy: "json"
+                }
+              ]
+            }
+          ],
+          sessionIds: [stubSessionId],
+          latestActivityAt: "2026-05-23T10:00:03.000Z",
+          latestPrompt: "Stub adapter contract normalized successfully.",
+          diagnostics: []
         }
       ],
       sessions: [
         {
-          kind: "session",
           id: stubSessionId,
           adapterId: "stub-contract",
           sourceId: input.source.id,
-          nativeId: "session-01",
+          nativeSessionId: "session-01",
           projectId: stubProjectId,
           title: "Stub contract proof",
+          firstUserPrompt: "Stub adapter contract normalized successfully.",
+          latestUserPrompt: "Stub adapter contract normalized successfully.",
           startedAt: "2026-05-23T10:00:00.000Z",
-          lifecycleState: "completed",
-          confidence: HIGH_CONFIDENCE
+          lastUpdatedAt: "2026-05-23T10:00:03.000Z",
+          durationMs: 3000,
+          lifecycleStatus: "completed",
+          attentionReasons: [],
+          capabilities: groupedCapabilities,
+          parseConfidence: "confirmed",
+          messageIds: [stubMessageId],
+          eventIds: [stubEventId],
+          toolCallIds: [stubToolCallId],
+          fileMutationIds: [stubFileMutationId],
+          shellCommandIds: [stubShellCommandId],
+          outputArtifactIds: [stubOutputArtifactId],
+          usage: {},
+          verification: {
+            state: "unknown",
+            commandsRun: 1,
+            verificationCommandsRun: 1,
+            buildRan: false,
+            testsRan: false,
+            typecheckRan: true,
+            lintRan: false,
+            failedCommandIds: [],
+            passedCommandIds: [],
+            summary: "Verification remains a shared-core concern.",
+            confidence: "unknown",
+            diagnostics: []
+          },
+          runAudit: {
+            sessionId: stubSessionId,
+            adapterId: "stub-contract",
+            classification: "unknown",
+            agentClaimedCompleted: "unknown",
+            finalAnswerPresent: true,
+            requestCancelled: false,
+            verificationCommandsRun: true,
+            shellExitCodes: [0],
+            failedTestsDetected: false,
+            attentionReasons: [],
+            summary: "Run audit remains a shared-core concern.",
+            confidence: "unknown",
+            diagnostics: []
+          },
+          rawArtifactRefs: [
+            {
+              id: stubArtifactId,
+              adapterId: "stub-contract",
+              sourceId: input.source.id,
+              path: input.source.rootPath,
+              nativeRef: "stub-artifact",
+              artifactKind: "session-log",
+              parseStrategy: "json"
+            }
+          ],
+          diagnostics: []
         }
       ],
       events: [
         {
-          kind: "session-event",
           id: stubEventId,
-          adapterId: "stub-contract",
-          sourceId: input.source.id,
           sessionId: stubSessionId,
-          nativeId: "evt-01",
-          eventKind: "message",
+          adapterId: "stub-contract",
+          kind: "message",
           timestamp: "2026-05-23T10:00:01.000Z",
-          ordinal: 1,
-          summary: "assistant message",
-          messageId: stubMessageId,
-          confidence: HIGH_CONFIDENCE
+          orderKey: "000001:evt-01",
+          actor: "assistant",
+          title: "assistant message",
+          text: "Stub adapter contract normalized successfully.",
+          raw: {
+            eventId: stubEventId,
+            pointer: "message:evt-01"
+          },
+          diagnostics: []
         }
       ],
       messages: [
         {
-          kind: "session-message",
           id: stubMessageId,
-          adapterId: "stub-contract",
-          sourceId: input.source.id,
           sessionId: stubSessionId,
-          nativeId: "evt-01",
+          adapterId: "stub-contract",
           role: "assistant",
-          content: "Stub adapter contract normalized successfully.",
-          ordinal: 1,
           timestamp: "2026-05-23T10:00:01.000Z",
-          eventId: stubEventId,
-          confidence: HIGH_CONFIDENCE
+          text: "Stub adapter contract normalized successfully.",
+          toolCallIds: [],
+          eventIds: [stubEventId],
+          source: {
+            eventId: stubEventId,
+            pointer: "message:evt-01"
+          },
+          confidence: "confirmed"
         }
       ],
       toolCalls: [
         {
-          kind: "tool-call",
           id: stubToolCallId,
-          adapterId: "stub-contract",
-          sourceId: input.source.id,
           sessionId: stubSessionId,
-          nativeId: "tool-01",
-          toolName: "write_file",
-          status: "succeeded",
-          startedAt: "2026-05-23T10:00:02.000Z",
-          inputSummary: "Created the shared contract harness.",
-          outputSummary: "Harness file written.",
-          artifactIds: [stubArtifactEntityId],
-          fileMutationIds: [stubFileMutationId],
-          confidence: HIGH_CONFIDENCE
+          adapterId: "stub-contract",
+          nativeToolCallId: "tool-01",
+          name: "write_file",
+          normalizedKind: "write",
+          statusRaw: "succeeded",
+          statusNormalized: "completed",
+          argsPreview: "Created the shared contract harness.",
+          resultPreview: "Harness file written.",
+          outputArtifactIds: [stubOutputArtifactId],
+          fileMutationId: stubFileMutationId,
+          shellCommandId: stubShellCommandId,
+          source: {
+            eventId: stubEventId,
+            pointer: "tool:tool-01"
+          },
+          confidence: "confirmed",
+          diagnostics: []
         }
       ],
       shellCommands: [
         {
-          kind: "shell-command",
           id: stubShellCommandId,
-          adapterId: "stub-contract",
-          sourceId: input.source.id,
           sessionId: stubSessionId,
-          nativeId: "cmd-01",
+          adapterId: "stub-contract",
+          toolCallId: stubToolCallId,
           command: "npm run test -- tests/contract",
-          outputSource: "combined",
-          exitCode: 0,
-          startedAt: "2026-05-23T10:00:03.000Z",
-          outputSummary: "Contract tests passed.",
-          confidence: HIGH_CONFIDENCE
+          cwd: "/workspace/stub-contract",
+          outputInline: "Contract tests passed.",
+          outputArtifactIds: [],
+          rawStatus: "succeeded",
+          rawExitCode: 0,
+          source: {
+            eventId: stubEventId,
+            pointer: "shell:cmd-01"
+          },
+          confidence: "confirmed"
         }
       ],
       outputArtifacts: [
         {
-          kind: "output-artifact",
-          id: stubArtifactEntityId,
+          id: stubOutputArtifactId,
           adapterId: "stub-contract",
           sourceId: input.source.id,
           sessionId: stubSessionId,
-          nativeId: "artifact-01",
-          artifactKind: "text",
+          nativeRef: "artifact-01",
           path: "artifacts/contract-note.txt",
-          mediaType: "text/plain",
-          byteLength: 64,
-          confidence: HIGH_CONFIDENCE
+          kind: "sidecar",
+          contentKind: "plain-text",
+          sizeBytes: 84,
+          preview: "Harness file written.",
+          loaded: false,
+          source: {
+            eventId: stubEventId,
+            pointer: "artifact:artifact-01"
+          },
+          diagnostics: []
         }
       ],
       fileMutations: [
         {
-          kind: "file-mutation",
           id: stubFileMutationId,
-          adapterId: "stub-contract",
-          sourceId: input.source.id,
           sessionId: stubSessionId,
-          nativeId: "mutation-01",
-          path: "tests/contract/run-adapter-contract.ts",
+          adapterId: "stub-contract",
+          path: "src/main/core/model/entities.ts",
           mutationKind: "created",
           toolCallId: stubToolCallId,
-          confidence: HIGH_CONFIDENCE
+          source: {
+            eventId: stubEventId,
+            pointer: "file:mutation-01"
+          },
+          confidence: "confirmed",
+          diagnostics: []
         }
       ],
       diagnostics: [
         buildDiagnostic(
           "stub-contract",
-          "stub-contract.fixture.warning",
-          "The reusable contract harness is validated with a stub adapter first.",
+          "stub.partial-proof",
+          "The stub covers the Wave 2 normalization surface only.",
           "warning",
           "source",
-          MEDIUM_CONFIDENCE,
+          HIGH_CONFIDENCE,
           {
             sourceId: input.source.id,
-            nativeId: "diagnostic-01"
+            nativeId: input.source.id
           }
         )
       ]
-    };
+    } as unknown as AdapterNormalizationResult;
   },
-  loadOutputArtifact(artifact) {
-    return Promise.resolve({
-      artifact,
-      text: "Harness note"
-    });
+  async getWatchPlan(source: DiscoveredHarnessSource) {
+    return {
+      adapterId: "stub-contract",
+      sourceId: source.id,
+      status: "supported",
+      scopePaths: [source.rootPath],
+      strategy: "poll"
+    };
   }
-};
+} as unknown as SessionSourceAdapter<StubRawEvent>;
 
 runAdapterContractSuite({
-  name: "reusable contract harness",
+  name: "stub-contract",
   adapter: stubAdapter,
   root: {
     rootPath: "tests/fixtures/stub-contract/session.fixture.json",
-    displayName: "Stub contract source"
+    displayName: "Stub contract fixture"
   },
-  expectedCapabilityStatuses: {
-    liveSessionObservation: "unsupported",
-    eventStreaming: "unsupported",
-    watchPlans: "unsupported",
-    verificationSignals: "unknown"
-  },
-  expectedDiagnosticCodes: ["stub-contract.fixture.warning"],
+  expectedDiagnosticCodes: ["stub.partial-proof"],
   minimums: {
     messages: 1,
     toolCalls: 1,
@@ -324,18 +450,20 @@ runAdapterContractSuite({
     diagnostics: 1
   },
   assertExercisedAdapter(adapterRun) {
-    if (!adapterRun.validation.ok) {
-      throw new Error("Expected the stub adapter validation to succeed.");
-    }
-
-    if (!adapterRun.validation.capabilities) {
-      throw new Error("Expected validation capabilities for the stub adapter.");
-    }
+    expect(adapterRun.defaultRoots).toHaveLength(1);
+    expect(adapterRun.watchPlan).toMatchObject({
+      status: "supported",
+      strategy: "poll"
+    });
   },
   assertNormalized(normalized) {
-    expect(normalized.sessions[0]?.projectId).toBe(stubProjectId);
-    expect(normalized.messages[0]?.eventId).toBe(stubEventId);
-    expect(normalized.toolCalls[0]?.artifactIds).toEqual([stubArtifactEntityId]);
-    expect(normalized.fileMutations[0]?.toolCallId).toBe(stubToolCallId);
+    expect(normalized.sessions[0]).toMatchObject({
+      lifecycleStatus: "completed",
+      parseConfidence: "confirmed"
+    });
+    expect(normalized.shellCommands[0]).toMatchObject({
+      command: "npm run test -- tests/contract",
+      rawExitCode: 0
+    });
   }
 });

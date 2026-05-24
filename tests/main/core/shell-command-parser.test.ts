@@ -18,8 +18,7 @@ function createShellCommand(overrides: Partial<ShellCommandEvidence> = {}): Shel
     sessionId: "session-01",
     nativeId: "native-shell-01",
     command: "npm run typecheck",
-    outputSource: "combined",
-    eventId: "event-01",
+    outputArtifactIds: [],
     confidence: HIGH_CONFIDENCE,
     ...overrides
   };
@@ -46,11 +45,11 @@ describe("shared shell command parser", () => {
   it("keeps explicit nonzero shell exit codes authoritative over raw tool success", () => {
     const parsed = parseShellCommandEvidence({
       shellCommand: createShellCommand({
-        exitCode: 1,
-        rawToolStatus: "succeeded",
+        rawExitCode: 1,
+        rawStatus: "succeeded",
         toolCallId: "tool-call-01",
-        artifactIds: ["artifact-01"],
-        outputSummary: "Typecheck passed"
+        outputArtifactIds: ["artifact-01"],
+        outputInline: "Typecheck passed"
       })
     });
 
@@ -69,9 +68,9 @@ describe("shared shell command parser", () => {
   it("keeps raw tool success without exit-code evidence as unknown", () => {
     const parsed = parseShellCommandEvidence({
       shellCommand: createShellCommand({
-        rawToolStatus: "succeeded",
+        rawStatus: "succeeded",
         toolCallId: "tool-call-02",
-        outputSummary: "Typecheck completed"
+        outputInline: "Typecheck completed"
       })
     });
 
@@ -90,9 +89,9 @@ describe("shared shell command parser", () => {
   it("treats explicit failure text as failed even when the tool wrapper reported success", () => {
     const parsed = parseShellCommandEvidence({
       shellCommand: createShellCommand({
-        rawToolStatus: "succeeded",
+        rawStatus: "succeeded",
         toolCallId: "tool-call-03",
-        outputSummary: "1 test failed"
+        outputInline: "1 test failed"
       })
     });
 
@@ -112,8 +111,8 @@ describe("shared shell command parser", () => {
   it("treats parsed exit code zero from shell output as pass evidence", () => {
     const parsed = parseShellCommandEvidence({
       shellCommand: createShellCommand({
-        rawToolStatus: "succeeded",
-        outputSummary: "Typecheck completed successfully.\nExit Code: 0"
+        rawStatus: "succeeded",
+        outputInline: "Typecheck completed successfully.\nExit Code: 0"
       })
     });
 

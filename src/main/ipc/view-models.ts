@@ -92,6 +92,26 @@ export const capabilityBadgeViewModelSchema = z
   .strict();
 export type CapabilityBadgeViewModel = z.infer<typeof capabilityBadgeViewModelSchema>;
 
+export const capabilityGroupKeySchema = z.enum([
+  "discovery",
+  "replay",
+  "tools",
+  "usage",
+  "live",
+  "audit",
+  "export"
+]);
+export type CapabilityGroupKey = z.infer<typeof capabilityGroupKeySchema>;
+
+export const capabilityGroupViewModelSchema = z
+  .object({
+    key: capabilityGroupKeySchema,
+    label: z.string().min(1),
+    capabilities: z.array(capabilityBadgeViewModelSchema)
+  })
+  .strict();
+export type CapabilityGroupViewModel = z.infer<typeof capabilityGroupViewModelSchema>;
+
 export const evidenceSummaryViewModelSchema = z
   .object({
     messages: z.number().int().nonnegative(),
@@ -173,8 +193,9 @@ export type ArchiveExportAvailability = z.infer<typeof archiveExportAvailability
 export const projectSummaryViewModelSchema = z
   .object({
     projectId: z.string().min(1),
-    projectName: z.string().min(1),
-    repoPath: fieldValueViewModelSchema,
+    projectDisplayName: z.string().min(1),
+    projectName: z.string().min(1).optional(),
+    primaryRootPath: fieldValueViewModelSchema,
     validatedRepoRoot: fieldValueViewModelSchema,
     observedHarnesses: z.array(z.string().min(1)),
     latestActivityAt: z.string().min(1).optional(),
@@ -224,9 +245,9 @@ const sessionBaseViewModelSchema = z
     lifecycleState: truthStateViewModelSchema,
     startedAt: z.string().min(1).optional(),
     endedAt: z.string().min(1).optional(),
-    projectName: z.string().min(1).optional(),
-    firstPrompt: z.string().min(1).optional(),
-    capabilityBadges: z.array(capabilityBadgeViewModelSchema),
+    projectDisplayName: z.string().min(1).optional(),
+    firstUserPrompt: z.string().min(1).optional(),
+    capabilityGroups: z.array(capabilityGroupViewModelSchema),
     diagnosticWarningCount: z.number().int().nonnegative(),
     verificationState: truthStateViewModelSchema,
     runAuditState: truthStateViewModelSchema,
@@ -342,7 +363,7 @@ export const diagnosticRowViewModelSchema = z
     adapterDisplayName: z.string().min(1),
     sessionId: z.string().min(1).optional(),
     sessionTitle: z.string().min(1).optional(),
-    projectName: z.string().min(1).optional(),
+    projectDisplayName: z.string().min(1).optional(),
     message: z.string().min(1)
   })
   .strict();
@@ -695,7 +716,7 @@ export const dataSourceAdapterViewModelSchema = z
   .object({
     adapterId: z.string().min(1),
     displayName: z.string().min(1),
-    capabilityBadges: z.array(dataSourceCapabilityViewModelSchema),
+    capabilityGroups: z.array(capabilityGroupViewModelSchema),
     defaultRoots: z.array(adapterRootHintViewModelSchema)
   })
   .strict();
@@ -749,7 +770,7 @@ export const dataSourceViewModelSchema = z
     watchStrategy: z.string().min(1).optional(),
     watchReason: z.string().min(1).optional(),
     diagnosticCount: z.number().int().nonnegative(),
-    capabilityBadges: z.array(dataSourceCapabilityViewModelSchema),
+    capabilityGroups: z.array(capabilityGroupViewModelSchema),
     diagnostics: z.array(dataSourceDiagnosticViewModelSchema)
   })
   .strict();

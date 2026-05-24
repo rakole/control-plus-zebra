@@ -37,15 +37,17 @@ function buildFallbackPlan(
   adapter: SessionSourceAdapter,
   source: DiscoveredHarnessSource
 ): WatchPlan {
-  const watchCapability = adapter.descriptor.capabilities.watchPlans;
+  const watchSupported = adapter.descriptor.capabilities.live?.watchableArtifacts === true;
 
   return {
     adapterId: adapter.descriptor.id,
     sourceId: source.id,
-    status: watchCapability.status as CapabilityStatus,
+    status: watchSupported ? "supported" : "unsupported",
     scopePaths: [],
-    strategy: watchCapability.status === "supported" ? "manual" : "none",
-    ...(watchCapability.reason ? { reason: watchCapability.reason } : {})
+    strategy: watchSupported ? "manual" : "none",
+    ...(watchSupported
+      ? {}
+      : { reason: "This adapter does not expose watchable artifact capability." })
   };
 }
 
@@ -62,4 +64,3 @@ export function createWatchLifecycleRecord(input: {
     plannedAt: new Date().toISOString()
   };
 }
-

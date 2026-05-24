@@ -2,7 +2,7 @@ import { CapabilityBadge } from "../../../components/app/capability-badge.js";
 import { MetadataGrid } from "../../../components/app/metadata-grid.js";
 import { SectionCard } from "../../../components/app/section-card.js";
 import { TruthStateBadge } from "../../../components/app/truth-state-badge.js";
-import type { SessionDetailView } from "../types.js";
+import { flattenSessionCapabilities, type SessionDetailView } from "../types.js";
 
 interface SessionDetailSummaryRailProps {
   detail: SessionDetailView;
@@ -10,7 +10,9 @@ interface SessionDetailSummaryRailProps {
 
 export function SessionDetailSummaryRail({ detail }: SessionDetailSummaryRailProps) {
   const session = detail.session;
-  const capabilityWarnings = session.capabilityBadges.filter((badge) => badge.state !== "Supported");
+  const capabilityWarnings = flattenSessionCapabilities(session.capabilityGroups).filter(
+    (badge) => badge.state !== "Supported"
+  );
 
   return (
     <SectionCard
@@ -22,7 +24,7 @@ export function SessionDetailSummaryRail({ detail }: SessionDetailSummaryRailPro
     >
       <MetadataGrid
         items={[
-          { label: "Project", value: session.projectName ?? "Unknown" },
+          { label: "Project", value: session.projectDisplayName ?? "Unknown" },
           { label: "Session ID", value: session.sessionId },
           { label: "Native Session ID", value: session.nativeSessionId ?? "Unknown" },
           {

@@ -13,36 +13,44 @@ const adapters = [
   buildAdapter({
     adapterId: "fixture-harness",
     displayName: "Fixture Harness",
-    capabilityBadges: [
-      buildCapabilityBadge({
-        key: "sessionDiscovery",
-        label: "Session Discovery",
-        state: "Supported"
-      }),
-      buildCapabilityBadge({
-        key: "watchPlans",
-        label: "Watch Plans",
-        state: "Supported",
-        reason: "Shared watcher plan is available for this harness."
-      })
+    capabilityGroups: [
+      buildCapabilityGroup("discovery", "Discovery", [
+        buildCapabilityBadge({
+          key: "discovery.sessionDiscovery",
+          label: "Session Discovery",
+          state: "Supported"
+        })
+      ]),
+      buildCapabilityGroup("live", "Live", [
+        buildCapabilityBadge({
+          key: "live.watchableArtifacts",
+          label: "Watchable Artifacts",
+          state: "Supported",
+          reason: "Shared watcher plan is available for this harness."
+        })
+      ])
     ]
   }),
   buildAdapter({
     adapterId: "archive-reader",
     displayName: "Archive Reader",
-    capabilityBadges: [
-      buildCapabilityBadge({
-        key: "sessionDiscovery",
-        label: "Session Discovery",
-        state: "Unsupported",
-        reason: "This harness does not currently report scan support."
-      }),
-      buildCapabilityBadge({
-        key: "watchPlans",
-        label: "Watch Plans",
-        state: "Unknown",
-        reason: "Watch support has not been reported for this harness."
-      })
+    capabilityGroups: [
+      buildCapabilityGroup("discovery", "Discovery", [
+        buildCapabilityBadge({
+          key: "discovery.sessionDiscovery",
+          label: "Session Discovery",
+          state: "Unsupported",
+          reason: "This harness does not currently report scan support."
+        })
+      ]),
+      buildCapabilityGroup("live", "Live", [
+        buildCapabilityBadge({
+          key: "live.watchableArtifacts",
+          label: "Watchable Artifacts",
+          state: "Unknown",
+          reason: "Watch support has not been reported for this harness."
+        })
+      ])
     ]
   })
 ];
@@ -622,21 +630,29 @@ function buildAdapter(
   return {
     adapterId: "fixture-harness",
     displayName: "Fixture Harness",
-    capabilityBadges: [],
+    capabilityGroups: [],
     defaultRoots: [],
     ...overrides
   };
 }
 
 function buildCapabilityBadge(
-  overrides: Partial<DataSourceAdapterViewModel["capabilityBadges"][number]>
+  overrides: Partial<DataSourceAdapterViewModel["capabilityGroups"][number]["capabilities"][number]>
 ) {
   return {
-    key: "watchPlans",
-    label: "Watch Plans",
+    key: "live.watchableArtifacts",
+    label: "Watchable Artifacts",
     state: "Unknown" as const,
     ...overrides
   };
+}
+
+function buildCapabilityGroup(
+  key: DataSourceAdapterViewModel["capabilityGroups"][number]["key"],
+  label: string,
+  capabilities: DataSourceAdapterViewModel["capabilityGroups"][number]["capabilities"]
+) {
+  return { key, label, capabilities };
 }
 
 function buildSource(
@@ -658,7 +674,7 @@ function buildSource(
     cacheStatus: "Unknown",
     watchSupport: "Watch Unknown",
     diagnosticCount: 0,
-    capabilityBadges: [],
+    capabilityGroups: [],
     diagnostics: [],
     ...overrides
   };

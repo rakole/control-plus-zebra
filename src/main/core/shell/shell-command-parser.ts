@@ -19,20 +19,21 @@ import type {
 export function parseShellCommandEvidence(
   input: ParseShellCommandEvidenceInput
 ): ParsedShellCommand {
+  const command = input.shellCommand.command ?? "";
   const relatedDiagnostics = dedupeDiagnosticIds(input.relatedDiagnostics ?? []);
-  const summaryText = input.shellCommand.outputSummary?.trim();
+  const summaryText = input.shellCommand.outputInline?.trim();
   const artifactTexts = (input.artifacts ?? [])
     .map((artifact) => artifact.text?.trim())
     .filter((text): text is string => Boolean(text && text.length > 0));
   const outputTextSource = determineOutputTextSource(summaryText, artifactTexts);
   const combinedText = buildCombinedText(summaryText, artifactTexts);
   const parsedExitCode =
-    input.shellCommand.exitCode === undefined && combinedText
+    input.shellCommand.rawExitCode === undefined && combinedText
       ? extractExitCodeFromText(combinedText)
       : undefined;
-  const exitCode = input.shellCommand.exitCode ?? parsedExitCode;
+  const exitCode = input.shellCommand.rawExitCode ?? parsedExitCode;
   const exitCodeSource = determineExitCodeSource({
-    explicitExitCode: input.shellCommand.exitCode,
+    explicitExitCode: input.shellCommand.rawExitCode,
     outputTextSource,
     parsedExitCode
   });
@@ -50,23 +51,46 @@ export function parseShellCommandEvidence(
 
   return {
     shellCommandId: input.shellCommand.id,
-    command: input.shellCommand.command,
+    command,
     ...(input.shellCommand.cwd ? { cwd: input.shellCommand.cwd } : {}),
-    intent: classifyShellIntent(input.shellCommand.command),
+    intent: classifyShellIntent(command),
     result,
-    outputSource: input.shellCommand.outputSource,
+    outputSource: input.shellCommand.outputInline ? "combined" : "unknown",
     outputTextSource,
     ...(exitCode !== undefined ? { exitCode } : {}),
     exitCodeSource,
-    ...(input.shellCommand.rawToolStatus ? { rawToolStatus: input.shellCommand.rawToolStatus } : {}),
+	    ...(input.shellCommand.rawStatus
+	      ? { rawToolStatus: normalizeRawToolStatus(input.shellCommand.rawStatus) }
+	      : {}),
     ...(input.shellCommand.toolCallId ? { toolCallId: input.shellCommand.toolCallId } : {}),
-    ...(input.shellCommand.artifactIds?.length
-      ? { artifactIds: input.shellCommand.artifactIds }
+    ...(input.shellCommand.outputArtifactIds?.length
+      ? { artifactIds: input.shellCommand.outputArtifactIds }
       : {}),
     failureMarkers,
     confidence,
     ...(relatedDiagnostics.length > 0 ? { diagnosticIds: relatedDiagnostics } : {})
   };
+}
+
+function normalizeRawToolStatus(status: string) {
+  switch (status) {
+    case "success":
+    case "completed":
+      return "succeeded";
+    case "error":
+      return "failed";
+    case "running":
+    case "pending":
+      return "started";
+    case "started":
+    case "succeeded":
+    case "failed":
+    case "cancelled":
+    case "unknown":
+      return status;
+    default:
+      return "unknown";
+  }
 }
 
 function buildCombinedText(summaryText?: string, artifactTexts: string[] = []): string | undefined {

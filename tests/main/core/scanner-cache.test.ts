@@ -189,7 +189,7 @@ describe("Scanner cache integration", () => {
     ).toBe(true);
     expect(
       geminiRecords.some((record) =>
-        record.normalized.sessions.some((session) => session.lifecycleState === "completed")
+        record.normalized.sessions.some((session) => session.lifecycleStatus === "completed")
       )
     ).toBe(true);
   });

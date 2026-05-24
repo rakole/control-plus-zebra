@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { capabilityState, type CapabilityEnvelope } from "../../../src/main/core/model/capabilities.js";
+import type { CapabilityEnvelope } from "../../../src/main/core/model/capabilities.js";
 import { HIGH_CONFIDENCE, LOW_CONFIDENCE, MEDIUM_CONFIDENCE } from "../../../src/main/core/model/confidence.js";
 import type { Session, SessionMessage } from "../../../src/main/core/model/entities.js";
 import { deriveVerificationForSession } from "../../../src/main/core/verification/verification-classifier.js";
@@ -11,19 +11,52 @@ function createCapabilities(status: "supported" | "unsupported" | "unknown"): Ca
     adapterId: "fake-test",
     sourceId: "source-01",
     capabilities: {
-      sessionDiscovery: capabilityState("supported"),
-      liveSessionObservation: capabilityState("unsupported"),
-      eventStreaming: capabilityState("unsupported"),
-      messageCapture: capabilityState("supported"),
-      toolCallCapture: capabilityState("supported"),
-      shellCommandCapture: capabilityState(status),
-      outputArtifactCapture: capabilityState("supported"),
-      fileMutationCapture: capabilityState("supported"),
-      sourceValidation: capabilityState("supported"),
-      watchPlans: capabilityState("unsupported"),
-      gitContextCapture: capabilityState("unsupported"),
-      githubContextCapture: capabilityState("unsupported"),
-      verificationSignals: capabilityState("unknown")
+      discovery: {
+        defaultRoots: true,
+        projectRootMapping: "native",
+        stableProjectId: true,
+        stableSessionId: true
+      },
+      replay: {
+        transcriptReplay: false,
+        messageRoles: true,
+        assistantMessages: true,
+        lifecycleEvents: true,
+        cancellationEvents: true,
+        topicEvents: false,
+        rawEventPointers: true
+      },
+      tools: {
+        toolCalls: true,
+        toolResults: true,
+        fileReads: true,
+        fileSearches: true,
+        fileMutations: true,
+        diffStats: false,
+        shellCommands: status === "supported",
+        shellOutputs: status === "supported",
+        sidecarOutputs: true
+      },
+      usage: {
+        modelNames: true,
+        tokenCounts: false,
+        costEstimates: false
+      },
+      live: {
+        activeSessionDetection: "none",
+        watchableArtifacts: false,
+        incrementalParsing: false
+      },
+      audit: {
+        agentClaimDetection: true,
+        finalAnswerDetection: true,
+        shellExitCodeEvidence: status === "supported",
+        verificationCommandEvidence: status === "supported"
+      },
+      export: {
+        rawArtifactExport: true,
+        normalizedExport: true
+      }
     }
   };
 }
@@ -35,7 +68,7 @@ function createSession(overrides: Partial<Session> = {}): Session {
     adapterId: "fake-test",
     sourceId: "source-01",
     nativeId: "native-session-01",
-    lifecycleState: "completed",
+    lifecycleStatus: "completed",
     confidence: HIGH_CONFIDENCE,
     ...overrides
   };
@@ -50,8 +83,8 @@ function createMessage(overrides: Partial<SessionMessage> = {}): SessionMessage 
     sessionId: "session-01",
     nativeId: "native-message-01",
     role: "assistant",
-    content: "I completed the change and validated it.",
-    ordinal: 1,
+    text: "I completed the change and validated it.",
+    eventIds: ["event-01"],
     confidence: HIGH_CONFIDENCE,
     ...overrides
   };
@@ -149,8 +182,7 @@ describe("verification classifier", () => {
           outputTextSource: "missing",
           rawToolStatus: "succeeded",
           confidence: LOW_CONFIDENCE
-        },
-        { includeDefaultExitCode: false })
+        }, { includeDefaultExitCode: false })
       ],
       session: createSession(),
       sessionMessages: [createMessage()]
@@ -191,8 +223,7 @@ describe("verification classifier", () => {
           outputTextSource: "missing",
           rawToolStatus: "succeeded",
           confidence: LOW_CONFIDENCE
-        },
-        { includeDefaultExitCode: false })
+        }, { includeDefaultExitCode: false })
       ],
       session: createSession(),
       sessionMessages: [createMessage()]
@@ -229,7 +260,7 @@ describe("verification classifier", () => {
     });
   });
 
-  it("resolves missing shell capability to unsupported or unknown instead of passed", () => {
+  it("resolves missing shell capability to unsupported instead of passed", () => {
     const unsupported = deriveVerificationForSession({
       adapterCapabilities: createCapabilities("unsupported"),
       parsedShellCommands: [],
@@ -240,11 +271,11 @@ describe("verification classifier", () => {
       adapterCapabilities: createCapabilities("unknown"),
       parsedShellCommands: [],
       session: createSession(),
-      sessionMessages: [createMessage({ role: "user", content: "Still working?" })]
+      sessionMessages: [createMessage({ role: "user", text: "Still working?" })]
     });
 
     expect(unsupported.status).toBe("unsupported");
-    expect(unknown.status).toBe("unknown");
+    expect(unknown.status).toBe("unsupported");
   });
 
   it("keeps explicit failures failed while surfacing parser-warning and output-missing reasons", () => {

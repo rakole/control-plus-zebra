@@ -21,6 +21,36 @@ import type {
 
 export type SupportedPlatform = "darwin" | "linux" | "win32";
 
+export type AdapterCapabilities = HarnessCapabilities;
+export type GroupedHarnessCapabilities = HarnessCapabilities;
+
+export interface AdapterCapabilityEnvelope extends Omit<CapabilityEnvelope, "capabilities"> {
+  capabilities: AdapterCapabilities;
+}
+
+export interface AdapterFilesystemStat {
+  path: string;
+  realPath?: string;
+  kind: "directory" | "file";
+  sizeBytes?: number;
+  byteLength?: number;
+  inode?: number | string;
+  mtime?: string;
+  mtimeMs?: number;
+}
+
+export type SafeReadFile = (
+  targetPath: string,
+  artifactId?: RawArtifactId
+) => Promise<string>;
+
+export type SafeStatFile = (targetPath: string) => Promise<AdapterFilesystemStat>;
+
+export type SafeCreateReadStream = (
+  targetPath: string,
+  artifactId?: RawArtifactId
+) => NodeJS.ReadableStream;
+
 export interface SourceRootHint {
   path: string;
   label: string;
@@ -37,12 +67,22 @@ export interface SourceRootValidation {
   ok: boolean;
   normalizedPath?: string;
   diagnostics: Diagnostic[];
-  capabilities?: HarnessCapabilities;
+  capabilities?: AdapterCapabilities;
 }
 
 export interface AdapterContext {
-  projectDir: string;
+  appVersion?: string;
+  adapterRegistryVersion?: string;
+  now?: string;
+  allowedRoots?: string[];
   platform: NodeJS.Platform;
+  logger?: {
+    emit(diagnostic: Diagnostic): void;
+  };
+  readFile?: SafeReadFile;
+  statFile?: SafeStatFile;
+  createReadStream?: SafeCreateReadStream;
+  projectDir?: string;
   safeFilesystem?: SafeFilesystem;
 }
 
@@ -60,23 +100,54 @@ export interface RawArtifactRef {
   id: RawArtifactId;
   adapterId: AdapterId;
   sourceId: SourceId;
-  nativeId: string;
-  path: string;
-  artifactType: string;
-  mediaType?: string;
-  byteLength?: number;
-  inode?: number;
-  mtimeMs?: number;
+  path?: string | undefined;
+  nativeRef?: string | undefined;
+  artifactKind?:
+    | "session-log"
+    | "message-index"
+    | "project-root-map"
+    | "output-artifact"
+    | "history"
+    | "metadata"
+    | "unknown"
+    | undefined;
+  sizeBytes?: number | undefined;
+  mtime?: string | undefined;
+  inode?: string | number | undefined;
+  parseStrategy?: "stream-jsonl" | "json" | "text" | "adapter-native" | "unknown" | undefined;
+  nativeId?: string | undefined;
+  artifactType?: string | undefined;
+  mediaType?: string | undefined;
+  byteLength?: number | undefined;
+  mtimeMs?: number | undefined;
+}
+
+export interface RawEventPointer {
+  rawArtifactId?: RawArtifactId | undefined;
+  artifactId?: RawArtifactId | undefined;
+  artifactPath?: string | undefined;
+  path?: string | undefined;
+  nativeRef?: string | undefined;
+  nativeId?: string | undefined;
+  eventId?: string | undefined;
+  lineNumber?: number | undefined;
+  recordIndex?: number | undefined;
+  pointer?: string | undefined;
 }
 
 export interface RawHarnessEvent<TPayload = unknown> {
-  id: string;
   adapterId: AdapterId;
   sourceId: SourceId;
-  artifactId: RawArtifactId;
-  kind: string;
+  id?: string;
+  artifactId?: RawArtifactId;
+  kind?: string;
+  nativeType?: string;
+  nativeId?: string;
   timestamp?: string;
   payload: TPayload;
+  raw?: unknown;
+  source?: RawEventPointer;
+  diagnostics?: Diagnostic[];
 }
 
 export interface AdapterNormalizationInput<TRawEvent extends RawHarnessEvent = RawHarnessEvent> {
@@ -85,16 +156,30 @@ export interface AdapterNormalizationInput<TRawEvent extends RawHarnessEvent = R
   rawEvents: TRawEvent[];
 }
 
+export interface OutputArtifactRef {
+  id: string;
+  adapterId: AdapterId;
+  sourceId: SourceId;
+  sessionId?: SessionId;
+  nativeRef?: string;
+  path?: string;
+  mediaType?: string;
+  kind?: string;
+  contentKind?: string;
+  nativeId?: string;
+  artifactKind?: string;
+}
+
 export interface LoadedOutputArtifact {
-  artifact: OutputArtifact;
+  artifact: OutputArtifactRef;
   text?: string;
   mediaType?: string;
 }
 
 export interface AdapterCapabilitySnapshots {
-  adapter: CapabilityEnvelope;
-  source: CapabilityEnvelope;
-  sessions: Array<CapabilityEnvelope & { sessionId: SessionId }>;
+  adapter: AdapterCapabilityEnvelope;
+  source: AdapterCapabilityEnvelope;
+  sessions: Array<AdapterCapabilityEnvelope & { sessionId: SessionId }>;
 }
 
 export interface AdapterNormalizationResult {

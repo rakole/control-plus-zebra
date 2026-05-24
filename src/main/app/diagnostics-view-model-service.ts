@@ -12,10 +12,12 @@ import {
   buildSessionPreviewViewModel,
   filterSessions,
   getDiagnosticsForSession,
+  getProjectDisplayName,
   getProjectForSession,
   loadTriageData,
   sanitizeText
 } from "./triage-view-model-service.js";
+import { flattenCapabilityGroups } from "./capability-view-models.js";
 import {
   createWorkbenchRuntime,
   type WorkbenchRuntime,
@@ -54,10 +56,10 @@ export function createDiagnosticsViewModelService(
               diagnostic,
               session.id,
               preview.title,
-              project?.name
+              getProjectDisplayName(project)
             )
           );
-          const capabilityRows = preview.capabilityBadges
+          const capabilityRows = flattenCapabilityGroups(preview.capabilityGroups)
             .filter((badge) => badge.state !== "Supported")
             .map((badge) => ({
               code: `capability.${badge.key}`,
@@ -68,7 +70,9 @@ export function createDiagnosticsViewModelService(
                 data.descriptors.get(session.adapterId)?.displayName ?? session.adapterId,
               sessionId: session.id,
               sessionTitle: preview.title,
-              ...(project?.name ? { projectName: project.name } : {}),
+              ...(getProjectDisplayName(project)
+                ? { projectDisplayName: getProjectDisplayName(project) }
+                : {}),
               message: badge.reason
                 ? `${badge.label} is ${badge.state}. ${sanitizeText(badge.reason)}`
                 : `${badge.label} is ${badge.state}.`
@@ -191,7 +195,7 @@ function toDiagnosticRow(
   diagnostic: Diagnostic,
   sessionId?: string,
   sessionTitle?: string,
-  projectName?: string
+  projectDisplayName?: string
 ): DiagnosticRowViewModel {
   return {
     code: diagnostic.code,
@@ -201,7 +205,7 @@ function toDiagnosticRow(
     adapterDisplayName: data.descriptors.get(adapterId)?.displayName ?? adapterId,
     ...(sessionId ? { sessionId } : {}),
     ...(sessionTitle ? { sessionTitle } : {}),
-    ...(projectName ? { projectName } : {}),
+    ...(projectDisplayName ? { projectDisplayName } : {}),
     message: sanitizeText(diagnostic.message)
   };
 }

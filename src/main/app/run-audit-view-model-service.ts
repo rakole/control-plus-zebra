@@ -7,6 +7,7 @@ import {
 } from "../ipc/view-models.js";
 import {
   buildSessionPreviewViewModel,
+  getProjectDisplayName,
   getProjectGitHubSnapshot,
   getDerivedSession,
   getDiagnosticsForSession,
@@ -21,6 +22,7 @@ import {
   toGitMetricState,
   toGitStatusState
 } from "./triage-view-model-service.js";
+import { flattenCapabilityGroups } from "./capability-view-models.js";
 import {
   createWorkbenchRuntime,
   type WorkbenchRuntime,
@@ -60,10 +62,14 @@ export function createRunAuditViewModelService(
       const diagnostics = getDiagnosticsForSession(data, session);
       const fileMutations = data.fileMutationsBySessionId.get(session.id) ?? [];
       const commands = derived?.shellCommands ?? [];
-      const capabilityWarnings = preview.capabilityBadges.filter(
+      const capabilityWarnings = flattenCapabilityGroups(preview.capabilityGroups).filter(
         (badge) => badge.state !== "Supported"
       );
       const project = getProjectForSession(data, session);
+      const projectRootPath =
+        (project as { primaryRootPath?: string; rootPath?: string } | undefined)
+          ?.primaryRootPath ??
+        (project as { primaryRootPath?: string; rootPath?: string } | undefined)?.rootPath;
       const projectSnapshot = getProjectGitSnapshot(data, project);
       const githubSnapshot = getProjectGitHubSnapshot(data, project);
       const gitStatus = toGitStatusState(projectSnapshot);
@@ -227,8 +233,8 @@ export function createRunAuditViewModelService(
               },
               {
                 label: "Project Root",
-                value: project?.rootPath ?? "Unknown",
-                tone: project?.rootPath ? "info" : "neutral"
+                value: projectRootPath ?? getProjectDisplayName(project) ?? "Unknown",
+                tone: projectRootPath ? "info" : "neutral"
               },
               {
                 label: "Validated Repo Root",

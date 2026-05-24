@@ -19,7 +19,9 @@ describe("triage view model service", () => {
     const triageService = createTriageViewModelService({ runtime });
     const overview = await triageService.getOverview();
     const projects = await triageService.listProjects();
-    const gitBackedProject = projects.find((project) => project.projectName === "control-plus-zebra");
+    const gitBackedProject = projects.find(
+      (project) => project.projectDisplayName === "control-plus-zebra"
+    );
     const degradedProject = projects.find((project) => project.gitStatus.label === "Unknown");
     const rawExportProject = projects.find((project) => project.archiveExport.rawArtifactsAvailable);
 

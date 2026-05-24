@@ -76,11 +76,9 @@ export async function getArchiveReaderWatchPlan(sourceId: string): Promise<Watch
   return {
     adapterId: archiveReaderDescriptor.id,
     sourceId,
-    status: archiveReaderCapabilities.watchPlans.status,
+    status: "unsupported",
     scopePaths: [],
     strategy: "none",
-    ...(archiveReaderCapabilities.watchPlans.reason
-      ? { reason: archiveReaderCapabilities.watchPlans.reason }
-      : {})
+    reason: "Imported archives are read-only snapshots and are not watchable sources."
   };
 }

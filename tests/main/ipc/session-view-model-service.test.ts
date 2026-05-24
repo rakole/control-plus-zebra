@@ -36,8 +36,13 @@ describe("session view model service", () => {
 
     expect(sessions.length).toBeGreaterThan(0);
     expect(sessions[0]?.adapterDisplayName).toBe("Fake Test Harness");
-    expect(sessions.flatMap((session) => session.capabilityBadges.map((badge) => badge.state)))
-      .toEqual(expect.arrayContaining(["Unsupported", "Unknown"]));
+    expect(
+      sessions.flatMap((session) =>
+        session.capabilityGroups.flatMap((group) =>
+          group.capabilities.map((badge) => badge.state)
+        )
+      )
+	    ).toEqual(expect.arrayContaining(["Unsupported"]));
     expect(findForbiddenKeys(sessions)).toEqual([]);
   });
 
@@ -174,7 +179,7 @@ describe("session view model service", () => {
     const exportRuntime = await createScannedRuntime(tempDirs);
     const triageService = createTriageViewModelService({ runtime: exportRuntime });
     const projectId = (await triageService.listProjects()).find(
-      (project) => project.projectName === "control-plus-zebra"
+      (project) => project.projectDisplayName === "control-plus-zebra"
     )?.projectId;
 
     expect(projectId).toBeDefined();
@@ -211,7 +216,7 @@ describe("session view model service", () => {
     expect(importedSession).toBeDefined();
     expect(importedSession?.sourceId).toMatch(/^source_/u);
     expect(importedSession?.adapterDisplayName).toBe("Fake Test Harness");
-    expect(importedSession?.projectName).toBeTruthy();
+    expect(importedSession?.projectDisplayName).toBeTruthy();
   });
 });
 

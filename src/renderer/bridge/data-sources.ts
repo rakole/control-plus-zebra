@@ -7,8 +7,9 @@ type NativeDataSourcesResponse = Extract<NativeListDataSourcesResponse, { ok: tr
 type NativeDataSourcesViewModel = NativeDataSourcesResponse["dataSources"];
 type NativeDataSourceAdapterViewModel = NativeDataSourcesViewModel["adapters"][number];
 type NativeDataSourceViewModel = NativeDataSourcesViewModel["sources"][number];
-type NativeCapabilityBadgeViewModel =
-  NativeDataSourceAdapterViewModel["capabilityBadges"][number];
+type NativeCapabilityGroupViewModel =
+  NativeDataSourceAdapterViewModel["capabilityGroups"][number];
+type NativeCapabilityBadgeViewModel = NativeCapabilityGroupViewModel["capabilities"][number];
 
 export type SourceTruthLabel = "Supported" | "Unsupported" | "Unknown";
 export type DataSourceEnabledLabel = "Enabled" | "Disabled";
@@ -303,10 +304,16 @@ function mapMutationResponse(
 }
 
 function mapAdapter(adapter: NativeDataSourceAdapterViewModel): DataSourceAdapterOption {
-  const watchPlansCapability = findCapability(adapter.capabilityBadges, "watchPlans");
+  const capabilities = flattenCapabilityGroups(adapter.capabilityGroups);
+  const watchPlansCapability = findCapability(
+    capabilities,
+    "live.watchableArtifacts",
+    "live.watchPlans"
+  );
   const sessionDiscoveryCapability = findCapability(
-    adapter.capabilityBadges,
-    "sessionDiscovery"
+    capabilities,
+    "replay.transcriptReplay",
+    "discovery.sessionDiscovery"
   );
 
   return {
@@ -549,7 +556,13 @@ function mapAdapterScanSupport(
 
 function findCapability(
   capabilityBadges: NativeCapabilityBadgeViewModel[],
-  key: string
+  ...keys: string[]
 ): NativeCapabilityBadgeViewModel | undefined {
-  return capabilityBadges.find((capability) => capability.key === key);
+  return capabilityBadges.find((capability) => keys.includes(capability.key));
+}
+
+function flattenCapabilityGroups(
+  groups: NativeCapabilityGroupViewModel[]
+): NativeCapabilityBadgeViewModel[] {
+  return groups.flatMap((group) => group.capabilities);
 }
