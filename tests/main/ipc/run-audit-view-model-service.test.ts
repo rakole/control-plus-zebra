@@ -13,11 +13,13 @@ describe("run audit view model service", () => {
     await cleanupTempDirs(tempDirs);
   });
 
-  it("groups audit evidence into product-facing sections with phase 7 placeholders", async () => {
+  it("groups audit evidence into product-facing sections with shared git truth and explicit gaps", async () => {
     const runtime = await createScannedRuntime(tempDirs);
     const service = createRunAuditViewModelService({ runtime });
     const records = await runtime.cacheStore.listLatestRecords();
-    const sessionId = records[0]?.normalized.sessions[0]?.id;
+    const sessionId = records
+      .find((record) => record.adapterId === "fake-test")
+      ?.normalized.sessions[0]?.id;
 
     expect(sessionId).toBeDefined();
     if (!sessionId) {
@@ -29,10 +31,16 @@ describe("run audit view model service", () => {
     expect(runAudit?.sections.map((section) => section.title)).toEqual(
       expect.arrayContaining(["Claim vs Evidence", "Git / GitHub", "Capability Gaps"])
     );
-    expect(
-      runAudit?.sections
-        .find((section) => section.title === "Git / GitHub")
-        ?.items.some((item) => item.value === "Unknown")
-    ).toBe(true);
+    expect(runAudit?.sections.find((section) => section.title === "Git / GitHub")?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Git Snapshot", value: "Available" }),
+        expect.objectContaining({ label: "Branch", value: "main" }),
+        expect.objectContaining({
+          label: "Remote URL",
+          value: "https://github.com/example/control-plus-zebra.git"
+        }),
+        expect.objectContaining({ label: "Pull Request", value: "Unknown" })
+      ])
+    );
   });
 });

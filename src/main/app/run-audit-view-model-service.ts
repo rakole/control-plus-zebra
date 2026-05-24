@@ -8,8 +8,13 @@ import {
   buildSessionPreviewViewModel,
   getDerivedSession,
   getDiagnosticsForSession,
+  getProjectGitSnapshot,
   getProjectForSession,
-  loadTriageData
+  loadTriageData,
+  toGitDirtyState,
+  toGitFieldValue,
+  toGitMetricState,
+  toGitStatusState
 } from "./triage-view-model-service.js";
 import {
   createWorkbenchRuntime,
@@ -48,6 +53,24 @@ export function createRunAuditViewModelService(
       const capabilityWarnings = preview.capabilityBadges.filter(
         (badge) => badge.state !== "Supported"
       );
+      const project = getProjectForSession(data, session);
+      const projectSnapshot = getProjectGitSnapshot(data, project);
+      const gitStatus = toGitStatusState(projectSnapshot);
+      const dirtyState = toGitDirtyState(projectSnapshot);
+      const branch = toGitFieldValue(projectSnapshot, (snapshot) => snapshot.branch);
+      const head = toGitFieldValue(projectSnapshot, (snapshot) => snapshot.headSha);
+      const remoteUrl = toGitFieldValue(
+        projectSnapshot,
+        (snapshot) => snapshot.remoteUrl,
+        {
+          unavailableReason:
+            projectSnapshot?.remoteReason ?? "No remote URL is configured for this repository."
+        }
+      );
+      const changedFiles = toGitMetricState(projectSnapshot, (snapshot) => snapshot.changedFiles);
+      const untrackedFiles = toGitMetricState(projectSnapshot, (snapshot) => snapshot.untrackedFiles);
+      const additions = toGitMetricState(projectSnapshot, (snapshot) => snapshot.additions);
+      const deletions = toGitMetricState(projectSnapshot, (snapshot) => snapshot.deletions);
 
       return runAuditViewModelSchema.parse({
         session: preview,
@@ -174,24 +197,78 @@ export function createRunAuditViewModelService(
           {
             id: "git-github",
             title: "Git / GitHub",
-            summary: "Phase 6 shows placeholders until read-only providers land in Phase 7.",
+            summary: "Show shared read-only repository truth and keep GitHub gaps explicit.",
             items: [
               {
-                label: "Project Root",
-                value: getProjectForSession(data, session)?.rootPath ?? "Unknown",
-                tone: getProjectForSession(data, session)?.rootPath ? "info" : "neutral"
+                label: "Git Snapshot",
+                value: gitStatus.label,
+                tone: gitStatus.tone,
+                ...(gitStatus.reason ? { hint: gitStatus.reason } : {})
               },
               {
-                label: "Repo State",
-                value: "Unknown",
-                tone: "neutral",
-                hint: "Git provider arrives in Phase 7."
+                label: "Project Root",
+                value: project?.rootPath ?? "Unknown",
+                tone: project?.rootPath ? "info" : "neutral"
+              },
+              {
+                label: "Validated Repo Root",
+                value: projectSnapshot?.validatedRootPath ?? "Unknown",
+                tone: projectSnapshot?.validatedRootPath ? "info" : "neutral",
+                ...(projectSnapshot?.reason ? { hint: projectSnapshot.reason } : {})
+              },
+              {
+                label: "Branch",
+                value: branch.displayValue,
+                tone: branch.status === "value" ? "info" : "neutral",
+                ...(branch.reason ? { hint: branch.reason } : {})
+              },
+              {
+                label: "HEAD",
+                value: head.displayValue,
+                tone: head.status === "value" ? "info" : "neutral",
+                ...(head.reason ? { hint: head.reason } : {})
+              },
+              {
+                label: "Repo Cleanliness",
+                value: dirtyState.label,
+                tone: dirtyState.tone,
+                ...(dirtyState.reason ? { hint: dirtyState.reason } : {})
+              },
+              {
+                label: "Changed Files",
+                value: changedFiles.displayValue,
+                tone: changedFiles.status === "value" ? "info" : "neutral",
+                ...(changedFiles.reason ? { hint: changedFiles.reason } : {})
+              },
+              {
+                label: "Untracked Files",
+                value: untrackedFiles.displayValue,
+                tone: untrackedFiles.status === "value" ? "info" : "neutral",
+                ...(untrackedFiles.reason ? { hint: untrackedFiles.reason } : {})
+              },
+              {
+                label: "Additions",
+                value: additions.displayValue,
+                tone: additions.status === "value" ? "info" : "neutral",
+                ...(additions.reason ? { hint: additions.reason } : {})
+              },
+              {
+                label: "Deletions",
+                value: deletions.displayValue,
+                tone: deletions.status === "value" ? "info" : "neutral",
+                ...(deletions.reason ? { hint: deletions.reason } : {})
+              },
+              {
+                label: "Remote URL",
+                value: remoteUrl.displayValue,
+                tone: remoteUrl.status === "value" ? "info" : "neutral",
+                ...(remoteUrl.reason ? { hint: remoteUrl.reason } : {})
               },
               {
                 label: "Pull Request",
                 value: "Unknown",
                 tone: "neutral",
-                hint: "GitHub provider arrives in Phase 7."
+                hint: "GitHub context arrives in the next Phase 7 slice."
               }
             ]
           },

@@ -106,6 +106,7 @@ export function RunAuditRoute() {
                     <div key={`${section.id}-${item.label}`}>
                       <dt>{item.label}</dt>
                       <dd>{item.value}</dd>
+                      {item.hint ? <p className="detail-helper">{item.hint}</p> : null}
                     </div>
                   ))}
                 </dl>

@@ -21,10 +21,12 @@ export const capabilityBadgeLabelSchema = z.enum(["Supported", "Unsupported", "U
 export type CapabilityBadgeLabel = z.infer<typeof capabilityBadgeLabelSchema>;
 
 export const truthStateLabelSchema = z.enum([
+  "Available",
   "Active",
   "Cancelled",
   "Clean",
   "Completed",
+  "Dirty",
   "Failed",
   "Failed Verification",
   "Incomplete",
@@ -154,16 +156,21 @@ export const projectSummaryViewModelSchema = z
     projectId: z.string().min(1),
     projectName: z.string().min(1),
     repoPath: fieldValueViewModelSchema,
+    validatedRepoRoot: fieldValueViewModelSchema,
     observedHarnesses: z.array(z.string().min(1)),
     latestActivityAt: z.string().min(1).optional(),
     sessionCount: z.number().int().nonnegative(),
     latestVerification: truthStateViewModelSchema,
     latestRunAudit: truthStateViewModelSchema,
+    gitStatus: truthStateViewModelSchema,
     branch: fieldValueViewModelSchema,
     head: fieldValueViewModelSchema,
     dirtyState: truthStateViewModelSchema,
     changedFiles: metricStateViewModelSchema,
     untrackedFiles: metricStateViewModelSchema,
+    additions: metricStateViewModelSchema,
+    deletions: metricStateViewModelSchema,
+    remoteUrl: fieldValueViewModelSchema,
     pullRequest: fieldValueViewModelSchema
   })
   .strict();

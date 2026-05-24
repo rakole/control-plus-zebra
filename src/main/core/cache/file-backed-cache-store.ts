@@ -8,6 +8,7 @@ import type { AdapterId, SourceId } from "../model/identifiers.js";
 import type { RunAuditResult } from "../audit/types.js";
 import type { ParsedShellCommand } from "../shell/types.js";
 import type { VerificationResult } from "../verification/types.js";
+import type { ProjectGitSnapshot } from "../git/git-snapshot-provider.js";
 
 const confidenceSchema = z
   .object({
@@ -314,9 +315,40 @@ const derivedSessionSchema = z
   })
   .strict();
 
+const derivedProjectSchema = z
+  .object({
+    projectId: z.string().min(1),
+    git: z
+      .object({
+        status: z.enum(["available", "unknown", "unsupported"]),
+        rootConfidence: z.enum(["confirmed", "observed", "inferred", "unknown"]),
+        candidateRootPath: z.string().min(1).optional(),
+        validatedRootPath: z.string().min(1).optional(),
+        reason: z.string().min(1).optional(),
+        remoteReason: z.string().min(1).optional(),
+        snapshot: z
+          .object({
+            additions: z.number().int().nonnegative(),
+            branch: z.string().min(1),
+            changedFiles: z.number().int().nonnegative(),
+            deletions: z.number().int().nonnegative(),
+            dirty: z.boolean(),
+            headSha: z.string().min(1),
+            remoteUrl: z.string().min(1).optional(),
+            untrackedFiles: z.number().int().nonnegative()
+          })
+          .strict()
+          .optional(),
+        diagnosticIds: z.array(z.string().min(1))
+      })
+      .strict()
+  })
+  .strict();
+
 const derivedSchema = z
   .object({
-    sessions: z.array(derivedSessionSchema)
+    sessions: z.array(derivedSessionSchema),
+    projects: z.array(derivedProjectSchema).optional()
   })
   .strict();
 
@@ -358,8 +390,14 @@ export interface DerivedSessionCacheRecord {
   audit?: RunAuditResult;
 }
 
+export interface DerivedProjectCacheRecord {
+  projectId: string;
+  git: ProjectGitSnapshot;
+}
+
 export interface DerivedCacheRecord {
   sessions: DerivedSessionCacheRecord[];
+  projects?: DerivedProjectCacheRecord[];
 }
 
 export class FileBackedCacheStore {

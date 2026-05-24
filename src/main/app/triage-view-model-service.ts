@@ -1,5 +1,8 @@
 import type { HarnessDescriptor } from "../core/adapter-contract/index.js";
-import type { NormalizedCacheRecord } from "../core/cache/file-backed-cache-store.js";
+import type {
+  DerivedProjectCacheRecord,
+  NormalizedCacheRecord
+} from "../core/cache/file-backed-cache-store.js";
 import type { Diagnostic } from "../core/diagnostics/diagnostic.js";
 import { mergeNormalizedResults } from "../core/ingestion/index.js";
 import type {
@@ -58,6 +61,9 @@ const capabilityKeys = [
 ] as const satisfies readonly (keyof HarnessCapabilities)[];
 
 type DerivedSession = NonNullable<NormalizedCacheRecord["derived"]>["sessions"][number];
+type DerivedProject = NonNullable<
+  NonNullable<NormalizedCacheRecord["derived"]>["projects"]
+>[number];
 
 interface LoadedTriageData {
   descriptors: Map<string, HarnessDescriptor>;
@@ -72,6 +78,7 @@ interface LoadedTriageData {
   fileMutationsBySessionId: Map<string, FileMutationEvidence[]>;
   diagnosticsBySessionId: Map<string, Diagnostic[]>;
   derivedBySessionId: Map<string, DerivedSession>;
+  projectSnapshotsByProjectId: Map<string, DerivedProject>;
 }
 
 export interface TriageViewModelService {
@@ -157,29 +164,33 @@ export function createTriageViewModelService(
             return null;
           }
 
+          const projectSnapshot = getProjectGitSnapshot(data, project);
+
           return projectSummaryViewModelSchema.parse({
             projectId: project?.id ?? key,
             projectName: project?.name ?? "Unknown Project",
             repoPath: toFieldValue(project?.rootPath),
+            validatedRepoRoot: toGitValidatedRootField(projectSnapshot),
             observedHarnesses,
             latestActivityAt: getSessionActivityTimestamp(latestSession),
             sessionCount: projectSessions.length,
             latestVerification: getVerificationState(data, latestSession),
             latestRunAudit: getRunAuditState(data, latestSession),
-            branch: toFieldState("Unknown", "Git branch data arrives in Phase 7."),
-            head: toFieldState("Unknown", "Git HEAD data arrives in Phase 7."),
-            dirtyState: {
-              label: "Unknown",
-              tone: "neutral",
-              reason: "Dirty-state evidence arrives in Phase 7."
-            },
-            changedFiles: toMetricState("unknown", "Unknown", "Git change counts arrive in Phase 7."),
-            untrackedFiles: toMetricState(
-              "unknown",
+            gitStatus: toGitStatusState(projectSnapshot),
+            branch: toGitFieldValue(projectSnapshot, (snapshot) => snapshot.branch),
+            head: toGitFieldValue(projectSnapshot, (snapshot) => snapshot.headSha, {
+              displayValue: abbreviateSha
+            }),
+            dirtyState: toGitDirtyState(projectSnapshot),
+            changedFiles: toGitMetricState(projectSnapshot, (snapshot) => snapshot.changedFiles),
+            untrackedFiles: toGitMetricState(projectSnapshot, (snapshot) => snapshot.untrackedFiles),
+            additions: toGitMetricState(projectSnapshot, (snapshot) => snapshot.additions),
+            deletions: toGitMetricState(projectSnapshot, (snapshot) => snapshot.deletions),
+            remoteUrl: toGitRemoteField(projectSnapshot),
+            pullRequest: toFieldState(
               "Unknown",
-              "Git change counts arrive in Phase 7."
-            ),
-            pullRequest: toFieldState("Unknown", "GitHub pull-request data arrives in Phase 7.")
+              "GitHub context arrives in the next Phase 7 slice."
+            )
           });
         })
         .filter((project): project is ProjectSummaryViewModel => project !== null)
@@ -221,7 +232,8 @@ export async function loadTriageData(
     outputArtifactsBySessionId: groupBy(outputArtifacts, (artifact) => artifact.sessionId),
     fileMutationsBySessionId: groupBy(fileMutations, (mutation) => mutation.sessionId),
     diagnosticsBySessionId: buildDiagnosticsBySession(records, sessions),
-    derivedBySessionId: buildDerivedBySession(records)
+    derivedBySessionId: buildDerivedBySession(records),
+    projectSnapshotsByProjectId: buildDerivedByProject(records)
   };
 }
 
@@ -267,6 +279,13 @@ export function getProjectForSession(
   session: Session
 ): Project | undefined {
   return session.projectId ? data.projectsById.get(session.projectId) : undefined;
+}
+
+export function getProjectGitSnapshot(
+  data: LoadedTriageData,
+  project?: Project
+): DerivedProject["git"] | undefined {
+  return project ? data.projectSnapshotsByProjectId.get(project.id)?.git : undefined;
 }
 
 export function getDiagnosticsForSession(
@@ -431,6 +450,125 @@ export function toMetricValue(value: number): MetricStateViewModel {
   };
 }
 
+export function toGitDirtyState(
+  gitSnapshot?: DerivedProject["git"]
+): TruthStateViewModel {
+  if (gitSnapshot?.status === "available" && gitSnapshot.snapshot) {
+    return gitSnapshot.snapshot.dirty
+      ? { label: "Dirty", tone: "warning" }
+      : { label: "Clean", tone: "positive" };
+  }
+
+  if (gitSnapshot?.status === "unsupported") {
+    return {
+      label: "Unsupported",
+      tone: "neutral",
+      reason: gitSnapshot.reason
+    };
+  }
+
+  return {
+    label: "Unknown",
+    tone: "neutral",
+    reason: getGitUnavailableReason(gitSnapshot)
+  };
+}
+
+export function toGitFieldValue(
+  gitSnapshot: DerivedProject["git"] | undefined,
+  selectValue: (snapshot: NonNullable<DerivedProject["git"]["snapshot"]>) => string | undefined,
+  options: {
+    displayValue?: (rawValue: string) => string;
+    unavailableReason?: string;
+  } = {}
+): FieldValueViewModel {
+  if (gitSnapshot?.status === "available" && gitSnapshot.snapshot) {
+    const rawValue = selectValue(gitSnapshot.snapshot);
+
+    if (rawValue) {
+      return toFieldValueWithDisplay(
+        rawValue,
+        options.displayValue ? options.displayValue(rawValue) : rawValue
+      );
+    }
+  }
+
+  return toFieldState(
+    gitSnapshot?.status === "unsupported" ? "Unsupported" : "Unknown",
+    options.unavailableReason ?? getGitUnavailableReason(gitSnapshot)
+  );
+}
+
+export function toGitMetricState(
+  gitSnapshot: DerivedProject["git"] | undefined,
+  selectValue: (snapshot: NonNullable<DerivedProject["git"]["snapshot"]>) => number
+): MetricStateViewModel {
+  if (gitSnapshot?.status === "available" && gitSnapshot.snapshot) {
+    return toMetricValue(selectValue(gitSnapshot.snapshot));
+  }
+
+  if (gitSnapshot?.status === "unsupported") {
+    return toMetricState("unsupported", "Unsupported", gitSnapshot.reason);
+  }
+
+  return toMetricState("unknown", "Unknown", getGitUnavailableReason(gitSnapshot));
+}
+
+export function toGitRemoteField(
+  gitSnapshot?: DerivedProject["git"]
+): FieldValueViewModel {
+  if (gitSnapshot?.status === "available" && gitSnapshot.snapshot?.remoteUrl) {
+    return toFieldValue(gitSnapshot.snapshot.remoteUrl);
+  }
+
+  if (gitSnapshot?.status === "available") {
+    return toFieldState(
+      "Unknown",
+      gitSnapshot.remoteReason ?? "No remote URL is configured for this repository."
+    );
+  }
+
+  return toFieldState(
+    gitSnapshot?.status === "unsupported" ? "Unsupported" : "Unknown",
+    getGitUnavailableReason(gitSnapshot)
+  );
+}
+
+export function toGitStatusState(
+  gitSnapshot?: DerivedProject["git"]
+): TruthStateViewModel {
+  if (gitSnapshot?.status === "available") {
+    return { label: "Available", tone: "info" };
+  }
+
+  if (gitSnapshot?.status === "unsupported") {
+    return {
+      label: "Unsupported",
+      tone: "neutral",
+      reason: gitSnapshot.reason
+    };
+  }
+
+  return {
+    label: "Unknown",
+    tone: "neutral",
+    reason: getGitUnavailableReason(gitSnapshot)
+  };
+}
+
+export function toGitValidatedRootField(
+  gitSnapshot?: DerivedProject["git"]
+): FieldValueViewModel {
+  if (gitSnapshot?.validatedRootPath) {
+    return toFieldValue(gitSnapshot.validatedRootPath);
+  }
+
+  return toFieldState(
+    gitSnapshot?.status === "unsupported" ? "Unsupported" : "Unknown",
+    getGitUnavailableReason(gitSnapshot)
+  );
+}
+
 export function toMetricState(
   status: MetricStateViewModel["status"],
   displayValue: string,
@@ -445,14 +583,21 @@ export function toMetricState(
 
 export function toFieldValue(value?: string, reason?: string): FieldValueViewModel {
   if (value) {
-    return {
-      status: "value",
-      displayValue: value,
-      rawValue: value
-    };
+    return toFieldValueWithDisplay(value, value);
   }
 
   return toFieldState("Unknown", reason);
+}
+
+export function toFieldValueWithDisplay(
+  rawValue: string,
+  displayValue: string
+): FieldValueViewModel {
+  return {
+    status: "value",
+    displayValue,
+    rawValue
+  };
 }
 
 export function toFieldState(
@@ -629,6 +774,20 @@ function buildDerivedBySession(
   return derived;
 }
 
+function buildDerivedByProject(
+  records: NormalizedCacheRecord[]
+): Map<string, DerivedProjectCacheRecord> {
+  const derived = new Map<string, DerivedProjectCacheRecord>();
+
+  for (const record of records) {
+    for (const project of record.derived?.projects ?? []) {
+      derived.set(project.projectId, project);
+    }
+  }
+
+  return derived;
+}
+
 function compareSessionsByActivity(left: Session, right: Session): number {
   return compareTimestampStrings(
     getSessionActivityTimestamp(right),
@@ -663,6 +822,10 @@ function dedupeDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {
   }
 
   return [...seen.values()];
+}
+
+function abbreviateSha(value: string): string {
+  return value.length > 8 ? value.slice(0, 8) : value;
 }
 
 function getFirstPrompt(data: LoadedTriageData, sessionId: string): string | undefined {
@@ -770,4 +933,11 @@ function truncate(value: string, limit: number): string {
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function getGitUnavailableReason(gitSnapshot?: DerivedProject["git"]): string {
+  return (
+    gitSnapshot?.reason ??
+    "Git context is unavailable because Agent Workbench could not validate a safe repository root for this project."
+  );
 }

@@ -15,12 +15,14 @@ describe("Run audit route", () => {
     vi.clearAllMocks();
   });
 
-  it("renders grouped claim-vs-evidence sections and git placeholders", async () => {
+  it("renders grouped claim-vs-evidence sections and shared git snapshot fields", async () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Run Audit" })).toBeInTheDocument();
     expect(screen.getByText("Claim vs Evidence")).toBeInTheDocument();
     expect(screen.getByText("Git / GitHub")).toBeInTheDocument();
-    expect(screen.getAllByText("Unknown").length).toBeGreaterThan(0);
+    expect(screen.getByText("Available")).toBeInTheDocument();
+    expect(screen.getByText("main")).toBeInTheDocument();
+    expect(screen.getByText("https://github.com/example/control-plus-zebra.git")).toBeInTheDocument();
   });
 });

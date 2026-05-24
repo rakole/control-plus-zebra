@@ -278,16 +278,24 @@ function createFakeServices(): {
             displayValue: "/workspace/control-plus-zebra",
             rawValue: "/workspace/control-plus-zebra"
           },
+          validatedRepoRoot: {
+            status: "unknown",
+            displayValue: "Unknown"
+          },
           observedHarnesses: ["Fake Test Harness"],
           latestActivityAt: "2026-05-23T10:00:01.000Z",
           sessionCount: 1,
           latestVerification: { label: "Passed", tone: "positive" },
           latestRunAudit: { label: "Needs Review", tone: "warning" },
+          gitStatus: { label: "Unknown", tone: "neutral" },
           branch: { status: "unknown", displayValue: "Unknown" },
           head: { status: "unknown", displayValue: "Unknown" },
           dirtyState: { label: "Unknown", tone: "neutral" },
           changedFiles: { status: "unknown", displayValue: "Unknown" },
           untrackedFiles: { status: "unknown", displayValue: "Unknown" },
+          additions: { status: "unknown", displayValue: "Unknown" },
+          deletions: { status: "unknown", displayValue: "Unknown" },
+          remoteUrl: { status: "unknown", displayValue: "Unknown" },
           pullRequest: { status: "unknown", displayValue: "Unknown" }
         }
       ];

@@ -25,10 +25,13 @@ import { parseShellCommandEvidence } from "../shell/shell-command-parser.js";
 import type { LoadedArtifactDiagnostics } from "../shell/types.js";
 import { deriveVerificationForSession } from "../verification/verification-classifier.js";
 import { deriveRunAuditForSession } from "../audit/run-audit-engine.js";
+import { GitSnapshotProvider, type ProjectGitSnapshotResult } from "../git/git-snapshot-provider.js";
+import type { Project } from "../model/entities.js";
 
 export interface ScannerOptions {
   adapterRegistry: AdapterRegistry;
   cacheStore: FileBackedCacheStore;
+  gitSnapshotProvider?: GitSnapshotProvider;
   projectDir: string;
   rawArtifactIndex: RawArtifactIndex;
   sourceRegistry: SourceRegistry;
@@ -49,6 +52,7 @@ type RuntimeAdapterContext = AdapterContext & { safeFilesystem: SafeFilesystem }
 export class Scanner {
   readonly #adapterRegistry: AdapterRegistry;
   readonly #cacheStore: FileBackedCacheStore;
+  readonly #gitSnapshotProvider: GitSnapshotProvider;
   readonly #projectDir: string;
   readonly #rawArtifactIndex: RawArtifactIndex;
   readonly #sourceRegistry: SourceRegistry;
@@ -57,6 +61,7 @@ export class Scanner {
   constructor(options: ScannerOptions) {
     this.#adapterRegistry = options.adapterRegistry;
     this.#cacheStore = options.cacheStore;
+    this.#gitSnapshotProvider = options.gitSnapshotProvider ?? new GitSnapshotProvider();
     this.#projectDir = options.projectDir;
     this.#rawArtifactIndex = options.rawArtifactIndex;
     this.#sourceRegistry = options.sourceRegistry;
@@ -288,11 +293,22 @@ export class Scanner {
           context: parseContext,
           normalized
         });
-        const normalizedWithDerivedDiagnostics = {
+        const normalizedWithShellDiagnostics = {
           ...normalized,
           diagnostics: dedupeDiagnostics([
             ...normalized.diagnostics,
             ...shellDerivation.diagnostics
+          ])
+        };
+        const projectGitDerivation = await deriveProjectGitSnapshots(
+          normalizedWithShellDiagnostics.projects,
+          this.#gitSnapshotProvider
+        );
+        const normalizedWithDerivedDiagnostics = {
+          ...normalizedWithShellDiagnostics,
+          diagnostics: dedupeDiagnostics([
+            ...normalizedWithShellDiagnostics.diagnostics,
+            ...projectGitDerivation.diagnostics
           ])
         };
         const indexDiagnosticsHash = createDiagnosticsHash(normalizedWithDerivedDiagnostics.diagnostics);
@@ -384,7 +400,8 @@ export class Scanner {
         updatedAt: now,
         normalized: normalizedWithDerivedDiagnostics,
         derived: {
-          sessions: derivedSessions
+          sessions: derivedSessions,
+          projects: projectGitDerivation.projects
         }
       };
 
@@ -731,6 +748,34 @@ function getSessionDiagnostics(
       diagnostic.relatedEntityIds?.some((relatedId) => relatedIds.has(relatedId)) === true ||
       session.diagnosticIds?.includes(diagnostic.id) === true
   );
+}
+
+async function deriveProjectGitSnapshots(
+  projects: Project[],
+  gitSnapshotProvider: GitSnapshotProvider
+): Promise<{
+  diagnostics: Diagnostic[];
+  projects: Array<{
+    git: ProjectGitSnapshotResult["git"];
+    projectId: string;
+  }>;
+}> {
+  const snapshotResults = await Promise.all(
+    projects.map(async (project) => ({
+      projectId: project.id,
+      ...(await gitSnapshotProvider.collect(project))
+    }))
+  );
+
+  return {
+    diagnostics: dedupeDiagnostics(
+      snapshotResults.flatMap((result) => result.diagnostics)
+    ),
+    projects: snapshotResults.map((result) => ({
+      projectId: result.projectId,
+      git: result.git
+    }))
+  };
 }
 
 function dedupeDiagnostics<T extends { id: string }>(diagnostics: T[]): T[] {
