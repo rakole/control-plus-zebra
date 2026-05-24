@@ -386,6 +386,335 @@ describe("FileBackedCacheStore", () => {
     expect(loaded.derived?.version).toBe(1);
   });
 
+  it("migrates legacy v1 flattened capability and entity records without throwing", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-cache-store-v1-"));
+    const filePath = path.join(tempDir, "normalized-cache.json");
+    const store = new FileBackedCacheStore(filePath);
+    const sessionId = baseRecord.normalized.sessions[0]?.id ?? "session-legacy";
+    const projectId = baseRecord.normalized.projects[0]?.id ?? "project-legacy";
+    const eventId = "event-legacy-message";
+    const toolCallId = "tool-call-legacy";
+    const shellCommandId = "shell-command-legacy";
+    const outputArtifactId = "output-artifact-legacy";
+    const fileMutationId = "file-mutation-legacy";
+    const legacyCapabilities = {
+      sessionDiscovery: { status: "supported" },
+      liveSessionObservation: { status: "unknown" },
+      eventStreaming: { status: "supported" },
+      messageCapture: { status: "supported" },
+      toolCallCapture: { status: "supported" },
+      shellCommandCapture: { status: "supported" },
+      outputArtifactCapture: { status: "supported" },
+      fileMutationCapture: { status: "supported" },
+      sourceValidation: { status: "supported" },
+      watchPlans: { status: "unsupported", reason: "Legacy cache did not support watches." },
+      gitContextCapture: { status: "unsupported", reason: "Legacy cache did not include git snapshots." },
+      githubContextCapture: { status: "unknown" },
+      verificationSignals: { status: "supported" }
+    };
+    const legacyRecord = {
+      cacheKey: "legacy-v1-cache-proof",
+      adapterId: baseRecord.adapterId,
+      sourceId: baseRecord.sourceId,
+      artifactFingerprint: "legacy-v1-fingerprint",
+      createdAt: "2026-05-22T00:00:00.000Z",
+      updatedAt: "2026-05-22T00:00:00.000Z",
+      normalized: {
+        adapterId: baseRecord.adapterId,
+        sourceId: baseRecord.sourceId,
+        capabilities: {
+          adapter: { adapterId: baseRecord.adapterId, capabilities: legacyCapabilities },
+          source: {
+            adapterId: baseRecord.adapterId,
+            sourceId: baseRecord.sourceId,
+            capabilities: legacyCapabilities
+          },
+          sessions: [
+            {
+              adapterId: baseRecord.adapterId,
+              sourceId: baseRecord.sourceId,
+              sessionId,
+              capabilities: legacyCapabilities
+            }
+          ]
+        },
+        projects: [
+          {
+            id: projectId,
+            adapterId: baseRecord.adapterId,
+            sourceId: baseRecord.sourceId,
+            confidence: { level: "high" },
+            kind: "project",
+            nativeId: "legacy-project",
+            name: "Legacy Project",
+            rootPath: "/tmp/legacy-project"
+          }
+        ],
+        sessions: [
+          {
+            id: sessionId,
+            adapterId: baseRecord.adapterId,
+            sourceId: baseRecord.sourceId,
+            confidence: { level: "medium" },
+            diagnosticIds: ["legacy-diagnostic"],
+            kind: "session",
+            nativeId: "legacy-session",
+            projectId,
+            title: "Legacy Session",
+            startedAt: "2026-05-22T00:00:00.000Z",
+            endedAt: "2026-05-22T00:05:00.000Z",
+            lifecycleState: "completed"
+          }
+        ],
+        events: [
+          {
+            id: eventId,
+            adapterId: baseRecord.adapterId,
+            sourceId: baseRecord.sourceId,
+            confidence: { level: "high" },
+            kind: "session-event",
+            sessionId,
+            nativeId: "legacy-event",
+            eventKind: "message",
+            timestamp: "2026-05-22T00:00:01.000Z",
+            ordinal: 1,
+            summary: "Legacy user message"
+          }
+        ],
+        messages: [
+          {
+            id: "message-legacy",
+            adapterId: baseRecord.adapterId,
+            sourceId: baseRecord.sourceId,
+            confidence: { level: "high" },
+            kind: "session-message",
+            sessionId,
+            nativeId: "legacy-message",
+            role: "user",
+            content: "Run the proof.",
+            ordinal: 1,
+            timestamp: "2026-05-22T00:00:01.000Z",
+            eventId
+          }
+        ],
+        toolCalls: [
+          {
+            id: toolCallId,
+            adapterId: baseRecord.adapterId,
+            sourceId: baseRecord.sourceId,
+            confidence: { level: "high" },
+            kind: "tool-call",
+            sessionId,
+            nativeId: "legacy-tool-call",
+            toolName: "run_shell_command",
+            status: "succeeded",
+            startedAt: "2026-05-22T00:01:00.000Z",
+            endedAt: "2026-05-22T00:01:02.000Z",
+            inputSummary: "npm test",
+            outputSummary: "passed",
+            eventId,
+            artifactIds: [outputArtifactId]
+          }
+        ],
+        shellCommands: [
+          {
+            id: shellCommandId,
+            adapterId: baseRecord.adapterId,
+            sourceId: baseRecord.sourceId,
+            confidence: { level: "high" },
+            kind: "shell-command",
+            sessionId,
+            nativeId: "legacy-shell-command",
+            command: "npm test",
+            outputSource: "combined",
+            outputSummary: "passed",
+            eventId,
+            toolCallId,
+            rawToolStatus: "succeeded"
+          }
+        ],
+        outputArtifacts: [
+          {
+            id: outputArtifactId,
+            adapterId: baseRecord.adapterId,
+            sourceId: baseRecord.sourceId,
+            confidence: { level: "high" },
+            kind: "output-artifact",
+            sessionId,
+            nativeId: "legacy-output-artifact",
+            artifactKind: "json",
+            path: "/tmp/legacy-output.json",
+            mediaType: "application/json",
+            byteLength: 42,
+            eventId
+          }
+        ],
+        fileMutations: [
+          {
+            id: fileMutationId,
+            adapterId: baseRecord.adapterId,
+            sourceId: baseRecord.sourceId,
+            confidence: { level: "high" },
+            kind: "file-mutation",
+            sessionId,
+            nativeId: "legacy-file-mutation",
+            path: "README.md",
+            mutationKind: "updated",
+            eventId,
+            toolCallId
+          }
+        ],
+        diagnostics: [
+          {
+            id: "legacy-diagnostic",
+            code: "legacy.parser-warning",
+            message: "Legacy parser warning.",
+            severity: "warning",
+            scope: "session",
+            adapterId: baseRecord.adapterId,
+            sourceId: baseRecord.sourceId,
+            relatedEntityIds: [sessionId],
+            confidence: { level: "medium" }
+          }
+        ]
+      },
+      derived: {
+        sessions: [
+          {
+            sessionId,
+            shellCommands: "not-a-shell-command-array"
+          }
+        ]
+      }
+    };
+
+    await writeFile(
+      filePath,
+      `${JSON.stringify({ version: 1, records: [legacyRecord] }, null, 2)}\n`,
+      "utf8"
+    );
+
+    const [loaded] = await store.load();
+
+    expect(loaded).toBeDefined();
+    if (!loaded) {
+      throw new Error("Expected a migrated legacy v1 record.");
+    }
+
+    expect(loaded?.normalized.projects[0]).toMatchObject({
+      id: projectId,
+      displayName: "Legacy Project",
+      primaryRootPath: "/tmp/legacy-project",
+      rootConfidence: "confirmed"
+    });
+    expect(loaded?.normalized.sessions[0]).toMatchObject({
+      id: sessionId,
+      lifecycleStatus: "completed",
+      parseConfidence: "observed",
+      messageIds: ["message-legacy"],
+      eventIds: [eventId],
+      toolCallIds: [toolCallId],
+      shellCommandIds: [shellCommandId],
+      outputArtifactIds: [outputArtifactId],
+      fileMutationIds: [fileMutationId]
+    });
+    expect(loaded.normalized.sessions[0]?.capabilities?.tools?.shellCommands).toBe(true);
+    expect(loaded.normalized.sessions[0]?.capabilities?.live?.watchableArtifacts).toBe(false);
+    expect(loaded?.normalized.events[0]).toMatchObject({
+      id: eventId,
+      kind: "message",
+      orderKey: "000001:legacy-event",
+      text: "Legacy user message"
+    });
+    expect(loaded?.normalized.messages[0]).toMatchObject({
+      id: "message-legacy",
+      text: "Run the proof.",
+      eventIds: [eventId],
+      confidence: "confirmed"
+    });
+    expect(loaded?.normalized.toolCalls[0]).toMatchObject({
+      id: toolCallId,
+      name: "run_shell_command",
+      normalizedKind: "shell",
+      statusNormalized: "completed",
+      outputArtifactIds: [outputArtifactId]
+    });
+    expect(loaded?.normalized.outputArtifacts[0]).toMatchObject({
+      id: outputArtifactId,
+      kind: "sidecar",
+      contentKind: "json",
+      loaded: false
+    });
+    expect(loaded?.rawArtifactIndex?.entries).toContainEqual(
+      expect.objectContaining({
+        id: outputArtifactId,
+        artifactKind: "output-artifact",
+        path: "/tmp/legacy-output.json"
+      })
+    );
+    expect(loaded?.normalized.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "cache.legacy-record-migrated",
+        severity: "warning",
+        relatedEntityIds: [sessionId]
+      })
+    );
+    expect(loaded?.normalized.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "cache.legacy-derived-dropped",
+        severity: "warning"
+      })
+    );
+    expect(loaded?.derived).toBeUndefined();
+  });
+
+  it("loads quarantined legacy records for diagnostics but refuses to persist them", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-cache-store-quarantine-"));
+    const filePath = path.join(tempDir, "normalized-cache.json");
+    const store = new FileBackedCacheStore(filePath);
+
+    await writeFile(
+      filePath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          records: [
+            {
+              cacheKey: "legacy-quarantined",
+              adapterId: "fake-test",
+              sourceId: "source-quarantined",
+              artifactFingerprint: "legacy-quarantined",
+              createdAt: "2026-05-22T00:00:00.000Z",
+              updatedAt: "2026-05-22T00:00:00.000Z",
+              normalized: "not-a-normalized-record"
+            }
+          ]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const loaded = await store.load();
+
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]?.normalized.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "cache.legacy-record-quarantined",
+        severity: "error"
+      })
+    );
+    await expect(store.save(loaded)).rejects.toThrow(/legacy records are quarantined/);
+    await expect(
+      store.writeRecord({
+        ...baseRecord,
+        cacheKey: "new-source-cache",
+        sourceId: "source-new"
+      })
+    ).rejects.toThrow(/legacy records are quarantined/);
+  });
+
   it("does not treat malformed cache files as a successful load", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-cache-store-bad-"));
     const filePath = path.join(tempDir, "normalized-cache.json");
@@ -497,6 +826,27 @@ function collectRawArtifactRefs(record: NormalizedCacheRecord["normalized"]) {
     ...record.projects.flatMap((project) =>
       (project.harnessRefs ?? []).flatMap((ref) => ref.rawArtifactRefs)
     ),
-    ...record.sessions.flatMap((session) => session.rawArtifactRefs ?? [])
+    ...record.sessions.flatMap((session) => session.rawArtifactRefs ?? []),
+    ...record.outputArtifacts.map((artifact) => ({
+      id: artifact.id,
+      adapterId: artifact.adapterId,
+      sourceId: artifact.sourceId,
+      ...(artifact.nativeRef ?? artifact.nativeId
+        ? { nativeRef: artifact.nativeRef ?? artifact.nativeId }
+        : {}),
+      ...(artifact.nativeId ? { nativeId: artifact.nativeId } : {}),
+      ...(artifact.path ? { path: artifact.path } : {}),
+      artifactKind: "output-artifact" as const,
+      artifactType: artifact.kind,
+      ...(artifact.mediaType ? { mediaType: artifact.mediaType } : {}),
+      ...(artifact.sizeBytes !== undefined ? { sizeBytes: artifact.sizeBytes } : {}),
+      ...(artifact.mtime ? { mtime: artifact.mtime } : {}),
+      parseStrategy:
+        artifact.contentKind === "json" || artifact.contentKind === "json-output-wrapper"
+          ? ("json" as const)
+          : artifact.contentKind === "plain-text"
+            ? ("text" as const)
+            : ("unknown" as const)
+    }))
   ];
 }

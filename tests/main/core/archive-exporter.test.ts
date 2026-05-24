@@ -56,6 +56,11 @@ describe("ArchiveExporter", () => {
     expect(archive.manifest.counts.cacheRecords).toBeGreaterThan(0);
     expect(archive.payload.sources.length).toBeGreaterThan(0);
     expect(archive.payload.cacheRecords.length).toBeGreaterThan(0);
+    expect(
+      archive.payload.cacheRecords.every(
+        (record) => typeof record === "object" && record !== null && !("derived" in record)
+      )
+    ).toBe(true);
     expect(archive.payload.rawArtifacts).toBeUndefined();
   });
 
