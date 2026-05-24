@@ -163,6 +163,40 @@ describe("Card primitive contract", () => {
     expect(within(card).getByText("Primary content")).toBeVisible();
     expect(within(card).getByText("Footer actions")).toBeVisible();
   });
+
+  it("exports a BentoGrid card layout with status, tags, and call to action metadata", async () => {
+    const module = await importPrimitiveModule("card");
+    const BentoGrid = module.BentoGrid as ComponentType<Record<string, unknown>>;
+
+    render(
+      <BentoGrid
+        data-testid="bento-grid"
+        items={[
+          {
+            title: "Audit Signals",
+            meta: "Live",
+            description: "Verification, git, and parser evidence grouped for review.",
+            icon: <span aria-hidden="true">A</span>,
+            status: "Unknown",
+            tags: ["Verification", "Git"],
+            cta: "Review ->",
+            colSpan: 2,
+            hasPersistentHover: true
+          }
+        ]}
+      />
+    );
+
+    const grid = screen.getByTestId("bento-grid");
+
+    expect(within(grid).getByText("Audit Signals")).toBeVisible();
+    expect(
+      within(grid).getByText("Verification, git, and parser evidence grouped for review.")
+    ).toBeVisible();
+    expect(within(grid).getByText("Unknown")).toBeVisible();
+    expect(within(grid).getByText("#Verification")).toBeVisible();
+    expect(within(grid).getByText("Review ->")).toBeInTheDocument();
+  });
 });
 
 describe("Resizable primitive contract", () => {
