@@ -1,6 +1,7 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 
 import { CapabilityBadge } from "./CapabilityBadge.js";
+import { TruthStateBadge } from "./triage/TruthStateBadge.js";
 
 type ListSessionsResponse = Awaited<ReturnType<Window["agentWorkbench"]["listSessions"]>>;
 export type SessionSummary = Extract<ListSessionsResponse, { ok: true }>["sessions"][number];
@@ -72,16 +73,23 @@ export function SessionList({
             <span className="session-row-main">
               <span className="session-title">{session.title}</span>
               <span className="session-meta">
-                {session.adapterDisplayName} · {formatLifecycle(session.lifecycleStatus)} ·{" "}
+                {session.adapterDisplayName} · {session.projectName ?? "Unknown Project"} ·{" "}
                 {formatSessionRange(session)}
               </span>
               <span className="session-warning-summary">
-                {capabilityWarnings.length > 0
-                  ? `${capabilityWarnings.length} capability warning${capabilityWarnings.length === 1 ? "" : "s"}`
-                  : "Capabilities supported"}
+                {session.firstPrompt ?? "No user prompt captured"}
+              </span>
+              <span className="session-metric-strip">
+                <span>{session.triageMetrics.commands.displayValue} commands</span>
+                <span>{session.triageMetrics.toolCalls.displayValue} tools</span>
+                <span>{session.triageMetrics.fileMutations.displayValue} files</span>
+                <span>{session.triageMetrics.failedCommands.displayValue} failed</span>
               </span>
             </span>
             <span className="session-row-badges">
+              <TruthStateBadge state={session.runAuditState} />
+              <TruthStateBadge state={session.verificationState} />
+              <TruthStateBadge state={session.lifecycleState} />
               {capabilityWarnings.slice(0, 2).map((badge) => (
                 <CapabilityBadge key={badge.key} label={badge.label} state={badge.state} {...(badge.reason ? { reason: badge.reason } : {})} />
               ))}
@@ -94,19 +102,6 @@ export function SessionList({
       })}
     </div>
   );
-}
-
-function formatLifecycle(status: SessionSummary["lifecycleStatus"]): string {
-  switch (status) {
-    case "active":
-      return "Active";
-    case "completed":
-      return "Completed";
-    case "cancelled":
-      return "Cancelled";
-    case "unknown":
-      return "Unknown";
-  }
 }
 
 function formatSessionRange(session: SessionSummary): string {

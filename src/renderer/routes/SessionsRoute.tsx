@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { LoadingSkeleton } from "../components/LoadingSkeleton.js";
 import { SessionList, type SessionSummary } from "../components/SessionList.js";
@@ -9,11 +10,12 @@ import {
 
 const EMPTY_HEADING = "No sessions available";
 const EMPTY_BODY =
-  "The desktop shell is running, but the bridge returned no session summaries. Reload sessions after the fake-adapter view model is available.";
+  "The triage shell is running, but no session summaries are available yet. Scan a configured source, then reload triage data.";
 const ERROR_COPY =
-  "Sessions could not load. Check the preload bridge and IPC handler, then reload sessions.";
+  "Sessions could not load. Check the preload bridge and IPC handler, then reload triage data.";
 
 export function SessionsRoute() {
+  const navigate = useNavigate();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
@@ -117,7 +119,7 @@ export function SessionsRoute() {
           <h1 id="sessions-title">Sessions</h1>
         </div>
         <button className="primary-button" onClick={() => void loadSessions()} type="button">
-          Reload Sessions
+          Reload Triage Data
         </button>
       </section>
 
@@ -145,7 +147,18 @@ export function SessionsRoute() {
             selectedSessionId={selectedSessionId}
             sessions={sessions}
           />
-          <SessionPreview session={selectedPreview} isLoading={isPreviewLoading} />
+          <SessionPreview
+            isLoading={isPreviewLoading}
+            onOpenDetail={
+              selectedSessionId ? () => navigate(`/sessions/${selectedSessionId}`) : undefined
+            }
+            onOpenRunAudit={
+              selectedSessionId
+                ? () => navigate(`/sessions/${selectedSessionId}/run-audit`)
+                : undefined
+            }
+            session={selectedPreview}
+          />
         </section>
       ) : null}
     </main>

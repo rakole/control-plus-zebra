@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { DiagnosticsViewModelService } from "../../../src/main/app/diagnostics-view-model-service.js";
 import type { DataSourcesViewModelService } from "../../../src/main/app/data-sources-view-model-service.js";
+import type { RunAuditViewModelService } from "../../../src/main/app/run-audit-view-model-service.js";
 import type { SessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
+import type { SessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
+import type { TriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import { IPC_CHANNELS, registerIpcHandlers } from "../../../src/main/ipc/index.js";
 import { dataSourcesResponseSchema } from "../../../src/main/ipc/view-models.js";
 
@@ -123,8 +127,13 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
       readOnly: true as const,
       allowedOperations: [
         IPC_CHANNELS.getShellState,
+        IPC_CHANNELS.getOverview,
+        IPC_CHANNELS.listProjects,
         IPC_CHANNELS.listSessions,
         IPC_CHANNELS.getSessionById,
+        IPC_CHANNELS.getSessionDetail,
+        IPC_CHANNELS.getRunAudit,
+        IPC_CHANNELS.listDiagnostics,
         IPC_CHANNELS.listDataSources,
         IPC_CHANNELS.addDataSource,
         IPC_CHANNELS.updateDataSource,
@@ -138,8 +147,55 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
     getSessionById: vi.fn(async () => null)
   };
 
+  const sessionDetailService: SessionDetailViewModelService = {
+    getSessionDetail: vi.fn(async () => null)
+  };
+
+  const runAuditService: RunAuditViewModelService = {
+    getRunAudit: vi.fn(async () => null)
+  };
+
+  const triageService: TriageViewModelService = {
+    getOverview: vi.fn(async () => ({
+      metrics: {
+        totalProjects: { status: "value" as const, displayValue: "0", numericValue: 0 },
+        totalSessions: { status: "value" as const, displayValue: "0", numericValue: 0 },
+        activeOrRecentSessions: {
+          status: "value" as const,
+          displayValue: "0",
+          numericValue: 0
+        },
+        failedVerification: { status: "value" as const, displayValue: "0", numericValue: 0 },
+        cancelledSessions: { status: "value" as const, displayValue: "0", numericValue: 0 },
+        needsAttentionSessions: {
+          status: "value" as const,
+          displayValue: "0",
+          numericValue: 0
+        },
+        toolActivity: { status: "value" as const, displayValue: "0", numericValue: 0 }
+      },
+      harnessFilters: [],
+      activity: []
+    })),
+    listProjects: vi.fn(async () => [])
+  };
+
+  const diagnosticsService: DiagnosticsViewModelService = {
+    listDiagnostics: vi.fn(async () => ({
+      harnessFilters: [],
+      severityFilters: ["info", "warning", "error"] as Array<
+        "info" | "warning" | "error"
+      >,
+      groups: []
+    }))
+  };
+
   return {
     dataSourcesService,
-    sessionService
+    diagnosticsService,
+    runAuditService,
+    sessionService,
+    sessionDetailService,
+    triageService
   };
 }

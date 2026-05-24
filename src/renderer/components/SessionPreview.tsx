@@ -1,4 +1,5 @@
 import { CapabilityBadge } from "./CapabilityBadge.js";
+import { TruthStateBadge } from "./triage/TruthStateBadge.js";
 
 type GetSessionByIdResponse = Awaited<ReturnType<Window["agentWorkbench"]["getSessionById"]>>;
 export type SessionPreviewView = NonNullable<
@@ -8,6 +9,8 @@ export type SessionPreviewView = NonNullable<
 interface SessionPreviewProps {
   session: SessionPreviewView | null;
   isLoading?: boolean;
+  onOpenDetail?: (() => void) | undefined;
+  onOpenRunAudit?: (() => void) | undefined;
 }
 
 const evidenceLabels: Array<{
@@ -22,7 +25,12 @@ const evidenceLabels: Array<{
   { key: "diagnostics", label: "Diagnostics" }
 ];
 
-export function SessionPreview({ session, isLoading = false }: SessionPreviewProps) {
+export function SessionPreview({
+  session,
+  isLoading = false,
+  onOpenDetail,
+  onOpenRunAudit
+}: SessionPreviewProps) {
   if (isLoading) {
     return (
       <aside className="preview-panel skeleton-preview" aria-label="Selected session preview loading">
@@ -54,7 +62,7 @@ export function SessionPreview({ session, isLoading = false }: SessionPreviewPro
           <p className="preview-label">{session.adapterDisplayName}</p>
           <h2>{session.title}</h2>
         </div>
-        <span className="status-badge">{formatLifecycle(session.lifecycleStatus)}</span>
+        <TruthStateBadge state={session.lifecycleState} />
       </div>
 
       <dl className="preview-meta-grid">
@@ -71,10 +79,27 @@ export function SessionPreview({ session, isLoading = false }: SessionPreviewPro
           <dd>{formatTimestamp(session.endedAt) ?? "Unknown"}</dd>
         </div>
         <div>
-          <dt>Diagnostics</dt>
-          <dd>{session.diagnosticWarningCount}</dd>
+          <dt>Project</dt>
+          <dd>{session.projectName ?? "Unknown"}</dd>
+        </div>
+        <div>
+          <dt>Verification</dt>
+          <dd>{session.verificationState.label}</dd>
+        </div>
+        <div>
+          <dt>Run Audit</dt>
+          <dd>{session.runAuditState.label}</dd>
         </div>
       </dl>
+
+      <div className="route-actions">
+        <button className="secondary-button" onClick={onOpenDetail} type="button">
+          Open Session Detail
+        </button>
+        <button className="secondary-button" onClick={onOpenRunAudit} type="button">
+          Open Run Audit
+        </button>
+      </div>
 
       <section className="preview-section" aria-labelledby="capability-heading">
         <h3 id="capability-heading">Capability Warnings</h3>
@@ -92,6 +117,7 @@ export function SessionPreview({ session, isLoading = false }: SessionPreviewPro
 
       <section className="preview-section" aria-labelledby="evidence-heading">
         <h3 id="evidence-heading">Evidence Summary</h3>
+        <p className="triage-note">{session.firstPrompt ?? "No user prompt captured."}</p>
         <dl className="evidence-grid">
           {evidenceLabels.map((item) => (
             <div key={item.key}>
@@ -103,19 +129,6 @@ export function SessionPreview({ session, isLoading = false }: SessionPreviewPro
       </section>
     </aside>
   );
-}
-
-function formatLifecycle(status: SessionPreviewView["lifecycleStatus"]): string {
-  switch (status) {
-    case "active":
-      return "Active";
-    case "completed":
-      return "Completed";
-    case "cancelled":
-      return "Cancelled";
-    case "unknown":
-      return "Unknown";
-  }
 }
 
 function formatTimestamp(value?: string): string | null {

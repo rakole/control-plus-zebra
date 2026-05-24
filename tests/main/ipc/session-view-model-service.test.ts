@@ -11,8 +11,7 @@ const forbiddenKeys = new Set([
   "rawEvents",
   "artifactPath",
   "verificationStatus",
-  "runAuditStatus",
-  "attentionReasons"
+  "runAuditStatus"
 ]);
 
 const fakeFixturePath = path.resolve(

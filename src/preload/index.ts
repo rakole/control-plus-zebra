@@ -3,7 +3,10 @@ import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "../main/ipc/channels.js";
 import type {
   AddDataSourceRequest,
+  GetOverviewRequest,
   GetSessionByIdRequest,
+  ListDiagnosticsRequest,
+  ListProjectsRequest,
   ListSessionsRequest,
   ScanDataSourceRequest,
   SetDataSourceEnabledRequest,
@@ -16,11 +19,26 @@ const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
   getShellState() {
     return ipcRenderer.invoke(IPC_CHANNELS.getShellState);
   },
+  getOverview(request: GetOverviewRequest = {}) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getOverview, request);
+  },
+  listProjects(request: ListProjectsRequest = {}) {
+    return ipcRenderer.invoke(IPC_CHANNELS.listProjects, request);
+  },
   listSessions(request: ListSessionsRequest = {}) {
     return ipcRenderer.invoke(IPC_CHANNELS.listSessions, request);
   },
   getSessionById(request: GetSessionByIdRequest) {
     return ipcRenderer.invoke(IPC_CHANNELS.getSessionById, request);
+  },
+  getSessionDetail(request: GetSessionByIdRequest) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getSessionDetail, request);
+  },
+  getRunAudit(request: GetSessionByIdRequest) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getRunAudit, request);
+  },
+  listDiagnostics(request: ListDiagnosticsRequest = {}) {
+    return ipcRenderer.invoke(IPC_CHANNELS.listDiagnostics, request);
   },
   listDataSources() {
     return ipcRenderer.invoke(IPC_CHANNELS.listDataSources);

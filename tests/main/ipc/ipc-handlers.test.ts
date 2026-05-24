@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
 
+import type { DiagnosticsViewModelService } from "../../../src/main/app/diagnostics-view-model-service.js";
 import { IPC_CHANNELS, registerIpcHandlers } from "../../../src/main/ipc/index.js";
 import type { DataSourcesViewModelService } from "../../../src/main/app/data-sources-view-model-service.js";
+import type { RunAuditViewModelService } from "../../../src/main/app/run-audit-view-model-service.js";
 import type { SessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
+import type { SessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
+import type { TriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import {
   dataSourcesResponseSchema,
+  getOverviewResponseSchema,
   getSessionByIdResponseSchema,
+  getSessionDetailResponseSchema,
+  getRunAuditResponseSchema,
+  listDiagnosticsResponseSchema,
+  listProjectsResponseSchema,
   listSessionsResponseSchema,
   shellStateViewModelSchema,
   type SessionPreviewViewModel,
@@ -20,8 +29,13 @@ describe("ipc handlers", () => {
 
     expect([...collector.handlers.keys()]).toEqual([
       IPC_CHANNELS.getShellState,
+      IPC_CHANNELS.getOverview,
+      IPC_CHANNELS.listProjects,
       IPC_CHANNELS.listSessions,
       IPC_CHANNELS.getSessionById,
+      IPC_CHANNELS.getSessionDetail,
+      IPC_CHANNELS.getRunAudit,
+      IPC_CHANNELS.listDiagnostics,
       IPC_CHANNELS.listDataSources,
       IPC_CHANNELS.addDataSource,
       IPC_CHANNELS.updateDataSource,
@@ -54,13 +68,27 @@ describe("ipc handlers", () => {
     registerIpcHandlers(collector, createFakeServices());
 
     const shell = await collector.invoke(IPC_CHANNELS.getShellState);
+    const overview = await collector.invoke(IPC_CHANNELS.getOverview);
+    const projects = await collector.invoke(IPC_CHANNELS.listProjects);
     const list = await collector.invoke(IPC_CHANNELS.listSessions);
     const get = await collector.invoke(IPC_CHANNELS.getSessionById, { sessionId: "session_1" });
+    const detail = await collector.invoke(IPC_CHANNELS.getSessionDetail, {
+      sessionId: "session_1"
+    });
+    const runAudit = await collector.invoke(IPC_CHANNELS.getRunAudit, {
+      sessionId: "session_1"
+    });
+    const diagnostics = await collector.invoke(IPC_CHANNELS.listDiagnostics);
     const sources = await collector.invoke(IPC_CHANNELS.listDataSources);
 
     expect(() => shellStateViewModelSchema.parse(shell)).not.toThrow();
+    expect(() => getOverviewResponseSchema.parse(overview)).not.toThrow();
+    expect(() => listProjectsResponseSchema.parse(projects)).not.toThrow();
     expect(() => listSessionsResponseSchema.parse(list)).not.toThrow();
     expect(() => getSessionByIdResponseSchema.parse(get)).not.toThrow();
+    expect(() => getSessionDetailResponseSchema.parse(detail)).not.toThrow();
+    expect(() => getRunAuditResponseSchema.parse(runAudit)).not.toThrow();
+    expect(() => listDiagnosticsResponseSchema.parse(diagnostics)).not.toThrow();
     expect(() => dataSourcesResponseSchema.parse(sources)).not.toThrow();
   });
 });
@@ -87,7 +115,11 @@ function createIpcCollector() {
 
 function createFakeServices(): {
   dataSourcesService: DataSourcesViewModelService;
+  diagnosticsService: DiagnosticsViewModelService;
+  runAuditService: RunAuditViewModelService;
   sessionService: SessionViewModelService;
+  sessionDetailService: SessionDetailViewModelService;
+  triageService: TriageViewModelService;
 } {
   const summary: SessionSummaryViewModel = {
     adapterId: "fake-test",
@@ -97,8 +129,14 @@ function createFakeServices(): {
     nativeSessionId: "native-session-1",
     title: "Safe fake session",
     lifecycleStatus: "completed",
+    lifecycleState: {
+      label: "Completed",
+      tone: "positive"
+    },
     startedAt: "2026-05-23T10:00:00.000Z",
     endedAt: "2026-05-23T10:00:01.000Z",
+    projectName: "control-plus-zebra",
+    firstPrompt: "Define the shared contracts.",
     capabilityBadges: [
       {
         key: "sessionDiscovery",
@@ -107,6 +145,15 @@ function createFakeServices(): {
       }
     ],
     diagnosticWarningCount: 0,
+    verificationState: {
+      label: "Passed",
+      tone: "positive"
+    },
+    runAuditState: {
+      label: "Needs Review",
+      tone: "warning"
+    },
+    attentionReasons: ["Capability Missing"],
     evidenceSummary: {
       messages: 1,
       toolCalls: 1,
@@ -114,6 +161,13 @@ function createFakeServices(): {
       outputArtifacts: 1,
       fileMutations: 1,
       diagnostics: 0
+    },
+    triageMetrics: {
+      toolCalls: { status: "value", displayValue: "1", numericValue: 1 },
+      fileMutations: { status: "value", displayValue: "1", numericValue: 1 },
+      commands: { status: "value", displayValue: "1", numericValue: 1 },
+      failedCommands: { status: "value", displayValue: "0", numericValue: 0 },
+      tokenCount: { status: "unsupported", displayValue: "Unsupported" }
     }
   };
   const preview: SessionPreviewViewModel = {
@@ -140,8 +194,13 @@ function createFakeServices(): {
         readOnly: true,
         allowedOperations: [
           IPC_CHANNELS.getShellState,
+          IPC_CHANNELS.getOverview,
+          IPC_CHANNELS.listProjects,
           IPC_CHANNELS.listSessions,
           IPC_CHANNELS.getSessionById,
+          IPC_CHANNELS.getSessionDetail,
+          IPC_CHANNELS.getRunAudit,
+          IPC_CHANNELS.listDiagnostics,
           IPC_CHANNELS.listDataSources,
           IPC_CHANNELS.addDataSource,
           IPC_CHANNELS.updateDataSource,
@@ -162,6 +221,88 @@ function createFakeServices(): {
     },
     async getSessionById({ sessionId }: { sessionId: string }) {
       return sessionId === preview.sessionId ? preview : null;
+    }
+  };
+
+  const sessionDetailService: SessionDetailViewModelService = {
+    async getSessionDetail({ sessionId }: { sessionId: string }) {
+      if (sessionId !== preview.sessionId) {
+        return null;
+      }
+
+      return {
+        session: preview,
+        timeline: []
+      };
+    }
+  };
+
+  const runAuditService: RunAuditViewModelService = {
+    async getRunAudit({ sessionId }: { sessionId: string }) {
+      if (sessionId !== preview.sessionId) {
+        return null;
+      }
+
+      return {
+        session: preview,
+        sections: []
+      };
+    }
+  };
+
+  const triageService: TriageViewModelService = {
+    async getOverview() {
+      return {
+        metrics: {
+          totalProjects: { status: "value", displayValue: "1", numericValue: 1 },
+          totalSessions: { status: "value", displayValue: "1", numericValue: 1 },
+          activeOrRecentSessions: { status: "value", displayValue: "1", numericValue: 1 },
+          failedVerification: { status: "value", displayValue: "0", numericValue: 0 },
+          cancelledSessions: { status: "value", displayValue: "0", numericValue: 0 },
+          needsAttentionSessions: { status: "value", displayValue: "1", numericValue: 1 },
+          toolActivity: { status: "value", displayValue: "1", numericValue: 1 }
+        },
+        harnessFilters: [
+          { adapterId: "fake-test", label: "Fake Test Harness", sessionCount: 1 }
+        ],
+        activity: [{ day: "2026-05-23", sessionCount: 1, needsAttentionCount: 1 }]
+      };
+    },
+    async listProjects() {
+      return [
+        {
+          projectId: "project-1",
+          projectName: "control-plus-zebra",
+          repoPath: {
+            status: "value",
+            displayValue: "/workspace/control-plus-zebra",
+            rawValue: "/workspace/control-plus-zebra"
+          },
+          observedHarnesses: ["Fake Test Harness"],
+          latestActivityAt: "2026-05-23T10:00:01.000Z",
+          sessionCount: 1,
+          latestVerification: { label: "Passed", tone: "positive" },
+          latestRunAudit: { label: "Needs Review", tone: "warning" },
+          branch: { status: "unknown", displayValue: "Unknown" },
+          head: { status: "unknown", displayValue: "Unknown" },
+          dirtyState: { label: "Unknown", tone: "neutral" },
+          changedFiles: { status: "unknown", displayValue: "Unknown" },
+          untrackedFiles: { status: "unknown", displayValue: "Unknown" },
+          pullRequest: { status: "unknown", displayValue: "Unknown" }
+        }
+      ];
+    }
+  };
+
+  const diagnosticsService: DiagnosticsViewModelService = {
+    async listDiagnostics() {
+      return {
+        harnessFilters: [
+          { adapterId: "fake-test", label: "Fake Test Harness", sessionCount: 1 }
+        ],
+        severityFilters: ["info", "warning", "error"],
+        groups: []
+      };
     }
   };
 
@@ -188,6 +329,10 @@ function createFakeServices(): {
 
   return {
     dataSourcesService,
-    sessionService
+    diagnosticsService,
+    runAuditService,
+    sessionService,
+    sessionDetailService,
+    triageService
   };
 }
