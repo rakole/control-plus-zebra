@@ -8,7 +8,10 @@ import type {
   SourceRecord,
   SourceValidationStatus
 } from "../core/registry/source-registry.js";
-import { isImportedArchiveSource } from "../core/registry/source-registry.js";
+import {
+  getSourceOperationFlags,
+  isImportedArchiveSource
+} from "../core/registry/source-registry.js";
 import {
   addDataSourceRequestSchema,
   type AddDataSourceRequest,
@@ -66,10 +69,6 @@ export function createDataSourcesViewModelService(
     async addDataSource(request) {
       const parsed = addDataSourceRequestSchema.parse(request);
 
-      if (parsed.adapterId === "archive-reader") {
-        throw new Error("Imported archives must be added through the Import Archive action.");
-      }
-
       runtime.adapterRegistry.require(parsed.adapterId);
       await runtime.sourceRegistry.createSource({
         adapterId: parsed.adapterId,
@@ -85,7 +84,7 @@ export function createDataSourcesViewModelService(
       const parsed = updateDataSourceRequestSchema.parse(request);
       const current = await requireSource(runtime, parsed.sourceId);
 
-      assertMutableSource(current);
+      assertSourceSupportsOperation(current, "configure");
       const nextAdapterId = parsed.adapterId ?? current.adapterId;
       const nextRootPath = parsed.rootPath ?? current.rootPath;
       const identityChanged =
@@ -115,7 +114,7 @@ export function createDataSourcesViewModelService(
       const parsed = setDataSourceEnabledRequestSchema.parse(request);
       const source = await requireSource(runtime, parsed.sourceId);
 
-      assertMutableSource(source);
+      assertSourceSupportsOperation(source, "configure");
       await runtime.sourceRegistry.setSourceEnabled(parsed.sourceId, parsed.enabled);
       return buildViewModel(runtime);
     },
@@ -124,7 +123,7 @@ export function createDataSourcesViewModelService(
       const parsed = validateDataSourceRequestSchema.parse(request);
       const source = await requireSource(runtime, parsed.sourceId);
 
-      assertMutableSource(source);
+      assertSourceSupportsOperation(source, "validate");
       await runtime.scanner.validateSource(parsed.sourceId);
       return buildViewModel(runtime);
     },
@@ -133,7 +132,7 @@ export function createDataSourcesViewModelService(
       const parsed = scanDataSourceRequestSchema.parse(request);
       const source = await requireSource(runtime, parsed.sourceId);
 
-      assertMutableSource(source);
+      assertSourceSupportsOperation(source, "scan");
       if (!source.enabled) {
         throw new Error("Disabled sources cannot be scanned.");
       }
@@ -153,12 +152,9 @@ async function buildViewModel(runtime: WorkbenchRuntime): Promise<DataSourcesVie
     Promise.resolve(runtime.adapterRegistry.listDescriptors()),
     runtime.sourceRegistry.listSources()
   ]);
-  const configurableDescriptors = descriptors.filter(
-    (descriptor) => descriptor.id !== "archive-reader"
-  );
 
   return dataSourcesViewModelSchema.parse({
-    adapters: configurableDescriptors.map(toAdapterViewModel),
+    adapters: descriptors.map(toAdapterViewModel),
     sources: sources.map((source) => toSourceViewModel(source, descriptors))
   });
 }
@@ -182,6 +178,9 @@ function toSourceViewModel(
 ): DataSourceViewModel {
   const descriptor = descriptors.find((candidate) => candidate.id === source.adapterId);
   const diagnostics = collectSourceDiagnostics(source);
+  const operationFlags = getSourceOperationFlags(source);
+  const readOnly = source.readOnly || !operationFlags.configurable;
+  const readOnlyReason = getReadOnlyReason(source, readOnly);
 
   return {
     sourceId: source.sourceId,
@@ -193,9 +192,9 @@ function toSourceViewModel(
     enabledLabel: source.enabled ? "Enabled" : "Disabled",
     sourceKind: toSourceKindLabel(source),
     addedBy: toAddedByLabel(source),
-    readOnly: source.readOnly,
-    ...(source.readOnly ? { readOnlyLabel: "Read Only" as const } : {}),
-    ...(source.readOnly ? { readOnlyReason: importedArchiveReadOnlyReason } : {}),
+    readOnly,
+    ...(readOnly ? { readOnlyLabel: "Read Only" as const } : {}),
+    ...(readOnlyReason ? { readOnlyReason } : {}),
     ...(source.archive ? { archiveMetadata: source.archive } : {}),
     validationStatus: toValidationStatusLabel(source.validation.status),
     ...(source.validation.updatedAt ? { validationUpdatedAt: source.validation.updatedAt } : {}),
@@ -218,10 +217,36 @@ function toSourceViewModel(
   };
 }
 
-function assertMutableSource(source: SourceRecord): void {
-  if (isImportedArchiveSource(source)) {
-    throw new Error(importedArchiveReadOnlyReason);
+function assertSourceSupportsOperation(
+  source: SourceRecord,
+  operation: "configure" | "validate" | "scan"
+): void {
+  const operationFlags = getSourceOperationFlags(source);
+
+  if (
+    (operation === "configure" && operationFlags.configurable) ||
+    (operation === "validate" && operationFlags.validate) ||
+    (operation === "scan" && operationFlags.scan)
+  ) {
+    return;
   }
+
+  throw new Error(
+    getReadOnlyReason(source, true) ??
+      `This source does not support the '${operation}' operation.`
+  );
+}
+
+function getReadOnlyReason(source: SourceRecord, readOnly: boolean): string | undefined {
+  if (!readOnly) {
+    return undefined;
+  }
+
+  if (isImportedArchiveSource(source)) {
+    return importedArchiveReadOnlyReason;
+  }
+
+  return "This source is read-only. Update, enable, validate, and scan operations are disabled.";
 }
 
 async function requireSource(runtime: WorkbenchRuntime, sourceId: string): Promise<SourceRecord> {

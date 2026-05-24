@@ -112,6 +112,13 @@ export interface UpdateSourceRecordInput {
   sourceId: SourceId;
 }
 
+export interface SourceOperationFlags {
+  configurable: boolean;
+  validate: boolean;
+  scan: boolean;
+  watch: boolean;
+}
+
 export class SourceRegistry {
   readonly #store: SourceRegistryStore;
 
@@ -337,7 +344,22 @@ function sanitizeSourceRecord(record: SourceRecord): SourceRecord {
 }
 
 export function isImportedArchiveSource(record: SourceRecord): boolean {
-  return record.sourceKind === "imported-archive" || record.readOnly;
+  return (
+    record.sourceKind === "imported-archive" ||
+    record.addedBy === "import" ||
+    record.archive !== undefined
+  );
+}
+
+export function getSourceOperationFlags(record: SourceRecord): SourceOperationFlags {
+  const importOnly = isImportedArchiveSource(record) || record.readOnly;
+
+  return {
+    configurable: !importOnly,
+    validate: !importOnly,
+    scan: !importOnly,
+    watch: !importOnly
+  };
 }
 
 export function createInitialValidationSummary(): SourceValidationSummary {

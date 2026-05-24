@@ -1,21 +1,24 @@
 import { createHash } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { AdapterNormalizationResult } from "../adapter-contract/types.js";
-import {
-  type DerivedCacheRecord,
-  type DerivedProjectCacheRecord,
-  type DerivedSessionCacheRecord,
-  type FileBackedCacheStore,
-  type NormalizedCacheRecord
+import type {
+  FileBackedCacheStore,
+  NormalizedCacheRecord
 } from "../cache/file-backed-cache-store.js";
 import type { Diagnostic } from "../diagnostics/diagnostic.js";
 import { mergeNormalizedResults } from "../ingestion/index.js";
+import type {
+  RawArtifactIndex,
+  RawArtifactIndexEntry
+} from "../ingestion/raw-artifact-index.js";
 import {
   createDiagnosticId,
   createFileMutationEvidenceId,
   createOutputArtifactId,
   createProjectId,
+  createRawArtifactId,
   createSessionEventId,
   createSessionId,
   createSessionMessageId,
@@ -39,15 +42,16 @@ import type {
   SourceRegistry
 } from "../registry/source-registry.js";
 import { createSafeFilesystem } from "../security/safe-filesystem.js";
+import type { RunAuditResult } from "../audit/types.js";
+import type { VerificationResult } from "../verification/types.js";
+import type { ParsedShellCommand } from "../shell/types.js";
 import {
   archiveDocumentSchema,
   type ArchiveDocument,
-  type ArchiveManifest
+  type ArchiveManifest,
+  type ArchivedRawArtifact,
+  type ArchivedSourceRecord
 } from "./archive-manifest.js";
-import {
-  ARCHIVE_READER_ADAPTER_ID,
-  archiveReaderCapabilities
-} from "./archive-reader-shared.js";
 
 export interface ImportArchiveInput {
   archivePath: string;
@@ -58,7 +62,9 @@ export interface ImportArchiveResult {
   archivePath: string;
   manifest: ArchiveManifest;
   sourceId: string;
+  sourceIds: string[];
   sourceRecord: SourceRecord;
+  sourceRecords: SourceRecord[];
 }
 
 export class ArchiveImportError extends Error {
@@ -74,25 +80,51 @@ export class ArchiveImportError extends Error {
 }
 
 interface ArchiveImporterOptions {
+  appDataDir?: string;
   cacheStore: FileBackedCacheStore;
   now?: () => Date;
+  rawArtifactIndex?: RawArtifactIndex;
   sourceRegistry: SourceRegistry;
+}
+
+interface ImportTarget {
+  archivedSource: ArchivedSourceRecord;
+  importedSourceId: string;
+  cacheRecords: NormalizedCacheRecord[];
+  sourceDiagnostics: Diagnostic[];
 }
 
 interface RebasedArchivePayload {
   normalized: AdapterNormalizationResult;
-  derived: DerivedCacheRecord | undefined;
-  sourceDiagnostics: Diagnostic[];
+  capabilitySnapshots: NonNullable<NormalizedCacheRecord["capabilitySnapshots"]>;
+  diagnostics: NonNullable<NormalizedCacheRecord["diagnostics"]>;
+  gitSnapshots?: NormalizedCacheRecord["gitSnapshots"];
+  githubSnapshots?: NormalizedCacheRecord["githubSnapshots"];
+  rawArtifactIndex?: NormalizedCacheRecord["rawArtifactIndex"];
+  runAudits?: NormalizedCacheRecord["runAudits"];
+  shellCommands?: NormalizedCacheRecord["shellCommands"];
+  verificationResults?: NormalizedCacheRecord["verificationResults"];
+}
+
+interface PreparedImportTarget {
+  payload: RebasedArchivePayload;
+  rawArtifactIndexEntries: RawArtifactIndexEntry[];
+  sourceRootPath: string;
+  target: ImportTarget;
 }
 
 export class ArchiveImporter {
+  readonly #appDataDir: string | undefined;
   readonly #cacheStore: FileBackedCacheStore;
   readonly #now: () => Date;
+  readonly #rawArtifactIndex: RawArtifactIndex | undefined;
   readonly #sourceRegistry: SourceRegistry;
 
   constructor(options: ArchiveImporterOptions) {
+    this.#appDataDir = options.appDataDir;
     this.#cacheStore = options.cacheStore;
     this.#now = options.now ?? (() => new Date());
+    this.#rawArtifactIndex = options.rawArtifactIndex;
     this.#sourceRegistry = options.sourceRegistry;
   }
 
@@ -100,48 +132,146 @@ export class ArchiveImporter {
     const archivePath = path.resolve(input.archivePath);
     const document = await this.#readArchiveDocument(archivePath);
     const importedAt = this.#now().toISOString();
-    const sourceId = createSourceId(ARCHIVE_READER_ADAPTER_ID, archivePath);
-    const rebased = rebaseArchivePayload(document, sourceId);
+    const importTargets = buildImportTargets(document, archivePath);
+
+    if (importTargets.length === 0) {
+      throw new ArchiveImportError(
+        "archive-import.empty-payload",
+        "Archive does not contain any cached normalized data to import."
+      );
+    }
+
     const previousCacheRecords = await this.#cacheStore.load();
-    const nextRecord = buildImportedCacheRecord({
-      archivePath,
-      importedAt,
-      manifest: document.manifest,
-      payload: rebased,
-      sourceId
-    }) as NormalizedCacheRecord;
+    const previousRawArtifactIndexEntries = this.#rawArtifactIndex
+      ? await this.#rawArtifactIndex.load()
+      : [];
+    const importedSourceIds = new Set(
+      importTargets.map((target) => target.importedSourceId)
+    );
+    const previousSources = await Promise.all(
+      importTargets.map((target) =>
+        this.#sourceRegistry.getSource(target.importedSourceId)
+      )
+    );
+    const preparedTargets = await Promise.all(
+      importTargets.map((target) =>
+        this.#prepareImportTarget({
+          archivePath,
+          importedAt,
+          rawArtifacts: document.payload.rawArtifacts ?? [],
+          target
+        })
+      )
+    );
+    const importedSourceRecords: SourceRecord[] = [];
+    const importedCacheRecords = preparedTargets.map((preparedTarget) =>
+      buildImportedCacheRecord({
+        archivePath,
+        importedAt,
+        manifest: document.manifest,
+        payload: preparedTarget.payload,
+        sourceId: preparedTarget.target.importedSourceId
+      })
+    );
     const nextCacheRecords = previousCacheRecords.filter(
-      (record) => record.sourceId !== sourceId
+      (record) => !importedSourceIds.has(record.sourceId)
+    );
+    const nextRawArtifactIndexEntries = previousRawArtifactIndexEntries.filter(
+      (entry) => !importedSourceIds.has(entry.sourceId)
     );
 
-    nextCacheRecords.push(nextRecord as NormalizedCacheRecord);
+    nextCacheRecords.push(...importedCacheRecords);
+    nextRawArtifactIndexEntries.push(
+      ...preparedTargets.flatMap((preparedTarget) => preparedTarget.rawArtifactIndexEntries)
+    );
     await this.#cacheStore.save(nextCacheRecords);
-
-    const previousSource = await this.#sourceRegistry.getSource(sourceId);
-    const sourceRecord = buildImportedSourceRecord({
-      archivePath,
-      importedAt,
-      manifest: document.manifest,
-      sourceDiagnostics: rebased.sourceDiagnostics,
-      sourceId,
-      ...(input.displayName ? { displayName: input.displayName } : {}),
-      ...(previousSource?.createdAt
-        ? { existingCreatedAt: previousSource.createdAt }
-        : {})
-    });
+    if (this.#rawArtifactIndex) {
+      await this.#rawArtifactIndex.save(nextRawArtifactIndexEntries);
+    }
 
     try {
-      await this.#sourceRegistry.replaceSource(sourceRecord);
+      for (const [index, preparedTarget] of preparedTargets.entries()) {
+        const sourceRecord = buildImportedSourceRecord({
+          archivePath,
+          archivedSource: preparedTarget.target.archivedSource,
+          ...(input.displayName && preparedTargets.length === 1
+            ? { displayName: input.displayName }
+            : {}),
+          ...(previousSources[index]?.createdAt
+            ? { existingCreatedAt: previousSources[index]?.createdAt }
+            : {}),
+          importedAt,
+          manifest: document.manifest,
+          rootPath: preparedTarget.sourceRootPath,
+          sourceDiagnostics: preparedTarget.target.sourceDiagnostics,
+          sourceId: preparedTarget.target.importedSourceId
+        });
+
+        importedSourceRecords.push(await this.#sourceRegistry.replaceSource(sourceRecord));
+      }
     } catch (error) {
       await this.#cacheStore.save(previousCacheRecords);
+      if (this.#rawArtifactIndex) {
+        await this.#rawArtifactIndex.save(previousRawArtifactIndexEntries);
+      }
       throw error;
+    }
+
+    const primarySourceRecord = importedSourceRecords[0];
+
+    if (!primarySourceRecord) {
+      throw new ArchiveImportError(
+        "archive-import.empty-payload",
+        "Archive did not produce any importable source records."
+      );
     }
 
     return {
       archivePath,
       manifest: document.manifest,
-      sourceId,
-      sourceRecord
+      sourceId: primarySourceRecord.sourceId,
+      sourceIds: importedSourceRecords.map((record) => record.sourceId),
+      sourceRecord: primarySourceRecord,
+      sourceRecords: importedSourceRecords
+    };
+  }
+
+  async #prepareImportTarget(args: {
+    archivePath: string;
+    importedAt: string;
+    rawArtifacts: ArchivedRawArtifact[];
+    target: ImportTarget;
+  }): Promise<PreparedImportTarget> {
+    const rebasedIds = buildRebasedArchiveIds({
+      cacheRecords: args.target.cacheRecords,
+      importedSourceId: args.target.importedSourceId
+    });
+    const materializedRawArtifacts = await this.#materializeArchivedRawArtifacts({
+      archivePath: args.archivePath,
+      archivedRawArtifacts: args.rawArtifacts.filter(
+        (artifact) => artifact.sourceId === args.target.archivedSource.sourceId
+      ),
+      importedAt: args.importedAt,
+      importedSourceId: args.target.importedSourceId,
+      rawArtifactIds: rebasedIds.rawArtifactIds
+    });
+    const payload = rebaseArchivePayload({
+      adapterId: args.target.archivedSource.adapterId,
+      cacheRecords: args.target.cacheRecords,
+      importedSourceId: args.target.importedSourceId,
+      materializedRawArtifactPaths:
+        materializedRawArtifacts.pathsByArchivedArtifactId,
+      mergedNormalized: rebasedIds.mergedNormalized,
+      rawArtifactIds: rebasedIds.rawArtifactIds,
+      sourceDiagnostics: args.target.sourceDiagnostics
+    });
+
+    return {
+      payload,
+      rawArtifactIndexEntries: payload.rawArtifactIndex?.entries ?? [],
+      sourceRootPath:
+        materializedRawArtifacts.sourceRootPath ?? args.archivePath,
+      target: args.target
     };
   }
 
@@ -160,14 +290,126 @@ export class ArchiveImporter {
       );
     }
   }
+
+  async #materializeArchivedRawArtifacts(args: {
+    archivePath: string;
+    archivedRawArtifacts: ArchivedRawArtifact[];
+    importedAt: string;
+    importedSourceId: string;
+    rawArtifactIds: Map<string, string>;
+  }): Promise<{
+    pathsByArchivedArtifactId: Map<string, string>;
+    sourceRootPath?: string;
+  }> {
+    if (!this.#appDataDir || args.archivedRawArtifacts.length === 0) {
+      return {
+        pathsByArchivedArtifactId: new Map<string, string>()
+      };
+    }
+
+    const sourceRootPath = path.join(
+      this.#appDataDir,
+      "imports",
+      "archives",
+      buildHash(`${args.archivePath}|${args.importedSourceId}|${args.importedAt}`)
+    );
+    const pathsByArchivedArtifactId = new Map<string, string>();
+
+    for (const archivedArtifact of args.archivedRawArtifacts) {
+      const rebasedArtifactId = args.rawArtifactIds.get(archivedArtifact.artifactId);
+
+      if (!rebasedArtifactId) {
+        continue;
+      }
+
+      const materializedPath = buildMaterializedArtifactPath(
+        sourceRootPath,
+        archivedArtifact,
+        rebasedArtifactId
+      );
+
+      await mkdir(path.dirname(materializedPath), { recursive: true });
+      await writeFile(materializedPath, archivedArtifact.content, "utf8");
+      pathsByArchivedArtifactId.set(archivedArtifact.artifactId, materializedPath);
+    }
+
+    return {
+      pathsByArchivedArtifactId,
+      ...(pathsByArchivedArtifactId.size > 0 ? { sourceRootPath } : {})
+    };
+  }
+}
+
+function buildImportTargets(
+  document: ArchiveDocument,
+  archivePath: string
+): ImportTarget[] {
+  const cacheRecordsBySource = new Map<string, NormalizedCacheRecord[]>();
+
+  for (const cacheRecord of document.payload.cacheRecords as unknown as NormalizedCacheRecord[]) {
+    const archivedSourceId = cacheRecord.sourceId;
+    const entries = cacheRecordsBySource.get(archivedSourceId) ?? [];
+
+    entries.push(cacheRecord);
+    cacheRecordsBySource.set(archivedSourceId, entries);
+  }
+
+  return document.payload.sources.flatMap((archivedSource) => {
+    const cacheRecords = cacheRecordsBySource.get(archivedSource.sourceId) ?? [];
+
+    if (cacheRecords.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        archivedSource,
+        importedSourceId: createImportedSourceId(archivePath, archivedSource),
+        cacheRecords,
+        sourceDiagnostics: filterSourceDiagnostics(
+          document.payload.sourceDiagnostics as Diagnostic[],
+          archivedSource
+        )
+      }
+    ];
+  });
+}
+
+function createImportedSourceId(
+  archivePath: string,
+  archivedSource: { adapterId: string; sourceId: string }
+): string {
+  return createSourceId(
+    archivedSource.adapterId,
+    `${archivePath}:${archivedSource.sourceId}`
+  );
+}
+
+function filterSourceDiagnostics(
+  diagnostics: Diagnostic[],
+  archivedSource: ArchivedSourceRecord
+): Diagnostic[] {
+  return diagnostics.filter((diagnostic) => {
+    if (diagnostic.sourceId === archivedSource.sourceId) {
+      return true;
+    }
+
+    return (
+      diagnostic.sourceId === undefined &&
+      diagnostic.adapterId === archivedSource.adapterId &&
+      (diagnostic.scope === "adapter" || diagnostic.scope === "source")
+    );
+  });
 }
 
 function buildImportedSourceRecord(args: {
   archivePath: string;
+  archivedSource: ArchivedSourceRecord;
   displayName?: string;
   existingCreatedAt?: string;
   importedAt: string;
   manifest: ArchiveManifest;
+  rootPath: string;
   sourceDiagnostics: Diagnostic[];
   sourceId: string;
 }): SourceRecord {
@@ -191,10 +433,12 @@ function buildImportedSourceRecord(args: {
 
   return {
     sourceId: args.sourceId,
-    adapterId: ARCHIVE_READER_ADAPTER_ID,
+    adapterId: args.archivedSource.adapterId,
     displayName:
-      args.displayName?.trim() || `${args.manifest.scope.label} Archive`,
-    rootPath: args.archivePath,
+      args.displayName?.trim() ||
+      args.archivedSource.displayName ||
+      `${args.manifest.scope.label} Archive`,
+    rootPath: args.rootPath,
     enabled: true,
     sourceKind: "imported-archive",
     addedBy: "import",
@@ -246,120 +490,101 @@ function buildImportedCacheRecord(args: {
 
   return {
     cacheKey: `archive-import_${fingerprint}`,
-    adapterId: ARCHIVE_READER_ADAPTER_ID,
+    adapterId: args.payload.normalized.adapterId,
     sourceId: args.sourceId,
     artifactFingerprint: fingerprint,
     createdAt: args.importedAt,
     updatedAt: args.importedAt,
     normalized: args.payload.normalized,
-    ...(args.payload.derived ? { derived: args.payload.derived } : {})
-  } as NormalizedCacheRecord;
+    ...(args.payload.shellCommands ? { shellCommands: args.payload.shellCommands } : {}),
+    ...(args.payload.verificationResults
+      ? { verificationResults: args.payload.verificationResults }
+      : {}),
+    ...(args.payload.runAudits ? { runAudits: args.payload.runAudits } : {}),
+    ...(args.payload.gitSnapshots ? { gitSnapshots: args.payload.gitSnapshots } : {}),
+    ...(args.payload.githubSnapshots
+      ? { githubSnapshots: args.payload.githubSnapshots }
+      : {}),
+    diagnostics: args.payload.diagnostics,
+    ...(args.payload.rawArtifactIndex
+      ? { rawArtifactIndex: args.payload.rawArtifactIndex }
+      : {}),
+    capabilitySnapshots: args.payload.capabilitySnapshots
+  };
 }
 
-function rebaseArchivePayload(
-  document: ArchiveDocument,
-  importedSourceId: string
-): RebasedArchivePayload {
-  const archivedSourceDiagnostics = document.payload.sourceDiagnostics as Diagnostic[];
-  const mergedNormalized = mergeNormalizedResults(
-    document.payload.cacheRecords.map(
-      (record) => record.normalized as unknown as AdapterNormalizationResult
-    )
+function rebaseArchivePayload(args: {
+  adapterId: string;
+  cacheRecords: NormalizedCacheRecord[];
+  importedSourceId: string;
+  materializedRawArtifactPaths: Map<string, string>;
+  mergedNormalized: AdapterNormalizationResult;
+  rawArtifactIds: Map<string, string>;
+  sourceDiagnostics: Diagnostic[];
+}): RebasedArchivePayload {
+  const projectIds = buildIdMap(args.mergedNormalized.projects, (project) =>
+    createProjectId({
+      adapterId: project.adapterId ?? args.adapterId,
+      sourceId: args.importedSourceId,
+      nativeId: buildImportedNativeId(project)
+    })
   );
-
-  if (!mergedNormalized) {
-    throw new ArchiveImportError(
-      "archive-import.empty-payload",
-      "Archive does not contain any cached normalized data to import."
-    );
-  }
-
-  const projectIds = buildIdMap(
-    mergedNormalized.projects,
-    importedSourceId,
-    (project) =>
-      createProjectId({
-        adapterId: project.adapterId ?? ARCHIVE_READER_ADAPTER_ID,
-        sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(project)
-      })
+  const sessionIds = buildIdMap(args.mergedNormalized.sessions, (session) =>
+    createSessionId({
+      adapterId: session.adapterId,
+      sourceId: args.importedSourceId,
+      nativeId: buildImportedNativeId(session)
+    })
   );
-  const sessionIds = buildIdMap(
-    mergedNormalized.sessions,
-    importedSourceId,
-    (session) =>
-      createSessionId({
-        adapterId: session.adapterId,
-        sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(session)
-      })
+  const eventIds = buildIdMap(args.mergedNormalized.events, (event) =>
+    createSessionEventId({
+      adapterId: event.adapterId,
+      sourceId: args.importedSourceId,
+      nativeId: buildImportedNativeId(event)
+    })
   );
-  const eventIds = buildIdMap(
-    mergedNormalized.events,
-    importedSourceId,
-    (event) =>
-      createSessionEventId({
-        adapterId: event.adapterId,
-        sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(event)
-      })
+  const messageIds = buildIdMap(args.mergedNormalized.messages, (message) =>
+    createSessionMessageId({
+      adapterId: message.adapterId,
+      sourceId: args.importedSourceId,
+      nativeId: buildImportedNativeId(message)
+    })
   );
-  const messageIds = buildIdMap(
-    mergedNormalized.messages,
-    importedSourceId,
-    (message) =>
-      createSessionMessageId({
-        adapterId: message.adapterId,
-        sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(message)
-      })
+  const toolCallIds = buildIdMap(args.mergedNormalized.toolCalls, (toolCall) =>
+    createToolCallId({
+      adapterId: toolCall.adapterId,
+      sourceId: args.importedSourceId,
+      nativeId: buildImportedNativeId(toolCall)
+    })
   );
-  const toolCallIds = buildIdMap(
-    mergedNormalized.toolCalls,
-    importedSourceId,
-    (toolCall) =>
-      createToolCallId({
-        adapterId: toolCall.adapterId,
-        sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(toolCall)
-      })
+  const shellCommandIds = buildIdMap(args.mergedNormalized.shellCommands, (command) =>
+    createShellCommandEvidenceId({
+      adapterId: command.adapterId,
+      sourceId: args.importedSourceId,
+      nativeId: buildImportedNativeId(command)
+    })
   );
-  const shellCommandIds = buildIdMap(
-    mergedNormalized.shellCommands,
-    importedSourceId,
-    (command) =>
-      createShellCommandEvidenceId({
-        adapterId: command.adapterId,
-        sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(command)
-      })
+  const outputArtifactIds = buildIdMap(args.mergedNormalized.outputArtifacts, (artifact) =>
+    createOutputArtifactId({
+      adapterId: artifact.adapterId,
+      sourceId: args.importedSourceId,
+      nativeId: buildImportedNativeId(artifact)
+    })
   );
-  const outputArtifactIds = buildIdMap(
-    mergedNormalized.outputArtifacts,
-    importedSourceId,
-    (artifact) =>
-      createOutputArtifactId({
-        adapterId: artifact.adapterId,
-        sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(artifact)
-      })
-  );
-  const fileMutationIds = buildIdMap(
-    mergedNormalized.fileMutations,
-    importedSourceId,
-    (mutation) =>
-      createFileMutationEvidenceId({
-        adapterId: mutation.adapterId,
-        sourceId: importedSourceId,
-        nativeId: buildImportedNativeId(mutation)
-      })
+  const fileMutationIds = buildIdMap(args.mergedNormalized.fileMutations, (mutation) =>
+    createFileMutationEvidenceId({
+      adapterId: mutation.adapterId,
+      sourceId: args.importedSourceId,
+      nativeId: buildImportedNativeId(mutation)
+    })
   );
   const diagnosticIds = buildDiagnosticIdMap(
-    mergedNormalized.diagnostics,
-    archivedSourceDiagnostics,
-    importedSourceId
+    args.mergedNormalized.diagnostics,
+    args.sourceDiagnostics,
+    args.importedSourceId
   );
   const relatedEntityIds = new Map<string, string>([
+    ...args.rawArtifactIds,
     ...projectIds,
     ...sessionIds,
     ...eventIds,
@@ -369,128 +594,163 @@ function rebaseArchivePayload(
     ...outputArtifactIds,
     ...fileMutationIds
   ]);
-
-  const diagnostics: Diagnostic[] = mergedNormalized.diagnostics.map((diagnostic) =>
-    rebaseDiagnostic(diagnostic, diagnosticIds, relatedEntityIds, importedSourceId)
-  );
-  const sourceDiagnostics: Diagnostic[] = archivedSourceDiagnostics.map((diagnostic) =>
-    rebaseDiagnostic(diagnostic, diagnosticIds, relatedEntityIds, importedSourceId)
+  const diagnostics = args.mergedNormalized.diagnostics.map((diagnostic) =>
+    rebaseDiagnostic(
+      diagnostic,
+      diagnosticIds,
+      relatedEntityIds,
+      args.importedSourceId
+    )
   );
 
   const normalized = {
-    adapterId: ARCHIVE_READER_ADAPTER_ID,
-    sourceId: importedSourceId,
+    adapterId: args.adapterId,
+    sourceId: args.importedSourceId,
     capabilities: {
       adapter: {
-        adapterId: ARCHIVE_READER_ADAPTER_ID,
-        capabilities: archiveReaderCapabilities
+        adapterId: args.adapterId,
+        capabilities: args.mergedNormalized.capabilities.adapter.capabilities
       },
       source: {
-        adapterId: ARCHIVE_READER_ADAPTER_ID,
-        sourceId: importedSourceId,
-        capabilities: archiveReaderCapabilities
+        adapterId: args.adapterId,
+        sourceId: args.importedSourceId,
+        capabilities: args.mergedNormalized.capabilities.source.capabilities
       },
       sessions: dedupeByKey(
-        mergedNormalized.capabilities.sessions.map((capability) => ({
-          adapterId: capability.adapterId,
-          sourceId: importedSourceId,
+        args.mergedNormalized.capabilities.sessions.map((capability) => ({
+          adapterId: args.adapterId,
+          sourceId: args.importedSourceId,
           sessionId: sessionIds.get(capability.sessionId) ?? capability.sessionId,
           capabilities: capability.capabilities
         })),
         (capability) => capability.sessionId
       )
     },
-    projects: mergedNormalized.projects.map((project) =>
-      rebaseProject(
-        project,
-        diagnosticIds,
-        importedSourceId,
+    projects: args.mergedNormalized.projects.map((project) =>
+      rebaseProject(project, diagnosticIds, args.importedSourceId, {
         projectIds,
+        rawArtifactIds: args.rawArtifactIds,
         sessionIds
-      )
+      })
     ),
-    sessions: mergedNormalized.sessions.map((session) =>
-      rebaseSession(session, diagnosticIds, importedSourceId, {
+    sessions: args.mergedNormalized.sessions.map((session) =>
+      rebaseSession(session, diagnosticIds, args.importedSourceId, {
+        eventIds,
+        fileMutationIds,
         messageIds,
         outputArtifactIds,
         projectIds,
+        rawArtifactIds: args.rawArtifactIds,
         sessionIds,
         shellCommandIds,
-        toolCallIds,
-        eventIds,
-        fileMutationIds
+        toolCallIds
       })
     ),
-    events: mergedNormalized.events.map((event) =>
-      rebaseEvent(event, diagnosticIds, importedSourceId, {
+    events: args.mergedNormalized.events.map((event) =>
+      rebaseEvent(event, diagnosticIds, args.importedSourceId, {
         eventIds,
+        rawArtifactIds: args.rawArtifactIds,
         sessionIds
       })
     ),
-    messages: mergedNormalized.messages.map((message) =>
-      rebaseMessage(
-        message,
-        diagnosticIds,
-        importedSourceId,
+    messages: args.mergedNormalized.messages.map((message) =>
+      rebaseMessage(message, diagnosticIds, args.importedSourceId, {
         eventIds,
-        sessionIds,
         messageIds,
+        rawArtifactIds: args.rawArtifactIds,
+        sessionIds,
         toolCallIds
-      )
+      })
     ),
-    toolCalls: mergedNormalized.toolCalls.map((toolCall) =>
-      rebaseToolCall(toolCall, diagnosticIds, importedSourceId, {
+    toolCalls: args.mergedNormalized.toolCalls.map((toolCall) =>
+      rebaseToolCall(toolCall, diagnosticIds, args.importedSourceId, {
         fileMutationIds,
         outputArtifactIds,
+        rawArtifactIds: args.rawArtifactIds,
         sessionIds,
         shellCommandIds,
         toolCallIds
       })
     ),
-    shellCommands: mergedNormalized.shellCommands.map((command) =>
-      rebaseShellCommand(command, diagnosticIds, importedSourceId, {
-        eventIds,
+    shellCommands: args.mergedNormalized.shellCommands.map((command) =>
+      rebaseShellCommand(command, diagnosticIds, args.importedSourceId, {
         outputArtifactIds,
+        rawArtifactIds: args.rawArtifactIds,
         sessionIds,
         shellCommandIds,
         toolCallIds
       })
     ),
-    outputArtifacts: mergedNormalized.outputArtifacts.map((artifact) =>
+    outputArtifacts: args.mergedNormalized.outputArtifacts.map((artifact) =>
       rebaseOutputArtifact(
         artifact,
         diagnosticIds,
-        importedSourceId,
+        args.importedSourceId,
         outputArtifactIds,
+        args.rawArtifactIds,
         sessionIds
       )
     ),
-    fileMutations: mergedNormalized.fileMutations.map((mutation) =>
+    fileMutations: args.mergedNormalized.fileMutations.map((mutation) =>
       rebaseFileMutation(
         mutation,
         diagnosticIds,
-        importedSourceId,
+        args.importedSourceId,
         fileMutationIds,
+        args.rawArtifactIds,
         sessionIds,
         toolCallIds
       )
     ),
     diagnostics
-      } as unknown as AdapterNormalizationResult;
+  } as unknown as AdapterNormalizationResult;
 
   return {
     normalized,
-    derived: rebaseDerivedRecords(
-      document.payload.cacheRecords as unknown as NormalizedCacheRecord[],
+    shellCommands: rebaseShellCommandSection(
+      args.cacheRecords,
       diagnosticIds,
       outputArtifactIds,
-      projectIds,
       sessionIds,
-      messageIds,
-      toolCallIds,
+      shellCommandIds,
+      toolCallIds
+    ),
+    verificationResults: rebaseVerificationResultsSection(
+      args.cacheRecords,
+      diagnosticIds,
+      sessionIds,
       shellCommandIds
     ),
-    sourceDiagnostics
+    runAudits: rebaseRunAuditsSection(
+      args.cacheRecords,
+      diagnosticIds,
+      messageIds,
+      sessionIds,
+      shellCommandIds,
+      toolCallIds
+    ),
+    gitSnapshots: rebaseGitSnapshotsSection(args.cacheRecords, diagnosticIds, projectIds),
+    githubSnapshots: rebaseGitHubSnapshotsSection(
+      args.cacheRecords,
+      diagnosticIds,
+      projectIds
+    ),
+    diagnostics: {
+      version: 1,
+      entries: diagnostics
+    },
+    rawArtifactIndex: rebaseRawArtifactIndexSection(
+      args.cacheRecords,
+      args.importedSourceId,
+      args.rawArtifactIds,
+      args.materializedRawArtifactPaths
+    ),
+    capabilitySnapshots: {
+      version: 1,
+      adapter: normalized.capabilities.adapter,
+      source: normalized.capabilities.source,
+      sessions: normalized.capabilities.sessions
+    }
   };
 }
 
@@ -498,20 +758,63 @@ function rebaseProject(
   project: Project,
   diagnosticIds: Map<string, string>,
   importedSourceId: string,
-  projectIds: Map<string, string>,
-  sessionIds: Map<string, string>
+  idMaps: {
+    projectIds: Map<string, string>;
+    rawArtifactIds: Map<string, string>;
+    sessionIds: Map<string, string>;
+  }
 ): Project {
-  return {
+  const rebasedProject = {
     ...project,
-    id: projectIds.get(project.id) ?? project.id,
+    id: idMaps.projectIds.get(project.id) ?? project.id,
     sourceId: importedSourceId,
+    ...(project.harnessRefs
+      ? {
+          harnessRefs: project.harnessRefs.map((harnessRef) => ({
+            ...harnessRef,
+            sourceId: importedSourceId,
+            nativeProjectPath: undefined,
+            projectRootPath: undefined,
+            rawArtifactRefs: (harnessRef.rawArtifactRefs ?? []).map((artifact) =>
+              rebaseRawArtifactRef(artifact, importedSourceId, idMaps.rawArtifactIds)
+            )
+          }))
+        }
+      : {}),
     ...(project.sessionIds
-      ? { sessionIds: mapIds(project.sessionIds, sessionIds) }
+      ? { sessionIds: mapIds(project.sessionIds, idMaps.sessionIds) }
       : {}),
     ...(project.diagnosticIds
       ? { diagnosticIds: mapIds(project.diagnosticIds, diagnosticIds) }
+      : {}),
+    ...(project.diagnostics
+      ? {
+          diagnostics: project.diagnostics.map((diagnostic) =>
+            rebaseDiagnostic(
+              diagnostic,
+              diagnosticIds,
+              new Map<string, string>(),
+              importedSourceId
+            )
+          )
+        }
       : {})
-  };
+  } as Project;
+
+  delete rebasedProject.primaryRootPath;
+  delete rebasedProject.rootPath;
+
+  if (rebasedProject.harnessRefs) {
+    rebasedProject.harnessRefs = rebasedProject.harnessRefs.map((harnessRef) => {
+      const sanitizedHarnessRef = { ...harnessRef };
+
+      delete sanitizedHarnessRef.nativeProjectPath;
+      delete sanitizedHarnessRef.projectRootPath;
+      return sanitizedHarnessRef;
+    });
+  }
+
+  return rebasedProject;
 }
 
 function rebaseSession(
@@ -524,6 +827,7 @@ function rebaseSession(
     messageIds: Map<string, string>;
     outputArtifactIds: Map<string, string>;
     projectIds: Map<string, string>;
+    rawArtifactIds: Map<string, string>;
     sessionIds: Map<string, string>;
     shellCommandIds: Map<string, string>;
     toolCallIds: Map<string, string>;
@@ -583,15 +887,32 @@ function rebaseSession(
 
   if (session.runAudit) {
     rebasedSession.runAudit = rebaseSessionRunAudit(session.runAudit, diagnosticIds, {
-      sessionIds: idMaps.sessionIds,
       messageIds: idMaps.messageIds,
+      sessionIds: idMaps.sessionIds,
       shellCommandIds: idMaps.shellCommandIds,
       toolCallIds: idMaps.toolCallIds
     }) as NonNullable<Session["runAudit"]>;
   }
 
+  if (session.rawArtifactRefs) {
+    rebasedSession.rawArtifactRefs = session.rawArtifactRefs.map((artifact) =>
+      rebaseRawArtifactRef(artifact, importedSourceId, idMaps.rawArtifactIds)
+    );
+  }
+
   if (session.diagnosticIds) {
     rebasedSession.diagnosticIds = mapIds(session.diagnosticIds, diagnosticIds);
+  }
+
+  if (session.diagnostics) {
+    rebasedSession.diagnostics = session.diagnostics.map((diagnostic) =>
+      rebaseDiagnostic(
+        diagnostic,
+        diagnosticIds,
+        new Map<string, string>(),
+        importedSourceId
+      )
+    );
   }
 
   return rebasedSession;
@@ -603,6 +924,7 @@ function rebaseEvent(
   importedSourceId: string,
   idMaps: {
     eventIds: Map<string, string>;
+    rawArtifactIds: Map<string, string>;
     sessionIds: Map<string, string>;
   }
 ): SessionEvent {
@@ -611,8 +933,23 @@ function rebaseEvent(
     id: idMaps.eventIds.get(event.id) ?? event.id,
     sourceId: importedSourceId,
     sessionId: idMaps.sessionIds.get(event.sessionId) ?? event.sessionId,
+    ...(event.raw
+      ? { raw: rebasePointer(event.raw, importedSourceId, idMaps.rawArtifactIds) }
+      : {}),
     ...(event.diagnosticIds
       ? { diagnosticIds: mapIds(event.diagnosticIds, diagnosticIds) }
+      : {}),
+    ...(event.diagnostics
+      ? {
+          diagnostics: event.diagnostics.map((diagnostic) =>
+            rebaseDiagnostic(
+              diagnostic,
+              diagnosticIds,
+              new Map<string, string>(),
+              importedSourceId
+            )
+          )
+        }
       : {})
   };
 }
@@ -621,22 +958,40 @@ function rebaseMessage(
   message: SessionMessage,
   diagnosticIds: Map<string, string>,
   importedSourceId: string,
-  eventIds: Map<string, string>,
-  sessionIds: Map<string, string>,
-  messageIds: Map<string, string>,
-  toolCallIds: Map<string, string>
+  idMaps: {
+    eventIds: Map<string, string>;
+    messageIds: Map<string, string>;
+    rawArtifactIds: Map<string, string>;
+    sessionIds: Map<string, string>;
+    toolCallIds: Map<string, string>;
+  }
 ): SessionMessage {
   return {
     ...message,
-    id: messageIds.get(message.id) ?? message.id,
+    id: idMaps.messageIds.get(message.id) ?? message.id,
     sourceId: importedSourceId,
-    sessionId: sessionIds.get(message.sessionId) ?? message.sessionId,
+    sessionId: idMaps.sessionIds.get(message.sessionId) ?? message.sessionId,
     ...(message.toolCallIds
-      ? { toolCallIds: mapIds(message.toolCallIds, toolCallIds) }
+      ? { toolCallIds: mapIds(message.toolCallIds, idMaps.toolCallIds) }
       : {}),
-    ...(message.eventIds ? { eventIds: mapIds(message.eventIds, eventIds) } : {}),
+    ...(message.eventIds ? { eventIds: mapIds(message.eventIds, idMaps.eventIds) } : {}),
+    ...(message.source
+      ? { source: rebasePointer(message.source, importedSourceId, idMaps.rawArtifactIds) }
+      : {}),
     ...(message.diagnosticIds
       ? { diagnosticIds: mapIds(message.diagnosticIds, diagnosticIds) }
+      : {}),
+    ...(message.diagnostics
+      ? {
+          diagnostics: message.diagnostics.map((diagnostic) =>
+            rebaseDiagnostic(
+              diagnostic,
+              diagnosticIds,
+              new Map<string, string>(),
+              importedSourceId
+            )
+          )
+        }
       : {})
   };
 }
@@ -648,6 +1003,7 @@ function rebaseToolCall(
   idMaps: {
     fileMutationIds: Map<string, string>;
     outputArtifactIds: Map<string, string>;
+    rawArtifactIds: Map<string, string>;
     sessionIds: Map<string, string>;
     shellCommandIds: Map<string, string>;
     toolCallIds: Map<string, string>;
@@ -680,8 +1036,23 @@ function rebaseToolCall(
             toolCall.shellCommandId
         }
       : {}),
+    ...(toolCall.source
+      ? { source: rebasePointer(toolCall.source, importedSourceId, idMaps.rawArtifactIds) }
+      : {}),
     ...(toolCall.diagnosticIds
       ? { diagnosticIds: mapIds(toolCall.diagnosticIds, diagnosticIds) }
+      : {}),
+    ...(toolCall.diagnostics
+      ? {
+          diagnostics: toolCall.diagnostics.map((diagnostic) =>
+            rebaseDiagnostic(
+              diagnostic,
+              diagnosticIds,
+              new Map<string, string>(),
+              importedSourceId
+            )
+          )
+        }
       : {})
   };
 }
@@ -691,8 +1062,8 @@ function rebaseShellCommand(
   diagnosticIds: Map<string, string>,
   importedSourceId: string,
   idMaps: {
-    eventIds: Map<string, string>;
     outputArtifactIds: Map<string, string>;
+    rawArtifactIds: Map<string, string>;
     sessionIds: Map<string, string>;
     shellCommandIds: Map<string, string>;
     toolCallIds: Map<string, string>;
@@ -714,8 +1085,23 @@ function rebaseShellCommand(
     ...(command.toolCallId
       ? { toolCallId: idMaps.toolCallIds.get(command.toolCallId) ?? command.toolCallId }
       : {}),
+    ...(command.source
+      ? { source: rebasePointer(command.source, importedSourceId, idMaps.rawArtifactIds) }
+      : {}),
     ...(command.diagnosticIds
       ? { diagnosticIds: mapIds(command.diagnosticIds, diagnosticIds) }
+      : {}),
+    ...(command.diagnostics
+      ? {
+          diagnostics: command.diagnostics.map((diagnostic) =>
+            rebaseDiagnostic(
+              diagnostic,
+              diagnosticIds,
+              new Map<string, string>(),
+              importedSourceId
+            )
+          )
+        }
       : {})
   };
 }
@@ -725,6 +1111,7 @@ function rebaseOutputArtifact(
   diagnosticIds: Map<string, string>,
   importedSourceId: string,
   outputArtifactIds: Map<string, string>,
+  rawArtifactIds: Map<string, string>,
   sessionIds: Map<string, string>
 ): OutputArtifact {
   const nextArtifactId = outputArtifactIds.get(artifact.id) ?? artifact.id;
@@ -739,6 +1126,9 @@ function rebaseOutputArtifact(
     uri: `awb-archive://${encodeURIComponent(importedSourceId)}/${encodeURIComponent(nextArtifactId)}`,
     ...(artifact.sessionId
       ? { sessionId: sessionIds.get(artifact.sessionId) ?? artifact.sessionId }
+      : {}),
+    ...(artifact.source
+      ? { source: rebasePointer(artifact.source, importedSourceId, rawArtifactIds) }
       : {}),
     ...(artifact.ref
       ? {
@@ -757,6 +1147,18 @@ function rebaseOutputArtifact(
       : {}),
     ...(artifact.diagnosticIds
       ? { diagnosticIds: mapIds(artifact.diagnosticIds, diagnosticIds) }
+      : {}),
+    ...(artifact.diagnostics
+      ? {
+          diagnostics: artifact.diagnostics.map((diagnostic) =>
+            rebaseDiagnostic(
+              diagnostic,
+              diagnosticIds,
+              new Map<string, string>(),
+              importedSourceId
+            )
+          )
+        }
       : {})
   };
 }
@@ -766,6 +1168,7 @@ function rebaseFileMutation(
   diagnosticIds: Map<string, string>,
   importedSourceId: string,
   fileMutationIds: Map<string, string>,
+  rawArtifactIds: Map<string, string>,
   sessionIds: Map<string, string>,
   toolCallIds: Map<string, string>
 ): FileMutationEvidence {
@@ -777,142 +1180,270 @@ function rebaseFileMutation(
     ...(mutation.toolCallId
       ? { toolCallId: toolCallIds.get(mutation.toolCallId) ?? mutation.toolCallId }
       : {}),
+    ...(mutation.source
+      ? { source: rebasePointer(mutation.source, importedSourceId, rawArtifactIds) }
+      : {}),
     ...(mutation.diagnosticIds
       ? { diagnosticIds: mapIds(mutation.diagnosticIds, diagnosticIds) }
+      : {}),
+    ...(mutation.diagnostics
+      ? {
+          diagnostics: mutation.diagnostics.map((diagnostic) =>
+            rebaseDiagnostic(
+              diagnostic,
+              diagnosticIds,
+              new Map<string, string>(),
+              importedSourceId
+            )
+          )
+        }
       : {})
   };
 }
 
-function rebaseDerivedRecords(
+function rebaseShellCommandSection(
   records: NormalizedCacheRecord[],
   diagnosticIds: Map<string, string>,
-  outputArtifactIds: Map<string, string>,
-  projectIds: Map<string, string>,
-  sessionIds: Map<string, string>,
-  messageIds: Map<string, string>,
-  toolCallIds: Map<string, string>,
-  shellCommandIds: Map<string, string>
-): DerivedCacheRecord | undefined {
-  const sessions = dedupeByKey(
-    records.flatMap((record) => record.derived?.sessions ?? []).map((session) =>
-      rebaseDerivedSession(
-        session,
-        diagnosticIds,
-        messageIds,
-        outputArtifactIds,
-        sessionIds,
-        shellCommandIds,
-        toolCallIds
-      )
-    ),
-    (session) => session.sessionId
-  );
-  const projects = dedupeByKey(
-    records.flatMap((record) => record.derived?.projects ?? []).map((project) =>
-      rebaseDerivedProject(project, diagnosticIds, projectIds)
-    ),
-    (project) => project.projectId
-  );
-
-  if (sessions.length === 0 && projects.length === 0) {
-    return undefined;
-  }
-
-  return {
-    sessions,
-    ...(projects.length > 0 ? { projects } : {})
-  };
-}
-
-function rebaseDerivedSession(
-  session: DerivedSessionCacheRecord,
-  diagnosticIds: Map<string, string>,
-  messageIds: Map<string, string>,
   outputArtifactIds: Map<string, string>,
   sessionIds: Map<string, string>,
   shellCommandIds: Map<string, string>,
   toolCallIds: Map<string, string>
-): DerivedSessionCacheRecord {
-  return {
-    ...session,
-    sessionId: sessionIds.get(session.sessionId) ?? session.sessionId,
-    shellCommands: session.shellCommands.map((command) => ({
-      ...command,
-      shellCommandId:
-        shellCommandIds.get(command.shellCommandId) ?? command.shellCommandId,
-      ...(command.toolCallId
-        ? { toolCallId: toolCallIds.get(command.toolCallId) ?? command.toolCallId }
-        : {}),
-      ...(command.artifactIds
-        ? { artifactIds: mapIds(command.artifactIds, outputArtifactIds) }
-        : {}),
-      ...(command.diagnosticIds
-        ? { diagnosticIds: mapIds(command.diagnosticIds, diagnosticIds) }
-        : {})
+): NormalizedCacheRecord["shellCommands"] | undefined {
+  const sessions = dedupeByKey(
+    records.flatMap((record) => record.shellCommands?.sessions ?? []).map((session) => ({
+      sessionId: sessionIds.get(session.sessionId) ?? session.sessionId,
+      shellCommands: session.shellCommands.map((command) =>
+        rebaseParsedShellCommand(
+          command,
+          diagnosticIds,
+          outputArtifactIds,
+          shellCommandIds,
+          toolCallIds
+        )
+      )
     })),
-    ...(session.verification
-      ? {
-          verification: {
-            ...session.verification,
-            commandIds: mapIds(session.verification.commandIds, shellCommandIds),
-            intentResults: session.verification.intentResults.map((result) => ({
-              ...result,
-              latestCommandId:
-                shellCommandIds.get(result.latestCommandId) ?? result.latestCommandId,
-              commandIds: mapIds(result.commandIds, shellCommandIds),
-              ...(result.diagnosticIds
-                ? { diagnosticIds: mapIds(result.diagnosticIds, diagnosticIds) }
-                : {})
-            })),
-            ...(session.verification.diagnosticIds
-              ? {
-                  diagnosticIds: mapIds(
-                    session.verification.diagnosticIds,
-                    diagnosticIds
-                  )
-                }
-              : {})
+    (session) => session.sessionId
+  );
+
+  if (sessions.length === 0) {
+    return undefined;
+  }
+
+  return {
+    version: 1,
+    sessions
+  };
+}
+
+function rebaseVerificationResultsSection(
+  records: NormalizedCacheRecord[],
+  diagnosticIds: Map<string, string>,
+  sessionIds: Map<string, string>,
+  shellCommandIds: Map<string, string>
+): NormalizedCacheRecord["verificationResults"] | undefined {
+  const sessions = dedupeByKey(
+    records.flatMap((record) => record.verificationResults?.sessions ?? []).map((session) => ({
+      sessionId: sessionIds.get(session.sessionId) ?? session.sessionId,
+      verification: rebaseVerificationResult(
+        session.verification,
+        diagnosticIds,
+        shellCommandIds
+      )
+    })),
+    (session) => session.sessionId
+  );
+
+  if (sessions.length === 0) {
+    return undefined;
+  }
+
+  return {
+    version: 1,
+    sessions
+  };
+}
+
+function rebaseRunAuditsSection(
+  records: NormalizedCacheRecord[],
+  diagnosticIds: Map<string, string>,
+  messageIds: Map<string, string>,
+  sessionIds: Map<string, string>,
+  shellCommandIds: Map<string, string>,
+  toolCallIds: Map<string, string>
+): NormalizedCacheRecord["runAudits"] | undefined {
+  const sessions = dedupeByKey(
+    records.flatMap((record) => record.runAudits?.sessions ?? []).map((session) => ({
+      sessionId: sessionIds.get(session.sessionId) ?? session.sessionId,
+      audit: rebaseRunAuditResult(session.audit, diagnosticIds, {
+        messageIds,
+        shellCommandIds,
+        toolCallIds
+      })
+    })),
+    (session) => session.sessionId
+  );
+
+  if (sessions.length === 0) {
+    return undefined;
+  }
+
+  return {
+    version: 1,
+    sessions
+  };
+}
+
+function rebaseGitSnapshotsSection(
+  records: NormalizedCacheRecord[],
+  diagnosticIds: Map<string, string>,
+  projectIds: Map<string, string>
+): NormalizedCacheRecord["gitSnapshots"] | undefined {
+  const projects = dedupeByKey(
+    records.flatMap((record) => record.gitSnapshots?.projects ?? []).map((project) => ({
+      projectId: projectIds.get(project.projectId) ?? project.projectId,
+      git: {
+        ...project.git,
+        diagnosticIds: mapIds(project.git.diagnosticIds, diagnosticIds)
+      }
+    })),
+    (project) => project.projectId
+  );
+
+  if (projects.length === 0) {
+    return undefined;
+  }
+
+  return {
+    version: 1,
+    projects
+  };
+}
+
+function rebaseGitHubSnapshotsSection(
+  records: NormalizedCacheRecord[],
+  diagnosticIds: Map<string, string>,
+  projectIds: Map<string, string>
+): NormalizedCacheRecord["githubSnapshots"] | undefined {
+  const projects = dedupeByKey(
+    records.flatMap((record) => record.githubSnapshots?.projects ?? []).map((project) => ({
+      projectId: projectIds.get(project.projectId) ?? project.projectId,
+      github: {
+        ...project.github,
+        diagnosticIds: mapIds(project.github.diagnosticIds, diagnosticIds)
+      }
+    })),
+    (project) => project.projectId
+  );
+
+  if (projects.length === 0) {
+    return undefined;
+  }
+
+  return {
+    version: 1,
+    projects
+  };
+}
+
+function rebaseRawArtifactIndexSection(
+  records: NormalizedCacheRecord[],
+  importedSourceId: string,
+  rawArtifactIds: Map<string, string>,
+  materializedRawArtifactPaths: Map<string, string>
+): NormalizedCacheRecord["rawArtifactIndex"] | undefined {
+  const entries = dedupeByKey(
+    records.flatMap((record) => record.rawArtifactIndex?.entries ?? []).map((entry) => {
+      const materializedPath = materializedRawArtifactPaths.get(entry.id);
+      const rebasedEntry = {
+        ...entry,
+        id: rawArtifactIds.get(entry.id) ?? entry.id,
+        sourceId: importedSourceId
+      };
+
+      delete rebasedEntry.path;
+
+      return materializedPath
+        ? {
+            ...rebasedEntry,
+            path: materializedPath
           }
-        }
+        : rebasedEntry;
+    }),
+    (entry) => entry.id
+  );
+
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  return {
+    version: 1,
+    entries
+  };
+}
+
+function rebaseParsedShellCommand(
+  command: ParsedShellCommand,
+  diagnosticIds: Map<string, string>,
+  outputArtifactIds: Map<string, string>,
+  shellCommandIds: Map<string, string>,
+  toolCallIds: Map<string, string>
+): ParsedShellCommand {
+  return {
+    ...command,
+    shellCommandId:
+      shellCommandIds.get(command.shellCommandId) ?? command.shellCommandId,
+    ...(command.toolCallId
+      ? { toolCallId: toolCallIds.get(command.toolCallId) ?? command.toolCallId }
       : {}),
-    ...(session.audit
-      ? {
-          audit: {
-            ...session.audit,
-            supportingCommandIds: mapIds(session.audit.supportingCommandIds, shellCommandIds),
-            supportingToolCallIds: mapIds(
-              session.audit.supportingToolCallIds,
-              toolCallIds
-            ),
-            supportingMessageIds: mapIds(session.audit.supportingMessageIds, messageIds),
-            ...(session.audit.diagnosticIds
-              ? { diagnosticIds: mapIds(session.audit.diagnosticIds, diagnosticIds) }
-              : {})
-          }
-        }
+    ...(command.artifactIds
+      ? { artifactIds: mapIds(command.artifactIds, outputArtifactIds) }
+      : {}),
+    ...(command.diagnosticIds
+      ? { diagnosticIds: mapIds(command.diagnosticIds, diagnosticIds) }
       : {})
   };
 }
 
-function rebaseDerivedProject(
-  project: DerivedProjectCacheRecord,
+function rebaseVerificationResult(
+  verification: VerificationResult,
   diagnosticIds: Map<string, string>,
-  projectIds: Map<string, string>
-): DerivedProjectCacheRecord {
+  shellCommandIds: Map<string, string>
+): VerificationResult {
   return {
-    ...project,
-    projectId: projectIds.get(project.projectId) ?? project.projectId,
-    git: {
-      ...project.git,
-      diagnosticIds: mapIds(project.git.diagnosticIds, diagnosticIds)
-    },
-    ...(project.github
-      ? {
-          github: {
-            ...project.github,
-            diagnosticIds: mapIds(project.github.diagnosticIds, diagnosticIds)
-          }
-        }
+    ...verification,
+    commandIds: mapIds(verification.commandIds, shellCommandIds),
+    intentResults: verification.intentResults.map((result) => ({
+      ...result,
+      latestCommandId:
+        shellCommandIds.get(result.latestCommandId) ?? result.latestCommandId,
+      commandIds: mapIds(result.commandIds, shellCommandIds),
+      ...(result.diagnosticIds
+        ? { diagnosticIds: mapIds(result.diagnosticIds, diagnosticIds) }
+        : {})
+    })),
+    ...(verification.diagnosticIds
+      ? { diagnosticIds: mapIds(verification.diagnosticIds, diagnosticIds) }
+      : {})
+  };
+}
+
+function rebaseRunAuditResult(
+  audit: RunAuditResult,
+  diagnosticIds: Map<string, string>,
+  idMaps: {
+    messageIds: Map<string, string>;
+    shellCommandIds: Map<string, string>;
+    toolCallIds: Map<string, string>;
+  }
+): RunAuditResult {
+  return {
+    ...audit,
+    supportingCommandIds: mapIds(audit.supportingCommandIds, idMaps.shellCommandIds),
+    supportingToolCallIds: mapIds(audit.supportingToolCallIds, idMaps.toolCallIds),
+    supportingMessageIds: mapIds(audit.supportingMessageIds, idMaps.messageIds),
+    ...(audit.diagnosticIds
+      ? { diagnosticIds: mapIds(audit.diagnosticIds, diagnosticIds) }
       : {})
   };
 }
@@ -961,7 +1492,7 @@ function rebaseSessionVerification(
         ? { diagnosticIds: mapIds(result.diagnosticIds, diagnosticIds) }
         : {})
     })),
-      ...(verification.diagnosticIds
+    ...(verification.diagnosticIds
       ? { diagnosticIds: mapIds(verification.diagnosticIds, diagnosticIds) }
       : {})
   } as Session["verification"];
@@ -1015,14 +1546,64 @@ function rebaseSessionRunAudit(
   } as Session["runAudit"];
 }
 
-function buildIdMap<T extends { id: string; adapterId?: string; nativeId?: string; sourceId?: string }>(
+function buildIdMap<T extends { id: string }>(
   entities: T[],
-  importedSourceId: string,
-  createId: (entity: T, importedSourceId: string) => string
+  createId: (entity: T) => string
 ): Map<string, string> {
+  return new Map(entities.map((entity) => [entity.id, createId(entity)] as const));
+}
+
+function buildRawArtifactIdMap(
+  normalized: AdapterNormalizationResult,
+  cacheRecords: NormalizedCacheRecord[],
+  importedSourceId: string
+): Map<string, string> {
+  const artifacts = [
+    ...normalized.projects.flatMap((project) =>
+      (project.harnessRefs ?? []).flatMap((harnessRef) => harnessRef.rawArtifactRefs ?? [])
+    ),
+    ...normalized.sessions.flatMap((session) => session.rawArtifactRefs ?? []),
+    ...cacheRecords.flatMap((record) => record.rawArtifactIndex?.entries ?? [])
+  ];
+
   return new Map(
-    entities.map((entity) => [entity.id, createId(entity, importedSourceId)] as const)
+    artifacts.map((artifact) => [
+      artifact.id,
+      createRawArtifactId({
+        adapterId: artifact.adapterId,
+        sourceId: importedSourceId,
+        nativeId: buildImportedArtifactNativeId(artifact)
+      })
+    ])
   );
+}
+
+function buildRebasedArchiveIds(args: {
+  cacheRecords: NormalizedCacheRecord[];
+  importedSourceId: string;
+}): {
+  mergedNormalized: AdapterNormalizationResult;
+  rawArtifactIds: Map<string, string>;
+} {
+  const mergedNormalized = mergeNormalizedResults(
+    args.cacheRecords.map((record) => record.normalized)
+  );
+
+  if (!mergedNormalized) {
+    throw new ArchiveImportError(
+      "archive-import.empty-payload",
+      "Archive does not contain any cached normalized data to import."
+    );
+  }
+
+  return {
+    mergedNormalized,
+    rawArtifactIds: buildRawArtifactIdMap(
+      mergedNormalized,
+      args.cacheRecords,
+      args.importedSourceId
+    )
+  };
 }
 
 function buildDiagnosticIdMap(
@@ -1069,6 +1650,74 @@ function rebaseDiagnostic(
   };
 }
 
+function rebaseRawArtifactRef<
+  T extends {
+    adapterId: string;
+    id: string;
+    sourceId: string;
+    nativeId?: string | undefined;
+    nativeRef?: string | undefined;
+    path?: string | undefined;
+  }
+>(
+  artifact: T,
+  importedSourceId: string,
+  rawArtifactIds: Map<string, string>
+): T {
+  return {
+    ...stripPathProvenance(artifact),
+    id: rawArtifactIds.get(artifact.id) ?? artifact.id,
+    nativeRef: rawArtifactIds.get(artifact.id) ?? artifact.id,
+    sourceId: importedSourceId
+  } as T;
+}
+
+function rebasePointer<
+  T extends {
+    artifactId?: string | undefined;
+    artifactPath?: string | undefined;
+    nativeRef?: string | undefined;
+    path?: string | undefined;
+    rawArtifactId?: string | undefined;
+    sourceId?: string | undefined;
+  }
+>(
+  pointer: T,
+  importedSourceId: string,
+  rawArtifactIds: Map<string, string>
+): T {
+  return {
+    ...stripPathProvenance(pointer),
+    ...(pointer.sourceId !== undefined ? { sourceId: importedSourceId } : {}),
+    ...(pointer.artifactId
+      ? { artifactId: rawArtifactIds.get(pointer.artifactId) ?? pointer.artifactId }
+      : {}),
+    ...(pointer.rawArtifactId
+      ? {
+          rawArtifactId:
+            rawArtifactIds.get(pointer.rawArtifactId) ?? pointer.rawArtifactId
+        }
+      : {})
+  } as T;
+}
+
+function stripPathProvenance<
+  T extends {
+    artifactPath?: string | undefined;
+    nativeRef?: string | undefined;
+    path?: string | undefined;
+  }
+>(value: T): Omit<T, "artifactPath" | "nativeRef" | "path"> {
+  const {
+    artifactPath: _artifactPath,
+    nativeRef: _nativeRef,
+    path: _path,
+    ...rest
+  } = value;
+
+  return rest;
+}
+
 function mapIds(ids: string[], idMap: Map<string, string>): string[] {
   return ids.map((id) => idMap.get(id) ?? id);
 }
@@ -1083,6 +1732,48 @@ function buildImportedNativeId(entity: {
   }
 
   return entity.id;
+}
+
+function buildImportedArtifactNativeId(artifact: {
+  id: string;
+  nativeId?: string | undefined;
+  nativeRef?: string | undefined;
+  path?: string | undefined;
+  sourceId?: string | undefined;
+}): string {
+  const nativeId = artifact.nativeId ?? artifact.nativeRef ?? artifact.path;
+
+  if (artifact.sourceId && nativeId) {
+    return `${artifact.sourceId}:${nativeId}`;
+  }
+
+  return artifact.id;
+}
+
+function buildMaterializedArtifactPath(
+  sourceRootPath: string,
+  artifact: ArchivedRawArtifact,
+  rebasedArtifactId: string
+): string {
+  const artifactDirectory = sanitizePathSegment(artifact.artifactKind) || "unknown";
+  const originalName = artifact.originalPath
+    ? path.basename(artifact.originalPath)
+    : undefined;
+  const fallbackName = artifact.nativeRef
+    ? path.basename(artifact.nativeRef)
+    : path.basename(artifact.nativeId);
+  const fileNameBase =
+    sanitizePathSegment(originalName ?? fallbackName) || "artifact.txt";
+
+  return path.join(
+    sourceRootPath,
+    artifactDirectory,
+    `${buildHash(rebasedArtifactId)}-${fileNameBase}`
+  );
+}
+
+function sanitizePathSegment(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]+/gu, "_").replace(/^_+|_+$/gu, "");
 }
 
 function buildHash(value: string): string {

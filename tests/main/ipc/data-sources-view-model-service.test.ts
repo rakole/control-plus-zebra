@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createDataSourcesViewModelService } from "../../../src/main/app/data-sources-view-model-service.js";
 import { createTriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
+import { fakeTestAdapter } from "../../../src/main/adapters/fake-test/index.js";
 import { createWorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
 import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter.js";
 import { ArchiveImporter } from "../../../src/main/core/archive/archive-importer.js";
@@ -42,6 +43,24 @@ describe("data sources view model service", () => {
       ])
     );
     expect(viewModel.sources).toEqual([]);
+  });
+
+  it("maps adapter choices directly from the registry without archive-specific filtering", async () => {
+    const runtime = await createTempRuntime(tempDirs);
+    const service = createDataSourcesViewModelService({ runtime });
+
+    runtime.adapterRegistry.register({
+      ...fakeTestAdapter,
+      descriptor: {
+        ...fakeTestAdapter.descriptor,
+        id: "archive-reader",
+        displayName: "Archive Reader"
+      }
+    });
+
+    const viewModel = await service.listDataSources();
+
+    expect(viewModel.adapters.map((adapter) => adapter.adapterId)).toContain("archive-reader");
   });
 
   it("keeps validate and scan separate while preserving explicit source truth states", async () => {
@@ -173,6 +192,61 @@ describe("data sources view model service", () => {
       /read-only/u
     );
     await expect(service.scanDataSource({ sourceId: imported.sourceId })).rejects.toThrow(
+      /read-only/u
+    );
+  });
+
+  it("derives read-only imported source behavior from metadata instead of adapter identity", async () => {
+    const runtime = await createTempRuntime(tempDirs);
+    const service = createDataSourcesViewModelService({ runtime });
+    const importedAt = new Date("2026-05-24T00:00:00.000Z").toISOString();
+    const importedSource = await runtime.sourceRegistry.createSource({
+      adapterId: "fake-test",
+      displayName: "Imported Fixture Archive",
+      rootPath: "/tmp/imported-fixture.awb-archive.json",
+      sourceKind: "imported-archive",
+      addedBy: "import",
+      readOnly: false,
+      archive: {
+        archivePath: "/tmp/imported-fixture.awb-archive.json",
+        exportedAt: importedAt,
+        importedAt,
+        manifestVersion: 1,
+        scopeKind: "project",
+        scopeId: "project_control-plus-zebra",
+        scopeLabel: "control-plus-zebra",
+        sourceCount: 1,
+        sessionCount: 2,
+        projectCount: 1,
+        rawArtifactCount: 0
+      }
+    });
+
+    const viewModel = await service.listDataSources();
+    const importedView = findSource(viewModel, importedSource.sourceId);
+
+    expect(importedView.adapterId).toBe("fake-test");
+    expect(importedView.sourceKind).toBe("Imported Archive");
+    expect(importedView.addedBy).toBe("Import");
+    expect(importedView.readOnly).toBe(true);
+    expect(importedView.readOnlyReason).toMatch(/read-only/u);
+
+    await expect(
+      service.updateDataSource({
+        sourceId: importedSource.sourceId,
+        displayName: "Changed"
+      })
+    ).rejects.toThrow(/read-only/u);
+    await expect(
+      service.setDataSourceEnabled({
+        sourceId: importedSource.sourceId,
+        enabled: false
+      })
+    ).rejects.toThrow(/read-only/u);
+    await expect(
+      service.validateDataSource({ sourceId: importedSource.sourceId })
+    ).rejects.toThrow(/read-only/u);
+    await expect(service.scanDataSource({ sourceId: importedSource.sourceId })).rejects.toThrow(
       /read-only/u
     );
   });

@@ -8,7 +8,9 @@ import { buildDiagnostic } from "../../../src/main/core/diagnostics/diagnostic.j
 import { HIGH_CONFIDENCE } from "../../../src/main/core/model/confidence.js";
 import {
   SourceRegistry,
-  FileBackedSourceRegistryStore
+  FileBackedSourceRegistryStore,
+  getSourceOperationFlags,
+  isImportedArchiveSource
 } from "../../../src/main/core/registry/index.js";
 
 async function createRegistryHarness() {
@@ -195,7 +197,7 @@ describe("SourceRegistry", () => {
   it("persists imported archive metadata and read-only source semantics across reloads", async () => {
     const { store, registry } = await createRegistryHarness();
     const created = await registry.createSource({
-      adapterId: "archive-reader",
+      adapterId: "gemini-cli",
       displayName: "Imported Project Archive",
       rootPath: "/tmp/control-plus-zebra.awb-archive.json",
       readOnly: true,
@@ -219,7 +221,7 @@ describe("SourceRegistry", () => {
 
     expect(reloaded).toMatchObject({
       sourceId: created.sourceId,
-      adapterId: "archive-reader",
+      adapterId: "gemini-cli",
       sourceKind: "imported-archive",
       addedBy: "import",
       readOnly: true,
@@ -227,6 +229,44 @@ describe("SourceRegistry", () => {
         scopeKind: "project",
         sessionCount: 2
       }
+    });
+    expect(isImportedArchiveSource(reloaded!)).toBe(true);
+    expect(getSourceOperationFlags(reloaded!)).toEqual({
+      configurable: false,
+      validate: false,
+      scan: false,
+      watch: false
+    });
+  });
+
+  it("derives imported archive semantics from source metadata instead of adapter identity", async () => {
+    const { registry } = await createRegistryHarness();
+    const imported = await registry.createSource({
+      adapterId: "fake-test",
+      rootPath: "/tmp/imported-through-fake.awb-archive.json",
+      sourceKind: "imported-archive",
+      addedBy: "import",
+      readOnly: true
+    });
+    const local = await registry.createSource({
+      adapterId: "fake-test",
+      rootPath: "/tmp/local-fixture.json"
+    });
+
+    expect(isImportedArchiveSource(imported)).toBe(true);
+    expect(getSourceOperationFlags(imported)).toEqual({
+      configurable: false,
+      validate: false,
+      scan: false,
+      watch: false
+    });
+
+    expect(isImportedArchiveSource(local)).toBe(false);
+    expect(getSourceOperationFlags(local)).toEqual({
+      configurable: true,
+      validate: true,
+      scan: true,
+      watch: true
     });
   });
 });
