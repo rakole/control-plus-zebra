@@ -2,6 +2,7 @@ import { createSourceId } from "../model/identifiers.js";
 import type { CapabilityStatus } from "../model/capabilities.js";
 import type { Diagnostic } from "../diagnostics/diagnostic.js";
 import type { AdapterId, SourceId } from "../model/identifiers.js";
+import type { WatchLifecycleRecord, WatchStrategy } from "../watcher/watch-plan.js";
 import type { SourceRegistryStore } from "./source-registry-store.js";
 
 export type SourceValidationStatus =
@@ -49,7 +50,9 @@ export interface SourceCacheSummary {
 export interface SourceWatchSummary {
   status: CapabilityStatus;
   reason?: string;
-  strategy?: string;
+  strategy?: WatchStrategy;
+  scopePaths?: string[];
+  plannedAt?: string;
   updatedAt?: string;
 }
 
@@ -142,7 +145,8 @@ export class SourceRegistry {
       scan: createInitialOperationalSummary(),
       cache: createInitialCacheSummary(),
       watch: {
-        status: "unknown"
+        status: "unknown",
+        scopePaths: []
       },
       diagnostics: [],
       ...(input.archive ? { archive: input.archive } : {}),
@@ -260,11 +264,23 @@ export class SourceRegistry {
     return this.mutateSource(sourceId, (record) => ({
       ...record,
       watch: {
+        ...record.watch,
         ...summary,
+        scopePaths: summary.scopePaths ?? record.watch.scopePaths ?? [],
         updatedAt: summary.updatedAt ?? new Date().toISOString()
       },
       updatedAt: new Date().toISOString()
     }));
+  }
+
+  async saveWatchPlan(record: WatchLifecycleRecord): Promise<SourceRecord> {
+    return this.saveWatchSummary(record.sourceId, {
+      status: record.status,
+      ...(record.reason ? { reason: record.reason } : {}),
+      strategy: record.strategy,
+      scopePaths: [...record.scopePaths],
+      plannedAt: record.plannedAt
+    });
   }
 
   async replaceSource(record: SourceRecord): Promise<SourceRecord> {
@@ -309,7 +325,10 @@ function sanitizeSourceRecord(record: SourceRecord): SourceRecord {
     validation: record.validation,
     scan: record.scan,
     cache: record.cache,
-    watch: record.watch,
+    watch: {
+      ...record.watch,
+      scopePaths: record.watch.scopePaths ?? []
+    },
     diagnostics: record.diagnostics,
     ...(record.archive ? { archive: record.archive } : {}),
     createdAt: record.createdAt,

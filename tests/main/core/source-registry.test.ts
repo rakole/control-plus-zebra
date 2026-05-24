@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -49,7 +49,7 @@ describe("SourceRegistry", () => {
     expect(reloaded?.cache.status).toBe("unknown");
 
     const persisted = JSON.parse(await readFile(filePath, "utf8"));
-    expect(persisted.version).toBe(1);
+    expect(persisted.version).toBe(2);
     expect(persisted.records).toHaveLength(1);
   });
 
@@ -83,6 +83,92 @@ describe("SourceRegistry", () => {
     expect(reloaded?.validation.status).toBe("validation-failed");
     expect(reloaded?.validation.diagnostics).toEqual([diagnostic]);
     expect(reloaded?.diagnostics).toEqual([diagnostic]);
+  });
+
+  it("persists durable watch plan fields across reloads", async () => {
+    const { store, registry } = await createRegistryHarness();
+    const created = await registry.createSource({
+      adapterId: "fake-test",
+      rootPath: "/tmp/watchable-source.json"
+    });
+
+    await registry.saveWatchPlan({
+      adapterId: "fake-test",
+      sourceId: created.sourceId,
+      status: "supported",
+      strategy: "poll",
+      scopePaths: ["/tmp/watchable-source.json", "/tmp/watchable-sidecars"],
+      reason: "Poll the fixture source and sidecar directory.",
+      plannedAt: "2026-05-24T09:00:00.000Z"
+    });
+
+    const reloaded = await new SourceRegistry(store).getSource(created.sourceId);
+    const persisted = JSON.parse(await readFile(store.getFilePath(), "utf8"));
+
+    expect(reloaded?.watch).toMatchObject({
+      status: "supported",
+      strategy: "poll",
+      scopePaths: ["/tmp/watchable-source.json", "/tmp/watchable-sidecars"],
+      reason: "Poll the fixture source and sidecar directory.",
+      plannedAt: "2026-05-24T09:00:00.000Z"
+    });
+    expect(persisted.version).toBe(2);
+  });
+
+  it("loads version 1 registry files and backfills empty watch scope paths", async () => {
+    const { filePath, store } = await createRegistryHarness();
+
+    await writeFile(
+      filePath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          records: [
+            {
+              sourceId: "fake-test:/tmp/legacy.json",
+              adapterId: "fake-test",
+              rootPath: "/tmp/legacy.json",
+              enabled: true,
+              sourceKind: "local-root",
+              addedBy: "user",
+              readOnly: false,
+              validation: {
+                status: "not-validated",
+                diagnostics: []
+              },
+              scan: {
+                status: "never-scanned",
+                diagnostics: []
+              },
+              cache: {
+                status: "unknown",
+                diagnostics: []
+              },
+              watch: {
+                status: "unsupported",
+                strategy: "none",
+                reason: "Legacy registry payload"
+              },
+              diagnostics: [],
+              createdAt: "2026-05-24T09:00:00.000Z",
+              updatedAt: "2026-05-24T09:00:00.000Z"
+            }
+          ]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const [reloaded] = await new SourceRegistry(store).listSources();
+
+    expect(reloaded?.watch).toMatchObject({
+      status: "unsupported",
+      strategy: "none",
+      reason: "Legacy registry payload",
+      scopePaths: []
+    });
   });
 
   it("keeps distinct source identities when adapter or root differs even with the same display name", async () => {

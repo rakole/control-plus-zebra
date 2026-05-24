@@ -40,7 +40,29 @@ export function createWorkbenchRuntime(
   const cacheStore = new FileBackedCacheStore(
     path.join(appDataDir, "normalized-cache.json")
   );
-  const watchOrchestrator = new WatchOrchestrator();
+  const watchOrchestrator = new WatchOrchestrator({
+    async onSourceCacheStale(event) {
+      const source = await sourceRegistry.getSource(event.sourceId);
+      const reason = event.reason ?? "Watch event marked the source cache stale.";
+
+      if (!source) {
+        return;
+      }
+
+      await sourceRegistry.saveCacheSummary(event.sourceId, {
+        status: "stale",
+        diagnostics: source.cache.diagnostics,
+        ...(source.cache.cacheKey ? { cacheKey: source.cache.cacheKey } : {}),
+        reason
+      });
+      await sourceRegistry.saveScanSummary(event.sourceId, {
+        ...source.scan,
+        status: source.scan.status === "never-scanned" ? "never-scanned" : "stale",
+        diagnostics: source.scan.diagnostics,
+        reason
+      });
+    }
+  });
   const scanner = new Scanner({
     adapterRegistry,
     cacheStore,
