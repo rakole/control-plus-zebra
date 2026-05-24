@@ -16,6 +16,7 @@ import type {
   ValidateDataSourceRequest
 } from "../main/ipc/view-models.js";
 import type { AgentWorkbenchBridge } from "./types.js";
+import { agentWorkbenchTheme } from "./theme-bridge.js";
 
 const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
   getShellState() {
@@ -69,3 +70,4 @@ const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
 });
 
 contextBridge.exposeInMainWorld("agentWorkbench", agentWorkbench);
+contextBridge.exposeInMainWorld("agentWorkbenchTheme", agentWorkbenchTheme);

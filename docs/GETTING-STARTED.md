@@ -4,8 +4,8 @@
 ## Prerequisites
 
 - Git for cloning the repository.
-- A working Node.js and npm installation. This repository does not pin a version through `package.json` `engines`, `.nvmrc`, or `.node-version`.
-- macOS if you want to run the Electron app exactly as the project is currently packaged. `forge.config.ts` only configures `@electron-forge/maker-zip` for `darwin`.
+- A working Node.js and npm installation. The repository does not pin a version through `package.json` `engines`, `.nvmrc`, or `.node-version`.
+- macOS if you want to use the currently configured packaged target. `forge.config.ts` only configures `@electron-forge/maker-zip` for `darwin`.
 
 ## Installation steps
 
@@ -30,9 +30,26 @@ Start the desktop app with Electron Forge:
 npm start
 ```
 
-That command launches the Electron main process defined in `src/main/electron-main.ts`, builds the preload bundle from `src/preload/index.ts`, and serves the React renderer configured by `vite.renderer.config.ts`.
+That command launches the Electron main process from `src/main/electron-main.ts`, builds the preload bundle from `src/preload/index.ts`, and serves the React renderer configured by `vite.renderer.config.ts`.
+
+On first launch, the app routes to `#/overview`. To load real data:
+
+1. Open **Data Sources**.
+2. Add a `fake-test` or `gemini-cli` source root and validate it.
+3. Scan the source to populate Overview, Projects, Sessions, Session Detail, Run Audit, and Diagnostics.
+4. Optionally import a previously exported `.awb-archive.json` file through the archive import action instead of adding a live source.
+
+If you want a packaged desktop build instead of the dev shell, run:
+
+```bash
+npm run package
+```
 
 ## Common setup issues
+
+### Source scans blocked
+
+If a scan fails immediately, check the source state first. `src/main/app/data-sources-view-model-service.ts` refuses scans for disabled sources, invalid sources, and imported archives, so the normal flow is validate first, then scan.
 
 ### Renderer boundary violations
 
@@ -44,11 +61,11 @@ If `npm run test:boundaries` fails, check for shared code importing adapter-priv
 
 ### Golden snapshot refreshes
 
-If the fake adapter golden test fails because a normalized fixture intentionally changed, rerun the specific test with `UPDATE_GOLDENS=1` before re-running the suite so `tests/fixtures/fake-test/phase1-session.normalized.json` is updated from `tests/adapters/fake-test/fake-adapter.golden.test.ts`.
+If an adapter golden test fails because a normalized fixture intentionally changed, rerun the specific test with `UPDATE_GOLDENS=1` before re-running the suite. Both `tests/adapters/fake-test/fake-adapter.golden.test.ts` and `tests/adapters/gemini-cli/gemini-adapter.golden.test.ts` support that refresh path.
 
 ## Next steps
 
 - Read [Architecture](./ARCHITECTURE.md) for the main-process, preload, renderer, and adapter boundaries.
-- Read [Development](./DEVELOPMENT.md) for local workflow expectations and script reference.
+- Read [Development](./DEVELOPMENT.md) for local workflow expectations, script reference, and boundary rules.
 - Read [Testing](./TESTING.md) before adding or refactoring coverage.
-- Read [Configuration](./CONFIGURATION.md) for runtime defaults and checked-in config files.
+- Read [Configuration](./CONFIGURATION.md) for runtime defaults, checked-in config files, and app data paths.

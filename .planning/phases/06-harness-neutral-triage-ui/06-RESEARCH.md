@@ -4,6 +4,8 @@
 **Domain:** Electron renderer triage surfaces over main-process-owned normalized session, verification, audit, and diagnostics view models. [VERIFIED: codebase grep]
 **Confidence:** HIGH [VERIFIED: codebase grep]
 
+> Historical note (post-migration): this research artifact reflects the Phase 6 repo snapshot gathered on 2026-05-24, before the later feature-first renderer migration. References below to `src/renderer/components/AppShell.tsx`, flat route files, or the then-current shell/route structure are preserved as phase research context, not as statements about the current repo layout.
+
 <user_constraints>
 ## User Constraints (from CONTEXT.md)
 

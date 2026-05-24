@@ -283,36 +283,69 @@ describe("Data Sources route", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the Data Sources route and loads source summaries through the bridge", async () => {
-    render(<App />);
+  describe("list and detail rendering", () => {
+    it("loads source summaries through the bridge and renders explicit truth states", async () => {
+      renderDataSourcesRoute();
 
-    expect(screen.getByRole("heading", { name: "Data Sources" })).toBeInTheDocument();
-    expect(screen.getByText("Local and archived sources")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add Source" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Import Archive" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reload Data Sources" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Data Sources" })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
-    expect(screen.getByRole("link", { name: "Sessions" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Data Sources" })).toBeInTheDocument();
+      expect(screen.getByText("Local and archived sources")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Add Source" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Import Archive" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Reload Data Sources" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Data Sources" })).toHaveAttribute(
+        "aria-current",
+        "page"
+      );
+      expect(screen.getByRole("link", { name: "Sessions" })).toBeInTheDocument();
 
-    const route = await screen.findByLabelText("Data Sources route");
-    expect(listDataSources).toHaveBeenCalledTimes(1);
+      const route = await screen.findByLabelText("Data Sources route");
+      expect(listDataSources).toHaveBeenCalledTimes(1);
 
-    expect(within(route).getByRole("button", { name: /Fixture Root/u })).toBeInTheDocument();
-    expect(within(route).getByRole("button", { name: /Archive Inbox/u })).toBeInTheDocument();
-    expect(within(route).getAllByText("Unsupported").length).toBeGreaterThan(0);
-    expect(within(route).getAllByText("Imported Archive").length).toBeGreaterThan(0);
-    expect(within(route).getAllByText("Read Only").length).toBeGreaterThan(0);
-    expect(within(route).getAllByText("Cached").length).toBeGreaterThan(0);
-    expect(within(route).queryByText("Passed")).not.toBeInTheDocument();
-    expect(within(route).queryByText("Clean")).not.toBeInTheDocument();
+      const list = within(route).getByLabelText("Data source summaries");
+      expect(within(list).getByRole("button", { name: /Fixture Root/u })).toBeInTheDocument();
+      expect(within(list).getByRole("button", { name: /Archive Inbox/u })).toBeInTheDocument();
+      expect(within(list).getAllByText("Unsupported").length).toBeGreaterThan(0);
+      expect(within(list).getAllByText("Imported Archive").length).toBeGreaterThan(0);
+      expect(within(list).getAllByText("Read Only").length).toBeGreaterThan(0);
+      expect(within(list).getAllByText("Cached").length).toBeGreaterThan(0);
+      expect(within(route).queryByText("Passed")).not.toBeInTheDocument();
+      expect(within(route).queryByText("Clean")).not.toBeInTheDocument();
+    });
+
+    it("renders the selected source form, statuses, diagnostics, and enabled switch", async () => {
+      renderDataSourcesRoute();
+
+      await screen.findByRole("button", { name: /Fixture Root/u });
+
+      expect(
+        screen.getByRole("heading", { name: "Fixture Root" })
+      ).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Harness" })).toHaveValue("fixture-harness");
+      expect(screen.getByRole("textbox", { name: "Source Name" })).toHaveValue("Fixture Root");
+      expect(screen.getByRole("textbox", { name: "Source Root Path" })).toHaveValue(
+        "/Users/rhishi/.fixtures/agent-workbench"
+      );
+      expect(screen.getByRole("switch", { name: "Source Enabled" })).toBeChecked();
+
+      expect(screen.getByRole("heading", { name: "Source Metadata" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Source Settings" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Validation Status" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Cache State" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Source Diagnostics" })).toBeInTheDocument();
+
+      expect(screen.getByText("source.partial-output")).toBeInTheDocument();
+      expect(screen.getByText("One output artifact is intentionally unavailable.")).toBeInTheDocument();
+      expect(screen.getByText("cache.mtime-shift")).toBeInTheDocument();
+      expect(screen.getByText("Cache metadata was refreshed after the latest scan.")).toBeInTheDocument();
+      expect(screen.getAllByText("2 Diagnostics").length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: "Rescan Source" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Validate Source" })).toBeEnabled();
+    });
   });
 
   it("selects the next source with ArrowDown followed by Enter", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderDataSourcesRoute();
 
     const firstRow = await screen.findByRole("button", { name: /Fixture Root/u });
     firstRow.focus();
@@ -326,12 +359,8 @@ describe("Data Sources route", () => {
     ).not.toHaveLength(0);
     expect(screen.getAllByText("Imported Archive").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Read Only").length).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText(
-        "Imported archives are read-only sources. Live validate, scan, watch, git, and GitHub operations stay disabled after import."
-      ).length
-    ).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Validation Unavailable" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Source Enabled" })).toBeDisabled();
   });
 
   it("imports an archive through the bridge and selects the imported source detail", async () => {
@@ -384,73 +413,120 @@ describe("Data Sources route", () => {
       buildDataSourcesResponse([importedSource, firstSource, secondSource])
     );
 
-    render(<App />);
+    renderDataSourcesRoute();
 
     await screen.findByRole("button", { name: /Fixture Root/u });
     await user.click(screen.getByRole("button", { name: "Import Archive" }));
 
     await waitFor(() => expect(openArchiveBridge).toHaveBeenCalledTimes(1));
-    expect(await screen.findByRole("heading", { name: "Imported Project Archive" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Imported Project Archive" })
+    ).toBeInTheDocument();
     expect(screen.getByText("Control Plus Zebra")).toBeInTheDocument();
   });
 
-  it("creates a draft source, validates it, and scans only after validation succeeds", async () => {
-    const user = userEvent.setup();
-    render(<App />);
+  describe("draft and mutation flows", () => {
+    it("creates a draft source with a focused root-path field and shared form controls", async () => {
+      const user = userEvent.setup();
+      renderDataSourcesRoute();
 
-    await screen.findByRole("button", { name: /Fixture Root/u });
+      await screen.findByRole("button", { name: /Fixture Root/u });
+      await user.click(screen.getByRole("button", { name: "Add Source" }));
 
-    await user.click(screen.getByRole("button", { name: "Add Source" }));
+      expect(screen.getByRole("heading", { name: "Draft source" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Harness" })).toHaveValue("fixture-harness");
+      expect(screen.getByRole("textbox", { name: "Source Name" })).toHaveValue("");
+      expect(screen.getByRole("textbox", { name: "Source Root Path" })).toHaveFocus();
+      expect(screen.getByRole("switch", { name: "Source Enabled" })).toBeChecked();
+      expect(screen.getByRole("button", { name: "Validate Source" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Scan Source" })).toBeDisabled();
+    });
 
-    const pathInput = screen.getByRole("textbox", { name: "Source Root Path" });
-    expect(pathInput).toHaveFocus();
-    expect(screen.getByRole("button", { name: "Validate Source" })).toBeDisabled();
+    it("validates a new draft source before scan becomes available", async () => {
+      const user = userEvent.setup();
+      renderDataSourcesRoute();
 
-    await user.clear(screen.getByRole("textbox", { name: "Source Name" }));
-    await user.type(screen.getByRole("textbox", { name: "Source Name" }), "Fresh Source");
-    await user.type(pathInput, "/tmp/fresh-source");
+      await screen.findByRole("button", { name: /Fixture Root/u });
+      await user.click(screen.getByRole("button", { name: "Add Source" }));
 
-    await user.click(screen.getByRole("button", { name: "Validate Source" }));
+      await user.clear(screen.getByRole("textbox", { name: "Source Name" }));
+      await user.type(screen.getByRole("textbox", { name: "Source Name" }), "Fresh Source");
+      await user.type(screen.getByRole("textbox", { name: "Source Root Path" }), "/tmp/fresh-source");
 
-    await waitFor(() => expect(addDataSource).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(validateDataSource).toHaveBeenCalledWith({ sourceId: "source-new" })
-    );
-    expect(scanDataSource).not.toHaveBeenCalled();
-    expect(
-      screen.getByText("Source root validated through the shared source registry.")
-    ).toBeInTheDocument();
+      const validateButton = screen.getByRole("button", { name: "Validate Source" });
+      expect(validateButton).toBeEnabled();
 
-    await user.click(screen.getByRole("button", { name: "Scan Source" }));
+      await user.click(validateButton);
 
-    await waitFor(() => expect(scanDataSource).toHaveBeenCalledWith({ sourceId: "source-new" }));
-    expect(await screen.findByRole("button", { name: "Rescan Source" })).toBeInTheDocument();
-    expect(
-      screen.getByText("Normalization completed with one parser warning.")
-    ).toBeInTheDocument();
-  });
+      await waitFor(() =>
+        expect(addDataSource).toHaveBeenCalledWith({
+          adapterId: "fixture-harness",
+          displayName: "Fresh Source",
+          enabled: true,
+          rootPath: "/tmp/fresh-source"
+        })
+      );
+      await waitFor(() =>
+        expect(validateDataSource).toHaveBeenCalledWith({ sourceId: "source-new" })
+      );
 
-  it("persists existing source enabled toggles through the dedicated preload method", async () => {
-    const user = userEvent.setup();
-    render(<App />);
+      expect(scanDataSource).not.toHaveBeenCalled();
+      expect(
+        screen.getByText("Source root validated through the shared source registry.")
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Scan Source" })).toBeEnabled();
+    });
 
-    await screen.findByRole("button", { name: /Fixture Root/u });
+    it("runs scan on the validated source and renders returned diagnostics", async () => {
+      const user = userEvent.setup();
+      renderDataSourcesRoute();
 
-    await user.click(screen.getByRole("switch", { name: "Source Enabled" }));
+      await screen.findByRole("button", { name: /Fixture Root/u });
+      await user.click(screen.getByRole("button", { name: "Add Source" }));
+      await user.type(screen.getByRole("textbox", { name: "Source Name" }), "Fresh Source");
+      await user.type(screen.getByRole("textbox", { name: "Source Root Path" }), "/tmp/fresh-source");
+      await user.click(screen.getByRole("button", { name: "Validate Source" }));
 
-    await waitFor(() =>
-      expect(setDataSourceEnabled).toHaveBeenCalledWith({
-        enabled: false,
-        sourceId: "source-1"
-      })
-    );
-    expect(updateDataSource).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(validateDataSource).toHaveBeenCalledWith({ sourceId: "source-new" })
+      );
+
+      await user.click(screen.getByRole("button", { name: "Scan Source" }));
+
+      await waitFor(() => expect(scanDataSource).toHaveBeenCalledWith({ sourceId: "source-new" }));
+      expect(await screen.findByRole("button", { name: "Rescan Source" })).toBeInTheDocument();
+      expect(
+        screen.getByText("Normalization completed with one parser warning.")
+      ).toBeInTheDocument();
+      expect(screen.getByText("scan.normalized-with-warning")).toBeInTheDocument();
+      expect(
+        screen.getByText("One artifact emitted a non-blocking parser warning.")
+      ).toBeInTheDocument();
+    });
+
+    it("persists existing source enabled toggles through the dedicated preload method", async () => {
+      const user = userEvent.setup();
+      renderDataSourcesRoute();
+
+      const enabledSwitch = await screen.findByRole("switch", { name: "Source Enabled" });
+      expect(enabledSwitch).toBeChecked();
+
+      await user.click(enabledSwitch);
+
+      await waitFor(() =>
+        expect(setDataSourceEnabled).toHaveBeenCalledWith({
+          enabled: false,
+          sourceId: "source-1"
+        })
+      );
+      expect(updateDataSource).not.toHaveBeenCalled();
+    });
   });
 
   it("renders the exact empty state copy", async () => {
     listDataSources.mockResolvedValueOnce(buildDataSourcesResponse([]));
 
-    render(<App />);
+    renderDataSourcesRoute();
 
     expect(await screen.findByText("No data sources configured")).toBeInTheDocument();
     expect(
@@ -469,7 +545,7 @@ describe("Data Sources route", () => {
       }
     } satisfies DataSourcesResponse);
 
-    render(<App />);
+    renderDataSourcesRoute();
 
     expect(
       await screen.findByText(
@@ -510,7 +586,7 @@ describe("Data Sources route", () => {
       ])
     );
 
-    render(<App />);
+    renderDataSourcesRoute();
 
     expect(
       await screen.findByText(/Source validation failed\. Review the diagnostics/u)
@@ -522,6 +598,10 @@ describe("Data Sources route", () => {
     ).toBeInTheDocument();
   });
 });
+
+function renderDataSourcesRoute() {
+  render(<App />);
+}
 
 function buildDataSourcesResponse(
   sources: IpcDataSourceViewModel[],

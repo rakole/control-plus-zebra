@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 interface SourceText {
+  absolutePath: string;
   file: string;
   text: string;
 }
@@ -52,6 +53,17 @@ describe("renderer source boundary", () => {
     ).toEqual([]);
   });
 
+  it("does not let feature code import from sibling feature directories", async () => {
+    const sources = await loadRendererSources();
+    const violations = sources.flatMap((source) =>
+      readImportSpecifiers(source.text)
+        .map((specifier) => classifyCrossFeatureImport(source, specifier))
+        .filter((violation) => violation !== null)
+    );
+
+    expect(violations).toEqual([]);
+  });
+
   it("contains no provider-specific branching or copy", async () => {
     const sources = await loadRendererSources();
     const text = sources.map((source) => source.text).join("\n");
@@ -70,6 +82,23 @@ describe("renderer source boundary", () => {
 
     expect(violations).toEqual([]);
   });
+
+  it("keeps direct theme preload access inside the bridge wrapper only", async () => {
+    const sources = await loadRendererSources();
+    const violations = sources.flatMap((source) => {
+      if (source.file === "src/renderer/bridge/theme.ts") {
+        return [];
+      }
+
+      return [...source.text.matchAll(/\bwindow\.agentWorkbenchTheme\b/gu)].map((match) => ({
+        file: source.file,
+        line: lineNumberForIndex(source.text, match.index ?? 0),
+        value: match[0]
+      }));
+    });
+
+    expect(violations).toEqual([]);
+  });
 });
 
 async function loadRendererSources(): Promise<SourceText[]> {
@@ -77,6 +106,7 @@ async function loadRendererSources(): Promise<SourceText[]> {
 
   return Promise.all(
     files.map(async (file) => ({
+      absolutePath: file,
       file: normalizeRepoPath(file),
       text: await readFile(file, "utf8")
     }))
@@ -118,4 +148,40 @@ async function collectTypeScriptFiles(root: string): Promise<string[]> {
 
 function normalizeRepoPath(file: string): string {
   return path.relative(repoRoot, file).split(path.sep).join(path.posix.sep);
+}
+
+function lineNumberForIndex(source: string, index: number): number {
+  return source.slice(0, index).split("\n").length;
+}
+
+function classifyCrossFeatureImport(
+  source: SourceText,
+  specifier: string
+): { file: string; specifier: string; importedFeature: string; ownerFeature: string } | null {
+  const ownerFeature = readFeatureOwner(source.absolutePath);
+
+  if (!ownerFeature || !specifier.startsWith(".")) {
+    return null;
+  }
+
+  const resolvedImport = path.resolve(path.dirname(source.absolutePath), specifier);
+  const importedFeature = readFeatureOwner(resolvedImport);
+
+  if (!importedFeature || importedFeature === ownerFeature) {
+    return null;
+  }
+
+  return {
+    file: source.file,
+    specifier,
+    importedFeature,
+    ownerFeature
+  };
+}
+
+function readFeatureOwner(file: string): string | null {
+  const normalized = file.split(path.sep).join(path.posix.sep);
+  const match = normalized.match(/\/src\/renderer\/features\/([^/]+)\//u);
+
+  return match?.[1] ?? null;
 }

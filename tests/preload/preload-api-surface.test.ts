@@ -75,7 +75,13 @@ describe("preload API surface", () => {
 });
 
 function extractBridgeMethodNames(source: string): string[] {
-  return [...source.matchAll(publicMethodPattern)].flatMap((match) =>
+  const bridgeSource =
+    source.match(/interface AgentWorkbenchBridge \{(?<body>[\s\S]*?)\n\}/u)?.groups?.body ??
+    source.match(/const agentWorkbench:[^=]+= Object\.freeze\(\{(?<body>[\s\S]*?)\n\}\);/u)
+      ?.groups?.body ??
+    "";
+
+  return [...bridgeSource.matchAll(publicMethodPattern)].flatMap((match) =>
     match[1] ? [match[1]] : []
   );
 }

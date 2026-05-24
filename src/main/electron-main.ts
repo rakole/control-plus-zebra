@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
 
 import { createArchiveImportService } from "./app/archive-import-service.js";
 import { createArchiveExportService } from "./app/archive-export-service.js";
@@ -10,13 +10,20 @@ import { createSessionDetailViewModelService } from "./app/session-detail-view-m
 import { createTriageViewModelService } from "./app/triage-view-model-service.js";
 import { createWorkbenchRuntime } from "./app/workbench-runtime.js";
 import { registerIpcHandlers } from "./ipc/index.js";
+import { createThemePreferenceStore } from "./theme/theme-preference-store.js";
+import { createThemeService } from "./theme/theme-service.js";
 import { createMainWindow } from "./window.js";
 
 async function bootstrap(): Promise<void> {
   await app.whenReady();
 
-  const runtime = createWorkbenchRuntime({
-    appDataDir: app.getPath("userData")
+  const appDataDir = app.getPath("userData");
+  const runtime = createWorkbenchRuntime({ appDataDir });
+  const themePreferenceStore = createThemePreferenceStore(appDataDir);
+  const themeService = createThemeService({
+    nativeTheme,
+    loadPreference: themePreferenceStore.loadPreference,
+    savePreference: themePreferenceStore.savePreference
   });
 
   registerIpcHandlers(ipcMain, {
@@ -42,13 +49,14 @@ async function bootstrap(): Promise<void> {
     runAuditService: createRunAuditViewModelService({ runtime }),
     triageService: createTriageViewModelService({ runtime }),
     diagnosticsService: createDiagnosticsViewModelService({ runtime }),
-    dataSourcesService: createDataSourcesViewModelService({ runtime })
+    dataSourcesService: createDataSourcesViewModelService({ runtime }),
+    themeService
   });
-  createMainWindow();
+  registerThemeWindow(themeService, createMainWindow());
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+      registerThemeWindow(themeService, createMainWindow());
     }
   });
 }
@@ -60,3 +68,15 @@ app.on("window-all-closed", () => {
 });
 
 void bootstrap();
+
+function registerThemeWindow(
+  themeService: ReturnType<typeof createThemeService>,
+  window: BrowserWindow
+): BrowserWindow {
+  themeService.registerWindow(window);
+  window.once("closed", () => {
+    themeService.unregisterWindow(window);
+  });
+
+  return window;
+}
