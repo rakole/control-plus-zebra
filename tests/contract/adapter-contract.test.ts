@@ -13,7 +13,10 @@ import type {
 import { buildDiagnostic } from "../../src/main/core/diagnostics/diagnostic.js";
 import { HIGH_CONFIDENCE } from "../../src/main/core/model/confidence.js";
 
-import { runAdapterContractSuite } from "./run-adapter-contract.js";
+import {
+  runAdapterContractSuite,
+  type AdapterScenarioManifestEntry
+} from "./run-adapter-contract.js";
 
 type StubRawPayload =
   | {
@@ -46,7 +49,7 @@ const groupedCapabilities = {
   tools: {
     toolCalls: true,
     toolResults: true,
-    fileReads: true,
+    fileReads: false,
     fileSearches: false,
     fileMutations: true,
     diffStats: false,
@@ -441,14 +444,65 @@ runAdapterContractSuite({
     displayName: "Stub contract fixture"
   },
   expectedDiagnosticCodes: ["stub.partial-proof"],
-  minimums: {
-    messages: 1,
-    toolCalls: 1,
-    shellCommands: 1,
-    outputArtifacts: 1,
-    fileMutations: 1,
-    diagnostics: 1
-  },
+  scenarios: [
+    { name: "basic-session", status: "supported" },
+    {
+      name: "assistant-final-answer",
+      status: "supported",
+      capability: { group: "audit", key: "finalAnswerDetection" }
+    },
+    {
+      name: "tool-call",
+      status: "supported",
+      capability: { group: "tools", key: "toolCalls" }
+    },
+    {
+      name: "file-read",
+      status: "unsupported",
+      capability: { group: "tools", key: "fileReads" }
+    },
+    {
+      name: "file-search",
+      status: "unsupported",
+      capability: { group: "tools", key: "fileSearches" }
+    },
+    {
+      name: "file-mutation",
+      status: "supported",
+      capability: { group: "tools", key: "fileMutations" }
+    },
+    {
+      name: "shell-command",
+      status: "supported",
+      capability: { group: "tools", key: "shellCommands" }
+    },
+    {
+      name: "sidecar-output-artifact",
+      status: "supported",
+      capability: { group: "tools", key: "sidecarOutputs" }
+    },
+    {
+      name: "model-name",
+      status: "unsupported",
+      capability: { group: "usage", key: "modelNames" }
+    },
+    {
+      name: "token-usage",
+      status: "unsupported",
+      capability: { group: "usage", key: "tokenCounts" }
+    },
+    {
+      name: "cost-estimates",
+      status: "unsupported",
+      capability: { group: "usage", key: "costEstimates" }
+    },
+    {
+      name: "raw-pointers",
+      status: "supported",
+      capability: { group: "replay", key: "rawEventPointers" }
+    },
+    { name: "diagnostics", status: "supported" }
+  ] satisfies AdapterScenarioManifestEntry[],
   assertExercisedAdapter(adapterRun) {
     expect(adapterRun.defaultRoots).toHaveLength(1);
     expect(adapterRun.watchPlan).toMatchObject({

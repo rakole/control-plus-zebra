@@ -26,9 +26,24 @@ describe("triage view model service", () => {
     const rawExportProject = projects.find((project) => project.archiveExport.rawArtifactsAvailable);
 
     expect(overview.metrics.totalSessions.numericValue).toBeGreaterThan(0);
+    expect(overview.usageSummary.models.displayValue).toBe("Unknown");
+    expect(overview.usageSummary.tokenCount.displayValue).toBe("Unknown");
     expect(overview.harnessFilters.map((filter) => filter.label)).toEqual(
       expect.arrayContaining(["Fake Test Harness", "Gemini CLI"])
     );
+    await expect(triageService.getOverview({ adapterId: "gemini-cli" })).resolves.toMatchObject({
+      usageSummary: {
+        models: {
+          displayValue: "Unknown",
+          reason: "Model names are not available for every selected session."
+        },
+        tokenCount: {
+          status: "unknown",
+          displayValue: "Unknown",
+          reason: "Token counts are not available for every selected session."
+        }
+      }
+    });
     expect(projects.length).toBeGreaterThan(0);
     expect(gitBackedProject).toEqual(
       expect.objectContaining({

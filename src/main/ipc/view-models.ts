@@ -16,14 +16,11 @@ const operationChannelSchema = z.enum([
   "export:createArchive",
   "import:openArchive",
   "dashboard:getStats",
-  "overview:get",
   "projects:list",
   "projects:get",
   "sessions:list",
   "sessions:get",
   "sessions:getTimeline",
-  "sessions:getById",
-  "sessions:getDetail",
   "events:get",
   "toolCalls:get",
   "shellCommands:get",
@@ -34,12 +31,6 @@ const operationChannelSchema = z.enum([
   "git:getSnapshot",
   "github:getSnapshot",
   "diagnostics:list",
-  "dataSources:list",
-  "dataSources:add",
-  "dataSources:update",
-  "dataSources:setEnabled",
-  "dataSources:validate",
-  "dataSources:scan",
   "theme:getState",
   "theme:setPreference"
 ]);
@@ -860,7 +851,8 @@ export const updateDataSourceRequestSchema = z
     sourceId: z.string().min(1),
     adapterId: z.string().min(1).optional(),
     rootPath: z.string().min(1).optional(),
-    displayName: z.string().min(1).optional()
+    displayName: z.string().min(1).optional(),
+    enabled: z.boolean().optional()
   })
   .strict();
 export type UpdateDataSourceRequest = z.infer<typeof updateDataSourceRequestSchema>;
@@ -890,22 +882,6 @@ export const scanDataSourceRequestSchema = z
   })
   .strict();
 export type ScanDataSourceRequest = z.infer<typeof scanDataSourceRequestSchema>;
-
-export const dataSourcesResponseSchema = z.discriminatedUnion("ok", [
-  z
-    .object({
-      ok: z.literal(true),
-      dataSources: dataSourcesViewModelSchema
-    })
-    .strict(),
-  z
-    .object({
-      ok: z.literal(false),
-      error: sanitizedErrorViewModelSchema
-    })
-    .strict()
-]);
-export type DataSourcesResponse = z.infer<typeof dataSourcesResponseSchema>;
 
 export const harnessViewModelSchema = dataSourceAdapterViewModelSchema;
 export type HarnessViewModel = z.infer<typeof harnessViewModelSchema>;
@@ -1314,15 +1290,3 @@ export const githubSnapshotResponseSchema = z.discriminatedUnion("ok", [
     .strict()
 ]);
 export type GitHubSnapshotResponse = z.infer<typeof githubSnapshotResponseSchema>;
-
-/**
- * @deprecated TODO(Wave 5): Remove once renderer bridge callers migrate from
- * `overview:get` to `dashboard:getStats`.
- */
-export type GetOverviewDeprecatedResponse = GetOverviewResponse;
-
-/**
- * @deprecated TODO(Wave 5): Remove once renderer bridge callers migrate from
- * `dataSources:*` to `sources:*`.
- */
-export type DataSourcesDeprecatedResponse = DataSourcesResponse;

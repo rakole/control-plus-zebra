@@ -108,6 +108,7 @@ describe("session view model service", () => {
     expect(geminiSession).toBeDefined();
     expect(geminiSession?.adapterDisplayName).toBe("Gemini CLI");
     expect(geminiSession?.evidenceSummary.toolCalls).toBeGreaterThan(0);
+    expect(geminiSession?.usageSummary.models.displayValue).toBe("gemini-3-flash-preview");
     expect(geminiSession?.usageSummary.tokenCount).toMatchObject({
       status: "value",
       numericValue: 552,

@@ -18,10 +18,24 @@ interface SourceText {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const sharedRoots = [
   path.join(repoRoot, "src", "main", "core"),
+  path.join(repoRoot, "src", "main", "app"),
+  path.join(repoRoot, "src", "main", "ipc"),
+  path.join(repoRoot, "src", "preload"),
   path.join(repoRoot, "src", "renderer")
 ];
 const adapterContractRoot = path.join(repoRoot, "src", "main", "core", "adapter-contract");
 const sharedEntityRoot = path.join(repoRoot, "src", "main", "core", "model");
+const retiredPublicChannels = [
+  "overview:get",
+  "sessions:getById",
+  "sessions:getDetail",
+  "dataSources:list",
+  "dataSources:add",
+  "dataSources:update",
+  "dataSources:setEnabled",
+  "dataSources:validate",
+  "dataSources:scan"
+] as const;
 
 describe("shared naming boundaries", () => {
   it("keeps shared core and renderer free of Gemini-specific symbols and provider branches", async () => {
@@ -91,6 +105,12 @@ describe("shared naming boundaries", () => {
       })
     ]);
   });
+
+  it("keeps retired transitional IPC channel aliases out of shared source", async () => {
+    const sources = await loadTypeScriptSources(sharedRoots);
+
+    expect(findRetiredChannelViolations(sources)).toEqual([]);
+  });
 });
 
 async function loadTypeScriptSources(roots: string[]): Promise<SourceText[]> {
@@ -126,6 +146,22 @@ function findConclusionFieldViolations(sources: SourceText[]): TextViolation[] {
     sources,
     /\b(?:readonly\s+)?(verification(?:Status|State|Result)?|runAudit(?:Status|Classification)?|attentionReason(?:s)?)\b\s*[?:]/gu,
     "Adapter-facing shared contracts must emit evidence and diagnostics only, not final conclusions."
+  );
+}
+
+function findRetiredChannelViolations(sources: SourceText[]): TextViolation[] {
+  return sources.flatMap((source) =>
+    retiredPublicChannels.flatMap((channel) =>
+      source.text.includes(channel)
+        ? [
+            {
+              file: source.file,
+              match: channel,
+              reason: "Retired transitional IPC channel aliases must not remain public source."
+            }
+          ]
+        : []
+    )
   );
 }
 

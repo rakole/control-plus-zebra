@@ -99,6 +99,10 @@ export function createDataSourcesViewModelService(
         ...(parsed.rootPath ? { rootPath: parsed.rootPath } : {})
       });
 
+      if (parsed.enabled !== undefined) {
+        await runtime.sourceRegistry.setSourceEnabled(nextSource.sourceId, parsed.enabled);
+      }
+
       if (identityChanged) {
         nextSource = await runtime.sourceRegistry.replaceSourceIdentity(
           nextSource.sourceId,

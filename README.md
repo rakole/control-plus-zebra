@@ -1,15 +1,16 @@
 # Agent Workbench
 
-Agent Workbench is currently in Phase 1: architecture contracts and fixture proof. This repo is intentionally proving the harness-neutral shared core before any Electron shell or UI depth lands, so the fake adapter and future Gemini adapter both have to fit the same shared contract.
+Agent Workbench is a local-first Electron desktop app for observing and auditing local coding-agent sessions across harnesses. The shared core stays harness-neutral: `gemini-cli` is the first real adapter, `fake-test` proves the second-adapter path, and imported archives stay read-only without becoming normal bundled harnesses.
 
-## Phase 1 verification
+## Verification
 
-Run these commands before trusting changes in this milestone:
+Run these commands before trusting broad changes:
 
 - `npm run lint`
 - `npm run typecheck`
 - `npm run test`
 - `npm run test:boundaries`
+- `npm run test:renderer`
 
 ## Harness-neutrality rule
 

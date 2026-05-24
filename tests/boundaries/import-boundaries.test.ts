@@ -8,6 +8,7 @@ type SourceKind =
   | { type: "adapter"; adapterId: string }
   | { type: "core" }
   | { type: "main" }
+  | { type: "preload" }
   | { type: "renderer" }
   | { type: "other" };
 
@@ -25,6 +26,9 @@ interface BoundaryViolation extends ImportRecord {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const coreRoot = path.join(repoRoot, "src", "main", "core");
+const mainAppRoot = path.join(repoRoot, "src", "main", "app");
+const mainIpcRoot = path.join(repoRoot, "src", "main", "ipc");
+const preloadRoot = path.join(repoRoot, "src", "preload");
 const rendererRoot = path.join(repoRoot, "src", "renderer");
 const adaptersRoot = path.join(repoRoot, "src", "main", "adapters");
 const boundaryFixturesRoot = path.join(repoRoot, "tests", "boundaries", "fixtures");
@@ -47,6 +51,14 @@ const fixtureLogicalPaths = new Map<string, string>([
     "src/renderer/illegal-main-import-fixture.ts"
   ],
   [
+    path.join(boundaryFixturesRoot, "illegal-main-app-import.ts"),
+    "src/main/app/illegal-import-fixture.ts"
+  ],
+  [
+    path.join(boundaryFixturesRoot, "illegal-preload-import.ts"),
+    "src/preload/illegal-import-fixture.ts"
+  ],
+  [
     path.join(boundaryFixturesRoot, "illegal-adapter-import.ts"),
     "src/main/adapters/alpha-test/illegal-import-fixture.ts"
   ]
@@ -56,6 +68,9 @@ describe("import boundaries", () => {
   it("allows the current core and adapter tree", async () => {
     const srcFiles = [
       ...(await collectTypeScriptFiles(coreRoot)),
+      ...(await collectTypeScriptFiles(mainAppRoot)),
+      ...(await collectTypeScriptFiles(mainIpcRoot)),
+      ...(await collectTypeScriptFiles(preloadRoot)),
       ...(await collectTypeScriptFiles(adaptersRoot)),
       ...(await collectTypeScriptFiles(rendererRoot))
     ];
@@ -73,7 +88,7 @@ describe("import boundaries", () => {
         sourceLogicalPath: "src/main/core/illegal-import-fixture.ts",
         targetLogicalPath: "src/main/adapters/fake-test/normalize.ts",
         reason:
-          "Shared core can only import bundled adapter entrypoints from the registry composition root."
+          "Shared main code can only import bundled adapter entrypoints from the registry composition root."
       })
     ]);
   });
@@ -100,6 +115,28 @@ describe("import boundaries", () => {
         sourceLogicalPath: "src/renderer/illegal-main-import-fixture.ts",
         targetLogicalPath: "src/main/core/adapter-contract/index.ts",
         reason: "Renderer code must not import main-process internals."
+      })
+    ]);
+  });
+
+  it("rejects app and preload files importing adapter-private code", async () => {
+    const violations = await findBoundaryViolations([
+      path.join(boundaryFixturesRoot, "illegal-main-app-import.ts"),
+      path.join(boundaryFixturesRoot, "illegal-preload-import.ts")
+    ]);
+
+    expect(violations).toEqual([
+      expect.objectContaining({
+        sourceLogicalPath: "src/main/app/illegal-import-fixture.ts",
+        targetLogicalPath: "src/main/adapters/fake-test/descriptor.ts",
+        reason:
+          "Shared main code can only import bundled adapter entrypoints from the registry composition root."
+      }),
+      expect.objectContaining({
+        sourceLogicalPath: "src/preload/illegal-import-fixture.ts",
+        targetLogicalPath: "src/main/adapters/fake-test/descriptor.ts",
+        reason:
+          "Shared main code can only import bundled adapter entrypoints from the registry composition root."
       })
     ]);
   });
@@ -136,7 +173,7 @@ async function findBoundaryViolations(files: string[]): Promise<BoundaryViolatio
       const targetLogicalPath = normalizeRepoPath(targetFile);
       const targetKind = classifySourcePath(targetLogicalPath);
 
-      if (sourceKind.type === "core" && targetKind.type === "adapter") {
+      if (isSharedMainSource(sourceKind) && targetKind.type === "adapter") {
         if (
           allowedCoreAdapterEntrypoints.has(sourceLogicalPath) &&
           path.posix.basename(targetLogicalPath) === "index.ts"
@@ -151,7 +188,7 @@ async function findBoundaryViolations(files: string[]): Promise<BoundaryViolatio
           targetFile,
           targetLogicalPath,
           reason:
-            "Shared core can only import bundled adapter entrypoints from the registry composition root."
+            "Shared main code can only import bundled adapter entrypoints from the registry composition root."
         });
         continue;
       }
@@ -170,7 +207,7 @@ async function findBoundaryViolations(files: string[]): Promise<BoundaryViolatio
 
       if (
         sourceKind.type === "renderer" &&
-        (targetKind.type === "core" || targetKind.type === "main")
+        (targetKind.type === "core" || targetKind.type === "main" || targetKind.type === "preload")
       ) {
         violations.push({
           sourceFile: file,
@@ -302,6 +339,10 @@ function classifySourcePath(file: string): SourceKind {
     return { type: "renderer" };
   }
 
+  if (normalized.startsWith("src/preload/")) {
+    return { type: "preload" };
+  }
+
   const adapterMatch = normalized.match(/^src\/main\/adapters\/([^/]+)\//u);
 
   if (adapterMatch) {
@@ -317,6 +358,10 @@ function classifySourcePath(file: string): SourceKind {
   }
 
   return { type: "other" };
+}
+
+function isSharedMainSource(sourceKind: SourceKind): boolean {
+  return sourceKind.type === "core" || sourceKind.type === "main" || sourceKind.type === "preload";
 }
 
 function isMissingDirectory(error: unknown): error is NodeJS.ErrnoException {

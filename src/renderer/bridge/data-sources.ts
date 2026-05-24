@@ -1,8 +1,6 @@
 type AgentWorkbenchBridge = Window["agentWorkbench"];
 type NativeListSourcesResponse = Awaited<ReturnType<AgentWorkbenchBridge["listSources"]>>;
-type NativeLegacyDataSourcesResponse = Awaited<
-  ReturnType<AgentWorkbenchBridge["setDataSourceEnabled"]>
->;
+type NativeMutationSourcesResponse = Awaited<ReturnType<AgentWorkbenchBridge["updateSource"]>>;
 type NativeOpenArchiveResponse = Awaited<ReturnType<AgentWorkbenchBridge["openArchive"]>>;
 type NativeSourcesResponse = Extract<NativeListSourcesResponse, { ok: true }>;
 type NativeDataSourcesViewModel = NativeSourcesResponse["sources"];
@@ -203,7 +201,7 @@ export async function setDataSourceEnabled(
   request: SetDataSourceEnabledRequest
 ): Promise<DataSourceMutationResponse> {
   const response = request.enabled
-    ? await getBridge().setDataSourceEnabled(request)
+    ? await getBridge().updateSource(request)
     : await getBridge().disableSource({ sourceId: request.sourceId });
 
   return mapMutationResponse(response, (source) => source.sourceId === request.sourceId);
@@ -281,14 +279,14 @@ function matchesReplacementSource(
 }
 
 function mapMutationResponse(
-  response: NativeListSourcesResponse | NativeLegacyDataSourcesResponse,
+  response: NativeListSourcesResponse | NativeMutationSourcesResponse,
   predicate: (source: NativeDataSourceViewModel) => boolean
 ): DataSourceMutationResponse {
   if (!response.ok) {
     return response;
   }
 
-  const sources = "sources" in response ? response.sources.sources : response.dataSources.sources;
+  const sources = response.sources.sources;
   const source = sources.find(predicate);
 
   if (!source) {

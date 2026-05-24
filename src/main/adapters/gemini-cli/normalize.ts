@@ -74,7 +74,7 @@ type NormalizedMessage = {
   timestamp?: string;
   text?: string;
   modelName?: string;
-  usage?: Record<string, number>;
+  usage?: NormalizedUsageSummary;
   toolCallIds: string[];
   eventIds: string[];
   source: Record<string, string | number>;
@@ -482,7 +482,7 @@ export async function normalizeGeminiCliEvents(
         });
         const summary = `${role} message`;
 
-	        const message: NormalizedMessage = {
+        const message: NormalizedMessage = {
 	          id: messageId,
 	          sessionId,
 	          adapterId,
@@ -589,10 +589,17 @@ export async function normalizeGeminiCliEvents(
           toolCallRecord,
           locator: record.locator
         });
+        const shellEventNativeId = `shell:${toolCallRecord.id}`;
+        const shellEventId = createSessionEventId({
+          adapterId,
+          sourceId,
+          nativeId: shellEventNativeId
+        });
         const shellCommand = buildShellCommandForToolCall({
           adapterId,
           outputArtifactIds,
           sessionId,
+          sourceEventId: shellEventId,
           sourceId,
           toolCallId,
           toolCallRecord,
@@ -653,12 +660,6 @@ export async function normalizeGeminiCliEvents(
 
         if (shellCommand) {
           sessionShellCommands.set(shellCommand.id, shellCommand);
-          const shellEventNativeId = `shell:${toolCallRecord.id}`;
-          const shellEventId = createSessionEventId({
-            adapterId,
-            sourceId,
-            nativeId: shellEventNativeId
-          });
           const shellSummary = shellCommand.command ?? "run_shell_command";
 	          sessionEvents.push({
 	            id: shellEventId,
@@ -1235,6 +1236,7 @@ function buildShellCommandForToolCall(args: {
   locator: EventLocator;
   outputArtifactIds: string[];
   sessionId: string;
+  sourceEventId: string;
   sourceId: string;
   toolCallId: string;
   toolCallRecord: GeminiToolCallRecord;
@@ -1272,7 +1274,11 @@ function buildShellCommandForToolCall(args: {
 	    ...(outputInline ? { outputInline } : {}),
 	    outputArtifactIds: args.outputArtifactIds,
 	    ...(args.toolCallRecord.status ? { rawStatus: args.toolCallRecord.status } : {}),
-	    source: buildRawPointer(args.locator, `shell:${args.toolCallRecord.id}`),
+	    source: buildRawPointer(
+      args.locator,
+      `shell:${args.toolCallRecord.id}`,
+      args.sourceEventId
+    ),
 	    confidence: CONFIRMED
   };
 }

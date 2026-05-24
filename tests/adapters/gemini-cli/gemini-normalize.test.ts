@@ -24,7 +24,7 @@ describe("gemini-cli normalization", () => {
       (session) => session.nativeSessionId === "11111111-1111-4111-8111-111111111111"
     );
     const alphaFinalMessage = normalized.messages.find(
-      (message) => message.nativeId === "assistant-final-111:8"
+      (message) => message.nativeId === "assistant-final-111:9"
     );
 
     expect(normalized.projects[0]).toMatchObject({
@@ -38,6 +38,32 @@ describe("gemini-cli normalization", () => {
     ]);
     expect(normalized.messages.map((message) => message.role)).toEqual(
       expect.arrayContaining(["assistant", "system", "user"])
+    );
+    expect(
+      normalized.messages
+        .filter((message) => message.modelName)
+        .map((message) => ({
+          modelName: message.modelName,
+          usage: message.usage
+        }))
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          modelName: "gemini-3-flash-preview",
+          usage: expect.objectContaining({
+            inputTokens: 200,
+            outputTokens: 80,
+            totalTokens: 280
+          })
+        }
+      ])
+    );
+    expect(normalized.sessions[0]?.usage).toEqual(
+      expect.objectContaining({
+        inputTokens: 420,
+        outputTokens: 110,
+        totalTokens: 552
+      })
     );
     expect(normalized.toolCalls.map((toolCall) => toolCall.name)).toEqual(
       expect.arrayContaining([
@@ -188,6 +214,39 @@ describe("gemini-cli normalization", () => {
     expect(normalized.shellCommands[0]).toMatchObject({
       command: "npm run test -- tests/main/core/scanner-cache.test.ts"
     });
+  });
+
+  it("keeps shell failure evidence as output text when Gemini lacks exit-code support", async () => {
+    const deltaSource = await requireGeminiSource(geminiFixtureRoot, "delta-project");
+    const artifacts = await collectGeminiArtifacts(deltaSource);
+    const rawEvents = (
+      await Promise.all(
+        artifacts.map((artifact) =>
+          collectAsync(
+            geminiCliAdapter.parseArtifact(artifact, createGeminiAdapterContext(deltaSource.rootPath))
+          )
+        )
+      )
+    ).flat();
+    const normalized = await geminiCliAdapter.normalize(
+      {
+        source: deltaSource,
+        artifacts,
+        rawEvents
+      },
+      createGeminiAdapterContext(deltaSource.rootPath)
+    );
+
+    expect(normalized.sessions[0]?.lifecycleStatus).toBe("cancelled");
+    expect(normalized.shellCommands[0]).toMatchObject({
+      command: "npm run test -- tests/main/core/run-audit-engine.test.ts",
+      outputInline: "1 test failed",
+      rawStatus: "success"
+    });
+    expect(normalized.shellCommands[0]?.source?.eventId).toBe(
+      normalized.events.find((event) => event.kind === "shell-command")?.id
+    );
+    expect(normalized.shellCommands[0]?.rawExitCode).toBeUndefined();
   });
 
   it("omits blank tool output summaries so cache persistence accepts live Gemini sessions", async () => {
