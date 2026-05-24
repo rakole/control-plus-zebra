@@ -187,7 +187,7 @@ Plans:
 **Wave 1**
 - [x] 07-01: Implement read-only git provider and root-confidence gating.
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 07-02: Implement optional read-only GitHub provider and failure semantics.
+- [x] 07-02: Implement optional read-only GitHub provider and failure semantics.
 - [ ] 07-03: Implement harness-neutral export archive with privacy warnings.
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 07-04: Implement archive import as a read-only source.
@@ -228,5 +228,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 4. Gemini CLI Adapter End-to-End | 4/4 | Complete | 2026-05-23 |
 | 5. Shared Shell, Verification, and Run Audit | 4/4 | Complete | 2026-05-24 |
 | 6. Harness-Neutral Triage UI | 5/5 | Complete | 2026-05-24 |
-| 7. Git, GitHub, Export, and Import | 1/4 | In Progress | - |
+| 7. Git, GitHub, Export, and Import | 2/4 | In Progress | - |
 | 8. Hardening, Packaging, and Readiness | 0/3 | Not started | - |
