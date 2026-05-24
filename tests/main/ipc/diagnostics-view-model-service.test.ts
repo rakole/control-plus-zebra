@@ -25,5 +25,21 @@ describe("diagnostics view model service", () => {
         group.diagnostics.every((diagnostic) => !diagnostic.message.includes("/tmp/"))
       )
     ).toBe(true);
+
+    const rows = diagnostics.groups.flatMap((group) => group.diagnostics);
+    const rowKeys = rows.map((row) =>
+      [
+        row.adapterId,
+        row.code,
+        row.severity,
+        row.message,
+        row.sessionId ?? "",
+        row.sessionTitle ?? "",
+        row.projectDisplayName ?? ""
+      ].join("\0")
+    );
+
+    expect(new Set(rowKeys).size).toBe(rowKeys.length);
+    expect(rows.filter((row) => row.sessionId).every((row) => row.sessionTitle)).toBe(true);
   });
 });

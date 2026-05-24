@@ -953,15 +953,33 @@ function buildDiagnosticsBySession(
       .filter((record) => record.sourceId === session.sourceId)
       .flatMap((record) => record.normalized.diagnostics)
       .filter(
-        (diagnostic) =>
-          diagnostic.sourceId === session.sourceId ||
-          diagnostic.relatedEntityIds?.includes(session.id) === true
+        (diagnostic) => isDiagnosticRelatedToSession(diagnostic, session)
       );
 
     diagnosticsBySession.set(session.id, dedupeDiagnostics(diagnostics));
   }
 
   return diagnosticsBySession;
+}
+
+function isDiagnosticRelatedToSession(diagnostic: Diagnostic, session: Session): boolean {
+  const relatedEntityIds = new Set([
+    session.id,
+    ...(session.eventIds ?? []),
+    ...(session.messageIds ?? []),
+    ...(session.toolCallIds ?? []),
+    ...(session.shellCommandIds ?? []),
+    ...(session.outputArtifactIds ?? []),
+    ...(session.fileMutationIds ?? [])
+  ]);
+
+  if (diagnostic.relatedEntityIds?.some((entityId) => relatedEntityIds.has(entityId))) {
+    return true;
+  }
+
+  const nativeSessionId = getSessionNativeSessionId(session) ?? session.nativeId;
+
+  return typeof diagnostic.metadata?.sessionId === "string" && diagnostic.metadata.sessionId === nativeSessionId;
 }
 
 function buildDerivedBySession(

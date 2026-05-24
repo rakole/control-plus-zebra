@@ -101,11 +101,18 @@ describe("session view model service", () => {
 
     const service = createSessionViewModelService({ runtime });
     const sessions = await service.listSessions();
-    const geminiSession = sessions.find((session) => session.adapterId === "gemini-cli");
+    const geminiSession = sessions.find(
+      (session) => session.nativeSessionId === "11111111-1111-4111-8111-111111111111"
+    );
 
     expect(geminiSession).toBeDefined();
     expect(geminiSession?.adapterDisplayName).toBe("Gemini CLI");
     expect(geminiSession?.evidenceSummary.toolCalls).toBeGreaterThan(0);
+    expect(geminiSession?.usageSummary.tokenCount).toMatchObject({
+      status: "value",
+      numericValue: 552,
+      displayValue: "552"
+    });
     expect(findForbiddenKeys(geminiSession)).toEqual([]);
 
     if (!geminiSession) {
@@ -173,6 +180,7 @@ describe("session view model service", () => {
     expect(logOnlySession?.evidenceSummary.messages).toBe(2);
     expect(logOnlySession?.evidenceSummary.toolCalls).toBe(0);
     expect(logOnlySession?.evidenceSummary.shellCommands).toBe(0);
+    expect(logOnlySession?.evidenceSummary.diagnostics).toBe(0);
   });
 
   it("renders imported archive sessions without depending on the original local source root", async () => {

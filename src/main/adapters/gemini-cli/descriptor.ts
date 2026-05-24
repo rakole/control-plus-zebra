@@ -24,7 +24,7 @@ const geminiCliCapabilityGroups = {
     toolCalls: true,
     toolResults: true,
     fileReads: true,
-    fileSearches: false,
+    fileSearches: true,
     fileMutations: true,
     diffStats: false,
     shellCommands: true,

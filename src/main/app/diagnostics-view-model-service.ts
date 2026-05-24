@@ -43,8 +43,13 @@ export function createDiagnosticsViewModelService(
       const data = await loadTriageData(runtime);
       const sources = await runtime.sourceRegistry.listSources();
       const sessions = filterSessions(data, parsed.adapterId);
+      const sessionDiagnosticIds = new Set(
+        sessions.flatMap((session) =>
+          getDiagnosticsForSession(data, session).map((diagnostic) => diagnostic.id)
+        )
+      );
       const rows = [
-        ...sources.flatMap((source) => collectSourceRows(data, source)),
+        ...sources.flatMap((source) => collectSourceRows(data, source, sessionDiagnosticIds)),
         ...sessions.flatMap((session) => {
           const preview = buildSessionPreviewViewModel(data, session);
           const project = getProjectForSession(data, session);
@@ -131,19 +136,50 @@ export function createDiagnosticsViewModelService(
 
 function collectSourceRows(
   data: Awaited<ReturnType<typeof loadTriageData>>,
-  source: SourceRecord
+  source: SourceRecord,
+  sessionDiagnosticIds: Set<string>
 ): DiagnosticRowViewModel[] {
-  return [
+  const rows = [
     ...source.validation.diagnostics.map((diagnostic) =>
       toDiagnosticRow(data, source.adapterId, "source", diagnostic)
     ),
-    ...source.scan.diagnostics.map((diagnostic) =>
-      toDiagnosticRow(data, source.adapterId, mapDiagnosticArea(diagnostic), diagnostic)
-    ),
-    ...source.cache.diagnostics.map((diagnostic) =>
-      toDiagnosticRow(data, source.adapterId, "cache", diagnostic)
-    )
+    ...source.scan.diagnostics
+      .filter((diagnostic) => !sessionDiagnosticIds.has(diagnostic.id))
+      .map((diagnostic) =>
+        toDiagnosticRow(data, source.adapterId, mapDiagnosticArea(diagnostic), diagnostic)
+      ),
+    ...source.cache.diagnostics
+      .filter((diagnostic) => !sessionDiagnosticIds.has(diagnostic.id))
+      .map((diagnostic) => toDiagnosticRow(data, source.adapterId, "cache", diagnostic))
   ];
+
+  return dedupeRows(rows);
+}
+
+function dedupeRows(rows: DiagnosticRowViewModel[]): DiagnosticRowViewModel[] {
+  const seen = new Set<string>();
+  const deduped: DiagnosticRowViewModel[] = [];
+
+  for (const row of rows) {
+    const key = [
+      row.adapterId,
+      row.code,
+      row.severity,
+      row.message,
+      row.sessionId ?? "",
+      row.sessionTitle ?? "",
+      row.projectDisplayName ?? ""
+    ].join("\0");
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(row);
+  }
+
+  return deduped;
 }
 
 function humanizeSeverity(severity: "info" | "warning" | "error"): string {

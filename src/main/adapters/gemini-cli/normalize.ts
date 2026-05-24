@@ -74,6 +74,7 @@ type NormalizedMessage = {
   timestamp?: string;
   text?: string;
   modelName?: string;
+  usage?: Record<string, number>;
   toolCallIds: string[];
   eventIds: string[];
   source: Record<string, string | number>;
@@ -134,6 +135,13 @@ type NormalizedShellCommand = {
   rawExitCode?: number;
   source: Record<string, string | number>;
   confidence: string;
+};
+
+type NormalizedUsageSummary = {
+  cacheReadTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
 };
 
 type NormalizedOutputArtifact = {
@@ -213,6 +221,7 @@ function mapToolKind(name: string) {
     case "read_file":
       return "read";
     case "grep":
+    case "grep_search":
     case "search_file":
     case "glob":
       return "search";
@@ -481,12 +490,13 @@ export async function normalizeGeminiCliEvents(
 	          nativeId: messageNativeId,
 	          kind: "session-message",
 	          role,
-	          ...(record.record.timestamp ? { timestamp: record.record.timestamp } : {}),
-	          text: recordText,
-	          ...(record.record.model ? { modelName: record.record.model } : {}),
-	          toolCallIds: [],
-	          eventIds: [messageEventId],
-	          source: buildRawPointer(record.locator, `message:${messageNativeId}`, messageEventId),
+          ...(record.record.timestamp ? { timestamp: record.record.timestamp } : {}),
+          text: recordText,
+          ...(record.record.model ? { modelName: record.record.model } : {}),
+          ...(record.record.tokens ? { usage: toUsageSummary(record.record.tokens) } : {}),
+          toolCallIds: [],
+          eventIds: [messageEventId],
+          source: buildRawPointer(record.locator, `message:${messageNativeId}`, messageEventId),
           confidence: CONFIRMED
         };
 
@@ -670,7 +680,7 @@ export async function normalizeGeminiCliEvents(
           ordinal += 1;
         }
 
-        if (matchingSidecars.length === 0) {
+        if (shouldWarnMissingSidecar(toolCallRecord, matchingSidecars.length)) {
           diagnostics.push(
             buildDiagnostic(
               adapterId,
@@ -857,7 +867,7 @@ export async function normalizeGeminiCliEvents(
       fileMutationIds: [...sessionFileMutations.values()].map((mutation) => mutation.id),
       shellCommandIds: [...sessionShellCommands.values()].map((command) => command.id),
       outputArtifactIds: [...sessionOutputArtifacts.values()].map((artifact) => artifact.id),
-	      usage: {},
+	      usage: buildSessionUsage(timeline.map((record) => record.record)),
       rawArtifactRefs: sessionRawArtifactRefs,
       diagnostics: []
     });
@@ -1026,6 +1036,86 @@ function buildTimeline(session: SessionAccumulator) {
 
     return (left.locator.lineNumber ?? 0) - (right.locator.lineNumber ?? 0);
   });
+}
+
+function shouldWarnMissingSidecar(
+  toolCallRecord: GeminiToolCallRecord,
+  sidecarCount: number
+): boolean {
+  return sidecarCount === 0 && !hasInlineToolResult(toolCallRecord);
+}
+
+function hasInlineToolResult(toolCallRecord: GeminiToolCallRecord): boolean {
+  if (
+    toolCallRecord.resultDisplay !== undefined &&
+    optionalString(summarizeUnknown(toolCallRecord.resultDisplay))
+  ) {
+    return true;
+  }
+
+  return Array.isArray(toolCallRecord.result) && toolCallRecord.result.length > 0;
+}
+
+function toUsageSummary(
+  tokens: NonNullable<GeminiTranscriptRecord["tokens"]>
+): NormalizedUsageSummary {
+  const usage: NormalizedUsageSummary = {};
+
+  if (typeof tokens.input === "number") {
+    usage.inputTokens = tokens.input;
+  }
+
+  if (typeof tokens.output === "number") {
+    usage.outputTokens = tokens.output;
+  }
+
+  if (typeof tokens.total === "number") {
+    usage.totalTokens = tokens.total;
+  }
+
+  if (typeof tokens.cached === "number") {
+    usage.cacheReadTokens = tokens.cached;
+  }
+
+  return removeUndefinedUsageFields(usage);
+}
+
+function buildSessionUsage(records: GeminiTranscriptRecord[]): NormalizedUsageSummary {
+  const totals = records.reduce<Required<NormalizedUsageSummary>>(
+    (current, record) => {
+      const usage = record.tokens ? toUsageSummary(record.tokens) : {};
+
+      return {
+        inputTokens: current.inputTokens + (usage.inputTokens ?? 0),
+        outputTokens: current.outputTokens + (usage.outputTokens ?? 0),
+        totalTokens: current.totalTokens + (usage.totalTokens ?? 0),
+        cacheReadTokens: current.cacheReadTokens + (usage.cacheReadTokens ?? 0)
+      };
+    },
+    {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      cacheReadTokens: 0
+    }
+  );
+
+  return removeUndefinedUsageFields({
+    inputTokens: totals.inputTokens,
+    outputTokens: totals.outputTokens,
+    totalTokens: totals.totalTokens,
+    cacheReadTokens: totals.cacheReadTokens
+  });
+}
+
+function removeUndefinedUsageFields(
+  usage: Required<NormalizedUsageSummary>
+): NormalizedUsageSummary;
+function removeUndefinedUsageFields(usage: NormalizedUsageSummary): NormalizedUsageSummary;
+function removeUndefinedUsageFields(usage: NormalizedUsageSummary): NormalizedUsageSummary {
+  return Object.fromEntries(
+    Object.entries(usage).filter(([, value]) => typeof value === "number" && value > 0)
+  ) as NormalizedUsageSummary;
 }
 
 function sortLogEntries(entries: SessionAccumulator["logEntries"]) {
