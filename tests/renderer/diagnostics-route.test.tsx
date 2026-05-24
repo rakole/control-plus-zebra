@@ -75,7 +75,7 @@ describe("Diagnostics route", () => {
     expect(within(errorGroup).getByText("error")).toBeInTheDocument();
 
     const user = userEvent.setup();
-    await user.selectOptions(screen.getByRole("combobox"), "error");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Severity" }), "error");
 
     expect(screen.queryByRole("region", { name: "Capability Warnings" })).not.toBeInTheDocument();
     expect(await screen.findByRole("region", { name: "Cache Errors" })).toBeInTheDocument();

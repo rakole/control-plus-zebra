@@ -1,10 +1,11 @@
 type AgentWorkbenchBridge = Window["agentWorkbench"];
-type NativeListDataSourcesResponse = Awaited<
-  ReturnType<AgentWorkbenchBridge["listDataSources"]>
+type NativeListSourcesResponse = Awaited<ReturnType<AgentWorkbenchBridge["listSources"]>>;
+type NativeLegacyDataSourcesResponse = Awaited<
+  ReturnType<AgentWorkbenchBridge["setDataSourceEnabled"]>
 >;
 type NativeOpenArchiveResponse = Awaited<ReturnType<AgentWorkbenchBridge["openArchive"]>>;
-type NativeDataSourcesResponse = Extract<NativeListDataSourcesResponse, { ok: true }>;
-type NativeDataSourcesViewModel = NativeDataSourcesResponse["dataSources"];
+type NativeSourcesResponse = Extract<NativeListSourcesResponse, { ok: true }>;
+type NativeDataSourcesViewModel = NativeSourcesResponse["sources"];
 type NativeDataSourceAdapterViewModel = NativeDataSourcesViewModel["adapters"][number];
 type NativeDataSourceViewModel = NativeDataSourcesViewModel["sources"][number];
 type NativeCapabilityGroupViewModel =
@@ -165,7 +166,7 @@ function getBridge(): AgentWorkbenchBridge {
 }
 
 export async function listDataSources(): Promise<ListDataSourcesResponse> {
-  const response = await getBridge().listDataSources();
+  const response = await getBridge().listSources();
 
   if (!response.ok) {
     return response;
@@ -173,15 +174,15 @@ export async function listDataSources(): Promise<ListDataSourcesResponse> {
 
   return {
     ok: true,
-    adapters: response.dataSources.adapters.map(mapAdapter),
-    sources: response.dataSources.sources.map(mapSource)
+    adapters: response.sources.adapters.map(mapAdapter),
+    sources: response.sources.sources.map(mapSource)
   };
 }
 
 export async function addDataSource(
   request: CreateDataSourceRequest
 ): Promise<DataSourceMutationResponse> {
-  const response = await getBridge().addDataSource(request);
+  const response = await getBridge().addSource(request);
 
   return mapMutationResponse(response, (source) =>
     source.adapterId === request.adapterId && source.rootPath === request.rootPath
@@ -191,7 +192,7 @@ export async function addDataSource(
 export async function updateDataSource(
   request: UpdateDataSourceRequest
 ): Promise<DataSourceMutationResponse> {
-  const response = await getBridge().updateDataSource(request);
+  const response = await getBridge().updateSource(request);
 
   return mapMutationResponse(response, (source) =>
     source.adapterId === request.adapterId && source.rootPath === request.rootPath
@@ -201,7 +202,9 @@ export async function updateDataSource(
 export async function setDataSourceEnabled(
   request: SetDataSourceEnabledRequest
 ): Promise<DataSourceMutationResponse> {
-  const response = await getBridge().setDataSourceEnabled(request);
+  const response = request.enabled
+    ? await getBridge().setDataSourceEnabled(request)
+    : await getBridge().disableSource({ sourceId: request.sourceId });
 
   return mapMutationResponse(response, (source) => source.sourceId === request.sourceId);
 }
@@ -210,7 +213,7 @@ export async function validateDataSource(
   request: DataSourceActionRequest
 ): Promise<DataSourceMutationResponse> {
   const previous = await loadSourceById(request.sourceId);
-  const response = await getBridge().validateDataSource(request);
+  const response = await getBridge().validateSource(request);
 
   return mapMutationResponse(response, (source) =>
     source.sourceId === request.sourceId || matchesReplacementSource(source, previous)
@@ -220,7 +223,7 @@ export async function validateDataSource(
 export async function scanDataSource(
   request: DataSourceActionRequest
 ): Promise<DataSourceMutationResponse> {
-  const response = await getBridge().scanDataSource(request);
+  const response = await getBridge().rescanSource(request);
 
   return mapMutationResponse(response, (source) => source.sourceId === request.sourceId);
 }
@@ -243,13 +246,13 @@ export async function openArchive(
 async function loadSourceById(
   sourceId: string
 ): Promise<NativeDataSourceViewModel | null> {
-  const response = await getBridge().listDataSources();
+  const response = await getBridge().listSources();
 
   if (!response.ok) {
     return null;
   }
 
-  return response.dataSources.sources.find((source) => source.sourceId === sourceId) ?? null;
+  return response.sources.sources.find((source) => source.sourceId === sourceId) ?? null;
 }
 
 function matchesReplacementSource(
@@ -278,14 +281,15 @@ function matchesReplacementSource(
 }
 
 function mapMutationResponse(
-  response: NativeListDataSourcesResponse,
+  response: NativeListSourcesResponse | NativeLegacyDataSourcesResponse,
   predicate: (source: NativeDataSourceViewModel) => boolean
 ): DataSourceMutationResponse {
   if (!response.ok) {
     return response;
   }
 
-  const source = response.dataSources.sources.find(predicate);
+  const sources = "sources" in response ? response.sources.sources : response.dataSources.sources;
+  const source = sources.find(predicate);
 
   if (!source) {
     return {

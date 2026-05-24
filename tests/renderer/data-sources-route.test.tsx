@@ -1,11 +1,11 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../../src/renderer/App.js";
 import type {
   DataSourceAdapterViewModel,
-  DataSourcesResponse,
+  SourcesResponse,
   DataSourceViewModel as IpcDataSourceViewModel
 } from "../../src/main/ipc/view-models.js";
 
@@ -145,10 +145,10 @@ describe("Data Sources route", () => {
   beforeEach(() => {
     window.location.hash = "#/data-sources";
 
-    listDataSources.mockResolvedValue(buildDataSourcesResponse([firstSource, secondSource]));
+    listDataSources.mockResolvedValue(buildSourcesResponse([firstSource, secondSource]));
     addDataSource.mockImplementation(({ adapterId, displayName, rootPath, enabled }) =>
       Promise.resolve(
-        buildDataSourcesResponse([
+        buildSourcesResponse([
           buildSource({
             sourceId: "source-new",
             adapterId,
@@ -174,7 +174,7 @@ describe("Data Sources route", () => {
     );
     updateDataSource.mockImplementation(({ sourceId, adapterId, displayName, rootPath }) =>
       Promise.resolve(
-        buildDataSourcesResponse([
+        buildSourcesResponse([
           buildSource({
             sourceId,
             adapterId,
@@ -199,7 +199,7 @@ describe("Data Sources route", () => {
     );
     setDataSourceEnabled.mockImplementation(({ sourceId, enabled }) =>
       Promise.resolve(
-        buildDataSourcesResponse([
+        buildSourcesResponse([
           buildSource({
             ...firstSource,
             sourceId,
@@ -211,7 +211,7 @@ describe("Data Sources route", () => {
       )
     );
     validateDataSource.mockResolvedValue(
-      buildDataSourcesResponse([
+      buildSourcesResponse([
         buildSource({
           sourceId: "source-new",
           adapterId: "fixture-harness",
@@ -233,7 +233,7 @@ describe("Data Sources route", () => {
       ])
     );
     scanDataSource.mockResolvedValue(
-      buildDataSourcesResponse([
+      buildSourcesResponse([
         buildSource({
           sourceId: "source-new",
           adapterId: "fixture-harness",
@@ -276,6 +276,12 @@ describe("Data Sources route", () => {
         openArchive: openArchiveBridge,
         listSessions: vi.fn(),
         getSessionById: vi.fn(),
+        listSources: listDataSources,
+        addSource: addDataSource,
+        updateSource: updateDataSource,
+        disableSource: setDataSourceEnabled,
+        validateSource: validateDataSource,
+        rescanSource: scanDataSource,
         listDataSources,
         addDataSource,
         updateDataSource,
@@ -416,9 +422,9 @@ describe("Data Sources route", () => {
         sourceId: "source-archive-new"
       }
     });
-    listDataSources.mockResolvedValueOnce(buildDataSourcesResponse([firstSource, secondSource]));
+    listDataSources.mockResolvedValueOnce(buildSourcesResponse([firstSource, secondSource]));
     listDataSources.mockResolvedValueOnce(
-      buildDataSourcesResponse([importedSource, firstSource, secondSource])
+      buildSourcesResponse([importedSource, firstSource, secondSource])
     );
 
     renderDataSourcesRoute();
@@ -457,12 +463,15 @@ describe("Data Sources route", () => {
       await screen.findByRole("button", { name: /Fixture Root/u });
       await user.click(screen.getByRole("button", { name: "Add Source" }));
 
-      await user.clear(screen.getByRole("textbox", { name: "Source Name" }));
-      await user.type(screen.getByRole("textbox", { name: "Source Name" }), "Fresh Source");
-      await user.type(screen.getByRole("textbox", { name: "Source Root Path" }), "/tmp/fresh-source");
+      fireEvent.change(screen.getByRole("textbox", { name: "Source Name" }), {
+        target: { value: "Fresh Source" }
+      });
+      fireEvent.change(screen.getByRole("textbox", { name: "Source Root Path" }), {
+        target: { value: "/tmp/fresh-source" }
+      });
 
       const validateButton = screen.getByRole("button", { name: "Validate Source" });
-      expect(validateButton).toBeEnabled();
+      await waitFor(() => expect(validateButton).toBeEnabled());
 
       await user.click(validateButton);
 
@@ -491,9 +500,15 @@ describe("Data Sources route", () => {
 
       await screen.findByRole("button", { name: /Fixture Root/u });
       await user.click(screen.getByRole("button", { name: "Add Source" }));
-      await user.type(screen.getByRole("textbox", { name: "Source Name" }), "Fresh Source");
-      await user.type(screen.getByRole("textbox", { name: "Source Root Path" }), "/tmp/fresh-source");
-      await user.click(screen.getByRole("button", { name: "Validate Source" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "Source Name" }), {
+        target: { value: "Fresh Source" }
+      });
+      fireEvent.change(screen.getByRole("textbox", { name: "Source Root Path" }), {
+        target: { value: "/tmp/fresh-source" }
+      });
+      const validateButton = screen.getByRole("button", { name: "Validate Source" });
+      await waitFor(() => expect(validateButton).toBeEnabled());
+      await user.click(validateButton);
 
       await waitFor(() =>
         expect(validateDataSource).toHaveBeenCalledWith({ sourceId: "source-new" })
@@ -523,7 +538,6 @@ describe("Data Sources route", () => {
 
       await waitFor(() =>
         expect(setDataSourceEnabled).toHaveBeenCalledWith({
-          enabled: false,
           sourceId: "source-1"
         })
       );
@@ -532,7 +546,7 @@ describe("Data Sources route", () => {
   });
 
   it("renders the exact empty state copy", async () => {
-    listDataSources.mockResolvedValueOnce(buildDataSourcesResponse([]));
+    listDataSources.mockResolvedValueOnce(buildSourcesResponse([]));
 
     renderDataSourcesRoute();
 
@@ -551,7 +565,7 @@ describe("Data Sources route", () => {
         code: "data-sources.list.failed",
         message: "Raw path leak /Users/private/source-root"
       }
-    } satisfies DataSourcesResponse);
+    } satisfies SourcesResponse);
 
     renderDataSourcesRoute();
 
@@ -565,7 +579,7 @@ describe("Data Sources route", () => {
 
   it("shows validation and scan failure copy when the selected source reports failed states", async () => {
     listDataSources.mockResolvedValueOnce(
-      buildDataSourcesResponse([
+      buildSourcesResponse([
         buildSource({
           sourceId: "source-3",
           adapterId: "fixture-harness",
@@ -611,13 +625,13 @@ function renderDataSourcesRoute() {
   render(<App />);
 }
 
-function buildDataSourcesResponse(
+function buildSourcesResponse(
   sources: IpcDataSourceViewModel[],
   adapterList: DataSourceAdapterViewModel[] = adapters
-): DataSourcesResponse {
+): SourcesResponse {
   return {
     ok: true,
-    dataSources: {
+    sources: {
       adapters: adapterList,
       sources
     }

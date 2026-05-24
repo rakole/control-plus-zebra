@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { listDiagnostics } from "../../../bridge/agent-workbench.js";
 import { EmptyState } from "../../../components/app/empty-state.js";
@@ -17,6 +18,8 @@ const ERROR_COPY =
   "Diagnostics could not load. Check the preload bridge and IPC handler, then reload triage data.";
 
 export function DiagnosticsRoute() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedAdapterId = searchParams.get("adapterId") ?? "all";
   const [diagnostics, setDiagnostics] = useState<DiagnosticsView | null>(null);
   const [selectedSeverity, setSelectedSeverity] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(true);
@@ -24,8 +27,11 @@ export function DiagnosticsRoute() {
 
   useEffect(() => {
     let isCurrent = true;
+    setIsLoading(true);
+    setLoadFailed(false);
+    setDiagnostics(null);
 
-    listDiagnostics()
+    listDiagnostics(selectedAdapterId === "all" ? {} : { adapterId: selectedAdapterId })
       .then((response) => {
         if (!isCurrent) {
           return;
@@ -51,7 +57,21 @@ export function DiagnosticsRoute() {
     return () => {
       isCurrent = false;
     };
-  }, []);
+  }, [selectedAdapterId]);
+
+  function handleAdapterChange(adapterId: string) {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+
+      if (adapterId === "all") {
+        next.delete("adapterId");
+      } else {
+        next.set("adapterId", adapterId);
+      }
+
+      return next;
+    });
+  }
 
   const groups = useMemo(() => {
     if (!diagnostics) {
@@ -73,6 +93,21 @@ export function DiagnosticsRoute() {
         description="Group shared adapter, source, normalization, cache, and capability findings without collapsing unsupported states."
         actions={
           <Toolbar ariaLabel="Diagnostics filters" className="justify-end">
+            <label className="grid gap-1 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Harness</span>
+              <NativeSelect
+                aria-label="Harness"
+                onChange={(event) => handleAdapterChange(event.target.value)}
+                value={selectedAdapterId}
+              >
+                <option value="all">All Harnesses</option>
+                {diagnostics?.harnessFilters.map((filter) => (
+                  <option key={filter.adapterId} value={filter.adapterId}>
+                    {filter.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
             <label className="grid gap-1 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">Severity</span>
               <NativeSelect

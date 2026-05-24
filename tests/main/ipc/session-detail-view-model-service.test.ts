@@ -32,4 +32,66 @@ describe("session detail view model service", () => {
     );
     expect(JSON.stringify(detail)).not.toContain("artifacts/implementation-note.txt");
   });
+
+  it("keeps multiple output artifacts for one timeline event reachable", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const records = await runtime.cacheStore.load();
+    const record = records.find((candidate) => candidate.normalized.sessions[0]);
+    const session = record?.normalized.sessions[0];
+
+    expect(record).toBeDefined();
+    expect(session).toBeDefined();
+    if (!record || !session) {
+      throw new Error("Expected a cached session.");
+    }
+
+    const eventId = "event-multiple-artifacts";
+    record.normalized.events.push({
+      id: eventId,
+      entityType: "session-event",
+      adapterId: record.adapterId,
+      sourceId: record.sourceId,
+      sessionId: session.id,
+      kind: "tool-result",
+      title: "Multiple output artifacts",
+      text: "Generated multiple output artifacts.",
+      orderKey: "zz-multiple-artifacts",
+      diagnostics: [],
+      diagnosticIds: []
+    });
+    const firstArtifact = {
+      id: "artifact-multiple-1",
+      adapterId: record.adapterId,
+      sourceId: record.sourceId,
+      sessionId: session.id,
+      entityType: "output-artifact" as const,
+      nativeRef: "artifact-multiple-1",
+      path: "artifacts/multiple-1.txt",
+      kind: "sidecar" as const,
+      contentKind: "plain-text" as const,
+      loaded: false,
+      diagnostics: [],
+      diagnosticIds: [],
+      source: { eventId }
+    };
+    const secondArtifact = {
+      ...firstArtifact,
+      id: "artifact-multiple-2",
+      nativeRef: "artifact-multiple-2",
+      path: "artifacts/multiple-2.txt"
+    };
+    record.normalized.outputArtifacts.push(firstArtifact, secondArtifact);
+    await runtime.cacheStore.save(records);
+
+    const service = createSessionDetailViewModelService({ runtime });
+    const detail = await service.getSessionDetail({ sessionId: session.id });
+    const artifactTimelineIds =
+      detail?.timeline
+        .filter((event) => event.kind === "output-artifact")
+        .map((event) => event.id) ?? [];
+
+    expect(artifactTimelineIds).toEqual(
+      expect.arrayContaining([firstArtifact.id, secondArtifact.id])
+    );
+  });
 });

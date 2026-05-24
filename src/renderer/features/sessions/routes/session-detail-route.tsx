@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useParams } from "react-router";
 
 import { getSessionDetail } from "../../../bridge/agent-workbench.js";
 import { ErrorState } from "../../../components/app/error-state.js";
@@ -16,6 +16,7 @@ const ERROR_COPY =
 
 export function SessionDetailRoute() {
   const { sessionId } = useParams();
+  const location = useLocation();
   const [detail, setDetail] = useState<SessionDetailView | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -63,7 +64,9 @@ export function SessionDetailRoute() {
         actions={
           sessionId ? (
             <Button asChild type="button" variant="outline">
-              <Link to={`/sessions/${sessionId}/run-audit`}>Open Run Audit</Link>
+              <Link to={`/sessions/${sessionId}/run-audit${location.search}`}>
+                Open Run Audit
+              </Link>
             </Button>
           ) : null
         }

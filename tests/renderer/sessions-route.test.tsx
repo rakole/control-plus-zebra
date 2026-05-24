@@ -33,7 +33,7 @@ describe("Sessions route", () => {
 
     expect(bridge.listSessions).toHaveBeenCalledTimes(1);
     await waitFor(() =>
-      expect(bridge.getSessionById).toHaveBeenCalledWith({ sessionId: "session-1" })
+      expect(bridge.getSession).toHaveBeenCalledWith({ sessionId: "session-1" })
     );
     expect(
       within(route).getByRole("heading", { name: "Fixture session" })
@@ -58,7 +58,7 @@ describe("Sessions route", () => {
     await user.keyboard("{Enter}");
 
     await waitFor(() =>
-      expect(bridge.getSessionById).toHaveBeenLastCalledWith({ sessionId: "session-2" })
+      expect(bridge.getSession).toHaveBeenLastCalledWith({ sessionId: "session-2" })
     );
     expect(screen.getByRole("heading", { name: "Bridge preview session" })).toBeInTheDocument();
   });

@@ -10,14 +10,36 @@ describe("preload API surface", () => {
     const typesSource = await readFile("src/preload/types.ts", "utf8");
 
     expect(typesSource).toContain("getShellState()");
+    expect(typesSource).toContain("listHarnesses()");
+    expect(typesSource).toContain("getHarnessCapabilities(");
+    expect(typesSource).toContain("listSources()");
+    expect(typesSource).toContain("addSource(request");
+    expect(typesSource).toContain("updateSource(request");
+    expect(typesSource).toContain("disableSource(request");
+    expect(typesSource).toContain("validateSource(request");
+    expect(typesSource).toContain("rescanSource(request");
+    expect(typesSource).toContain("getScannerStatus()");
+    expect(typesSource).toContain("rescanAllSources()");
+    expect(typesSource).toContain("rescanScannerSource(request");
     expect(typesSource).toContain("createArchive(request");
     expect(typesSource).toContain("openArchive(request?");
+    expect(typesSource).toContain("getDashboardStats(request?");
     expect(typesSource).toContain("getOverview(request?");
     expect(typesSource).toContain("listProjects(request?");
+    expect(typesSource).toContain("getProject(request");
     expect(typesSource).toContain("listSessions(request?");
+    expect(typesSource).toContain("getSession(request");
+    expect(typesSource).toContain("getSessionTimeline(request");
     expect(typesSource).toContain("getSessionById(request");
     expect(typesSource).toContain("getSessionDetail(request");
+    expect(typesSource).toContain("getEvents(request");
+    expect(typesSource).toContain("getToolCalls(request");
+    expect(typesSource).toContain("getShellCommands(request");
+    expect(typesSource).toContain("getOutputArtifactPreview(");
+    expect(typesSource).toContain("loadOutputArtifact(request");
     expect(typesSource).toContain("getRunAudit(request");
+    expect(typesSource).toContain("getGitSnapshot(request");
+    expect(typesSource).toContain("getGitHubSnapshot(request");
     expect(typesSource).toContain("listDiagnostics(request?");
     expect(typesSource).toContain("listDataSources()");
     expect(typesSource).toContain("addDataSource(request");
@@ -27,14 +49,36 @@ describe("preload API surface", () => {
     expect(typesSource).toContain("scanDataSource(request");
     expect(extractBridgeMethodNames(typesSource)).toEqual([
       "getShellState",
+      "listHarnesses",
+      "getHarnessCapabilities",
+      "listSources",
+      "addSource",
+      "updateSource",
+      "disableSource",
+      "validateSource",
+      "rescanSource",
+      "getScannerStatus",
+      "rescanAllSources",
+      "rescanScannerSource",
       "createArchive",
       "openArchive",
+      "getDashboardStats",
       "getOverview",
       "listProjects",
+      "getProject",
       "listSessions",
+      "getSession",
+      "getSessionTimeline",
       "getSessionById",
       "getSessionDetail",
+      "getEvents",
+      "getToolCalls",
+      "getShellCommands",
+      "getOutputArtifactPreview",
+      "loadOutputArtifact",
       "getRunAudit",
+      "getGitSnapshot",
+      "getGitHubSnapshot",
       "listDiagnostics",
       "listDataSources",
       "addDataSource",
@@ -52,14 +96,36 @@ describe("preload API surface", () => {
     expect(preloadSource).toContain('contextBridge.exposeInMainWorld("agentWorkbench"');
     expect(extractBridgeMethodNames(preloadSource)).toEqual([
       "getShellState",
+      "listHarnesses",
+      "getHarnessCapabilities",
+      "listSources",
+      "addSource",
+      "updateSource",
+      "disableSource",
+      "validateSource",
+      "rescanSource",
+      "getScannerStatus",
+      "rescanAllSources",
+      "rescanScannerSource",
       "createArchive",
       "openArchive",
+      "getDashboardStats",
       "getOverview",
       "listProjects",
+      "getProject",
       "listSessions",
+      "getSession",
+      "getSessionTimeline",
       "getSessionById",
       "getSessionDetail",
+      "getEvents",
+      "getToolCalls",
+      "getShellCommands",
+      "getOutputArtifactPreview",
+      "loadOutputArtifact",
       "getRunAudit",
+      "getGitSnapshot",
+      "getGitHubSnapshot",
       "listDiagnostics",
       "listDataSources",
       "addDataSource",

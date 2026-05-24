@@ -5,6 +5,7 @@ import type { ArchiveExportService } from "../../../src/main/app/archive-export-
 import type { DiagnosticsViewModelService } from "../../../src/main/app/diagnostics-view-model-service.js";
 import { IPC_CHANNELS, registerIpcHandlers } from "../../../src/main/ipc/index.js";
 import type { DataSourcesViewModelService } from "../../../src/main/app/data-sources-view-model-service.js";
+import type { OutputArtifactViewModelService } from "../../../src/main/app/output-artifact-view-model-service.js";
 import type { RunAuditViewModelService } from "../../../src/main/app/run-audit-view-model-service.js";
 import type { SessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import type { SessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
@@ -20,6 +21,8 @@ import {
   listDiagnosticsResponseSchema,
   listProjectsResponseSchema,
   listSessionsResponseSchema,
+  outputArtifactLoadResponseSchema,
+  outputArtifactPreviewResponseSchema,
   shellStateViewModelSchema,
   type SessionPreviewViewModel,
   type SessionSummaryViewModel
@@ -33,15 +36,40 @@ describe("ipc handlers", () => {
 
     expect([...collector.handlers.keys()]).toEqual([
       IPC_CHANNELS.getShellState,
+      IPC_CHANNELS.listHarnesses,
+      IPC_CHANNELS.getHarnessCapabilities,
+      IPC_CHANNELS.listSources,
+      IPC_CHANNELS.addSource,
+      IPC_CHANNELS.updateSource,
+      IPC_CHANNELS.disableSource,
+      IPC_CHANNELS.validateSource,
+      IPC_CHANNELS.rescanSource,
+      IPC_CHANNELS.getScannerStatus,
+      IPC_CHANNELS.rescanAllSources,
+      IPC_CHANNELS.rescanScannerSource,
       IPC_CHANNELS.createArchive,
       IPC_CHANNELS.openArchive,
+      IPC_CHANNELS.getDashboardStats,
       IPC_CHANNELS.getOverview,
       IPC_CHANNELS.listProjects,
+      IPC_CHANNELS.getProject,
       IPC_CHANNELS.listSessions,
       IPC_CHANNELS.getSessionById,
+      IPC_CHANNELS.getSession,
       IPC_CHANNELS.getSessionDetail,
+      IPC_CHANNELS.getSessionTimeline,
+      IPC_CHANNELS.getEvents,
+      IPC_CHANNELS.getToolCalls,
+      IPC_CHANNELS.getShellCommands,
+      IPC_CHANNELS.getOutputArtifactPreview,
+      IPC_CHANNELS.loadOutputArtifact,
       IPC_CHANNELS.getRunAudit,
+      IPC_CHANNELS.getAuditRunAudit,
+      IPC_CHANNELS.getGitSnapshot,
+      IPC_CHANNELS.getGitHubSnapshot,
       IPC_CHANNELS.listDiagnostics,
+      // TODO(Wave 5): remove these compatibility aliases after renderer
+      // bridge callers migrate to the Wave 4 public channel names.
       IPC_CHANNELS.listDataSources,
       IPC_CHANNELS.addDataSource,
       IPC_CHANNELS.updateDataSource,
@@ -88,6 +116,14 @@ describe("ipc handlers", () => {
     const detail = await collector.invoke(IPC_CHANNELS.getSessionDetail, {
       sessionId: "session_1"
     });
+    const previewArtifact = await collector.invoke(IPC_CHANNELS.getOutputArtifactPreview, {
+      sessionId: "session_1",
+      outputArtifactId: "output-artifact_1"
+    });
+    const loadedArtifact = await collector.invoke(IPC_CHANNELS.loadOutputArtifact, {
+      sessionId: "session_1",
+      outputArtifactId: "output-artifact_1"
+    });
     const runAudit = await collector.invoke(IPC_CHANNELS.getRunAudit, {
       sessionId: "session_1"
     });
@@ -101,6 +137,8 @@ describe("ipc handlers", () => {
     expect(() => listSessionsResponseSchema.parse(list)).not.toThrow();
     expect(() => getSessionByIdResponseSchema.parse(get)).not.toThrow();
     expect(() => getSessionDetailResponseSchema.parse(detail)).not.toThrow();
+    expect(() => outputArtifactPreviewResponseSchema.parse(previewArtifact)).not.toThrow();
+    expect(() => outputArtifactLoadResponseSchema.parse(loadedArtifact)).not.toThrow();
     expect(() => getRunAuditResponseSchema.parse(runAudit)).not.toThrow();
     expect(() => listDiagnosticsResponseSchema.parse(diagnostics)).not.toThrow();
     expect(() => dataSourcesResponseSchema.parse(sources)).not.toThrow();
@@ -132,6 +170,7 @@ function createFakeServices(): {
   archiveExportService: ArchiveExportService;
   dataSourcesService: DataSourcesViewModelService;
   diagnosticsService: DiagnosticsViewModelService;
+  outputArtifactService: OutputArtifactViewModelService;
   runAuditService: RunAuditViewModelService;
   sessionService: SessionViewModelService;
   sessionDetailService: SessionDetailViewModelService;
@@ -184,6 +223,18 @@ function createFakeServices(): {
       outputArtifacts: 1,
       fileMutations: 1,
       diagnostics: 0
+    },
+    evidenceMetrics: {
+      messages: { status: "value", displayValue: "1", numericValue: 1 },
+      toolCalls: { status: "value", displayValue: "1", numericValue: 1 },
+      shellCommands: { status: "value", displayValue: "1", numericValue: 1 },
+      outputArtifacts: { status: "value", displayValue: "1", numericValue: 1 },
+      fileMutations: { status: "value", displayValue: "1", numericValue: 1 },
+      diagnostics: { status: "value", displayValue: "0", numericValue: 0 }
+    },
+    usageSummary: {
+      models: { status: "unknown", displayValue: "Unknown" },
+      tokenCount: { status: "unsupported", displayValue: "Unsupported" }
     },
     triageMetrics: {
       toolCalls: { status: "value", displayValue: "1", numericValue: 1 },
@@ -306,6 +357,31 @@ function createFakeServices(): {
     }
   };
 
+  const outputArtifactService: OutputArtifactViewModelService = {
+    async getPreview({ outputArtifactId }: { outputArtifactId: string }) {
+      return {
+        status: "preview-ready",
+        outputArtifactId,
+        contentKind: "plain-text",
+        mediaType: "text/plain",
+        text: "safe preview",
+        truncated: false,
+        timelineEntry: null
+      };
+    },
+    async loadArtifact({ outputArtifactId }: { outputArtifactId: string }) {
+      return {
+        status: "loaded",
+        outputArtifactId,
+        contentKind: "plain-text",
+        mediaType: "text/plain",
+        text: "safe full artifact",
+        byteLength: 18,
+        timelineEntry: null
+      };
+    }
+  };
+
   const triageService: TriageViewModelService = {
     async getOverview() {
       return {
@@ -317,6 +393,10 @@ function createFakeServices(): {
           cancelledSessions: { status: "value", displayValue: "0", numericValue: 0 },
           needsAttentionSessions: { status: "value", displayValue: "1", numericValue: 1 },
           toolActivity: { status: "value", displayValue: "1", numericValue: 1 }
+        },
+        usageSummary: {
+          models: { status: "unknown", displayValue: "Unknown" },
+          tokenCount: { status: "unsupported", displayValue: "Unsupported" }
         },
         harnessFilters: [
           { adapterId: "fake-test", label: "Fake Test Harness", sessionCount: 1 }
@@ -425,6 +505,7 @@ function createFakeServices(): {
     archiveExportService,
     dataSourcesService,
     diagnosticsService,
+    outputArtifactService,
     runAuditService,
     sessionService,
     sessionDetailService,

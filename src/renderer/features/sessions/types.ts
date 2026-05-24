@@ -1,7 +1,7 @@
 import {
   createArchive,
   getRunAudit,
-  getSessionById,
+  getSession,
   getSessionDetail,
   listSessions
 } from "../../bridge/agent-workbench.js";
@@ -10,7 +10,7 @@ export type CreateArchiveResponse = Awaited<ReturnType<typeof createArchive>>;
 export type ListSessionsResponse = Awaited<ReturnType<typeof listSessions>>;
 export type SessionSummary = Extract<ListSessionsResponse, { ok: true }>["sessions"][number];
 
-export type GetSessionByIdResponse = Awaited<ReturnType<typeof getSessionById>>;
+export type GetSessionByIdResponse = Awaited<ReturnType<typeof getSession>>;
 export type SessionPreviewView = NonNullable<
   Extract<GetSessionByIdResponse, { ok: true }>["session"]
 >;

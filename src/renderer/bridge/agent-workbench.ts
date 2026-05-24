@@ -16,10 +16,14 @@ export function openArchive(
   return getAgentWorkbenchBridge().openArchive(request);
 }
 
-export function getOverview(
-  request?: Parameters<Window["agentWorkbench"]["getOverview"]>[0]
+export function listHarnesses() {
+  return getAgentWorkbenchBridge().listHarnesses();
+}
+
+export function getDashboardStats(
+  request?: Parameters<Window["agentWorkbench"]["getDashboardStats"]>[0]
 ) {
-  return getAgentWorkbenchBridge().getOverview(request);
+  return getAgentWorkbenchBridge().getDashboardStats(request);
 }
 
 export function listProjects(
@@ -34,10 +38,10 @@ export function listSessions(
   return getAgentWorkbenchBridge().listSessions(request);
 }
 
-export function getSessionById(
-  request: Parameters<Window["agentWorkbench"]["getSessionById"]>[0]
+export function getSession(
+  request: Parameters<Window["agentWorkbench"]["getSession"]>[0]
 ) {
-  return getAgentWorkbenchBridge().getSessionById(request);
+  return getAgentWorkbenchBridge().getSession(request);
 }
 
 export function getSessionDetail(
@@ -50,6 +54,18 @@ export function getRunAudit(
   request: Parameters<Window["agentWorkbench"]["getRunAudit"]>[0]
 ) {
   return getAgentWorkbenchBridge().getRunAudit(request);
+}
+
+export function getOutputArtifactPreview(
+  request: Parameters<Window["agentWorkbench"]["getOutputArtifactPreview"]>[0]
+) {
+  return getAgentWorkbenchBridge().getOutputArtifactPreview(request);
+}
+
+export function loadOutputArtifact(
+  request: Parameters<Window["agentWorkbench"]["loadOutputArtifact"]>[0]
+) {
+  return getAgentWorkbenchBridge().loadOutputArtifact(request);
 }
 
 export function listDiagnostics(

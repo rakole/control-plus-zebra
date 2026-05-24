@@ -6,14 +6,20 @@ import { MetadataGrid } from "../../../components/app/metadata-grid.js";
 import { SectionCard } from "../../../components/app/section-card.js";
 import { Button } from "../../../components/ui/button.js";
 
-type OverviewResponse = Awaited<ReturnType<Window["agentWorkbench"]["getOverview"]>>;
-type OverviewView = Extract<OverviewResponse, { ok: true }>["overview"];
+type OverviewResponse = Awaited<ReturnType<Window["agentWorkbench"]["getDashboardStats"]>>;
+type OverviewView = Extract<OverviewResponse, { ok: true }>["stats"];
 
 interface OverviewSummaryProps {
   overview: OverviewView;
+  selectedAdapterId?: string;
 }
 
-export function OverviewSummary({ overview }: OverviewSummaryProps) {
+export function OverviewSummary({ overview, selectedAdapterId = "all" }: OverviewSummaryProps) {
+  const adapterQuery =
+    selectedAdapterId === "all"
+      ? ""
+      : `?adapterId=${encodeURIComponent(selectedAdapterId)}`;
+
   return (
     <>
       <MetricGrid aria-label="Overview metrics">
@@ -49,10 +55,10 @@ export function OverviewSummary({ overview }: OverviewSummaryProps) {
             />
             <div className="flex flex-wrap justify-end gap-2">
               <Button asChild variant="outline">
-                <Link to="/projects">Open Projects</Link>
+                <Link to={`/projects${adapterQuery}`}>Open Projects</Link>
               </Button>
               <Button asChild variant="outline">
-                <Link to="/sessions">Open Sessions</Link>
+                <Link to={`/sessions${adapterQuery}`}>Open Sessions</Link>
               </Button>
             </div>
           </SectionCard>

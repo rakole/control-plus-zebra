@@ -153,11 +153,12 @@ export class ArchiveExporter {
         rawArtifacts: rawArtifacts.length
       }
     };
+    const archiveCacheRecords = resolution.cacheRecords.map(stripLegacyDerivedCacheRecord);
     const archiveDocument: ArchiveDocument = archiveDocumentSchema.parse({
       manifest,
       payload: {
         sources: resolution.sources,
-        cacheRecords: resolution.cacheRecords,
+        cacheRecords: archiveCacheRecords,
         sourceDiagnostics: resolution.sourceDiagnostics,
         ...(rawArtifacts.length > 0 ? { rawArtifacts } : {})
       }
@@ -313,6 +314,13 @@ export class ArchiveExporter {
       }))
     );
   }
+}
+
+function stripLegacyDerivedCacheRecord(record: NormalizedCacheRecord): NormalizedCacheRecord {
+  const archiveRecord = { ...record } as NormalizedCacheRecord & { derived?: unknown };
+  delete archiveRecord.derived;
+
+  return archiveRecord;
 }
 
 function filterCacheRecord(

@@ -9,6 +9,10 @@ import {
   type ArchiveExportService
 } from "../app/archive-export-service.js";
 import {
+  createOutputArtifactViewModelService,
+  type OutputArtifactViewModelService
+} from "../app/output-artifact-view-model-service.js";
+import {
   createDiagnosticsViewModelService,
   type DiagnosticsViewModelService
 } from "../app/diagnostics-view-model-service.js";
@@ -41,36 +45,85 @@ import {
   openArchiveRequestSchema,
   openArchiveResponseSchema,
   addDataSourceRequestSchema,
+  addSourceRequestSchema,
+  dashboardStatsRequestSchema,
+  dashboardStatsResponseSchema,
   dataSourcesResponseSchema,
+  disableSourceRequestSchema,
+  eventsResponseSchema,
+  getEventsRequestSchema,
+  getHarnessCapabilitiesRequestSchema,
+  getHarnessCapabilitiesResponseSchema,
   type CreateArchiveResponse,
+  getProjectRequestSchema,
+  getProjectResponseSchema,
   getOverviewRequestSchema,
   getOverviewResponseSchema,
+  getSessionRequestSchema,
+  getSessionResponseSchema,
   getSessionByIdRequestSchema,
   getSessionByIdResponseSchema,
   getSessionDetailResponseSchema,
+  getSessionTimelineRequestSchema,
   getRunAuditResponseSchema,
+  gitSnapshotRequestSchema,
+  gitSnapshotResponseSchema,
+  githubSnapshotRequestSchema,
+  githubSnapshotResponseSchema,
   listDiagnosticsRequestSchema,
   listDiagnosticsResponseSchema,
+  listHarnessesRequestSchema,
+  listHarnessesResponseSchema,
   listProjectsRequestSchema,
   listProjectsResponseSchema,
   listSessionsRequestSchema,
   listSessionsResponseSchema,
+  outputArtifactLoadResponseSchema,
+  outputArtifactPreviewResponseSchema,
+  outputArtifactRequestSchema,
+  rescanAllSourcesRequestSchema,
+  rescanSourceRequestSchema,
+  scannerStatusResponseSchema,
+  getScannerStatusRequestSchema,
   setDataSourceEnabledRequestSchema,
   shellStateViewModelSchema,
+  shellCommandsResponseSchema,
+  getShellCommandsRequestSchema,
+  sessionTimelineResponseSchema,
+  sourcesResponseSchema,
+  toolCallsResponseSchema,
+  getToolCallsRequestSchema,
   updateDataSourceRequestSchema,
+  updateSourceRequestSchema,
   validateDataSourceRequestSchema,
+  validateSourceRequestSchema,
   scanDataSourceRequestSchema,
   type DataSourcesResponse,
+  type DashboardStatsResponse,
+  type EventsResponse,
+  type GetHarnessCapabilitiesResponse,
   type GetOverviewResponse,
+  type GetProjectResponse,
+  type GetSessionResponse,
   type GetSessionByIdResponse,
   type GetSessionDetailResponse,
   type GetRunAuditResponse,
+  type GitSnapshotResponse,
+  type GitHubSnapshotResponse,
   type ListDiagnosticsResponse,
+  type ListHarnessesResponse,
   type ListProjectsResponse,
   type ListSessionsResponse,
   type OpenArchiveResponse,
+  type OutputArtifactLoadResponse,
+  type OutputArtifactPreviewResponse,
   type SanitizedErrorViewModel,
-  type ShellStateViewModel
+  type ScannerStatusResponse,
+  type SessionTimelineResponse,
+  type ShellCommandsResponse,
+  type ShellStateViewModel,
+  type SourcesResponse,
+  type ToolCallsResponse
 } from "./view-models.js";
 
 type IpcHandler = (event: unknown, payload?: unknown) => unknown | Promise<unknown>;
@@ -89,6 +142,7 @@ export interface IpcServices {
   runAuditService: RunAuditViewModelService;
   sessionService: SessionViewModelService;
   sessionDetailService: SessionDetailViewModelService;
+  outputArtifactService: OutputArtifactViewModelService;
   triageService: TriageViewModelService;
   themeService: ThemeService;
 }
@@ -107,6 +161,141 @@ export function registerIpcHandlers(
     return shellStateViewModelSchema.parse(
       services.sessionService.getShellState()
     ) satisfies ShellStateViewModel;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.listHarnesses, async (_event, payload) => {
+    const request = listHarnessesRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies ListHarnessesResponse;
+    }
+
+    return runHarnessesOperation(async () => (await services.dataSourcesService.listDataSources()).adapters);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getHarnessCapabilities, async (_event, payload) => {
+    const request = getHarnessCapabilitiesRequestSchema.safeParse(payload ?? {});
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies GetHarnessCapabilitiesResponse;
+    }
+
+    return runHarnessCapabilitiesOperation(async () => {
+      const harnesses = (await services.dataSourcesService.listDataSources()).adapters;
+
+      return request.data.adapterId
+        ? harnesses.filter((harness) => harness.adapterId === request.data.adapterId)
+        : harnesses;
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.listSources, async (_event, payload) => {
+    const request = z.undefined().safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies SourcesResponse;
+    }
+
+    return runSourcesOperation(() => services.dataSourcesService.listDataSources());
+  });
+
+  ipcMain.handle(IPC_CHANNELS.addSource, async (_event, payload) => {
+    const request = addSourceRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies SourcesResponse;
+    }
+
+    return runSourcesOperation(() => services.dataSourcesService.addDataSource(request.data));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.updateSource, async (_event, payload) => {
+    const request = updateSourceRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies SourcesResponse;
+    }
+
+    return runSourcesOperation(() => services.dataSourcesService.updateDataSource(request.data));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.disableSource, async (_event, payload) => {
+    const request = disableSourceRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies SourcesResponse;
+    }
+
+    return runSourcesOperation(() =>
+      services.dataSourcesService.setDataSourceEnabled({
+        sourceId: request.data.sourceId,
+        enabled: false
+      })
+    );
+  });
+
+  ipcMain.handle(IPC_CHANNELS.validateSource, async (_event, payload) => {
+    const request = validateSourceRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies SourcesResponse;
+    }
+
+    return runSourcesOperation(() => services.dataSourcesService.validateDataSource(request.data));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.rescanSource, async (_event, payload) => {
+    const request = rescanSourceRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies SourcesResponse;
+    }
+
+    return runSourcesOperation(() => services.dataSourcesService.scanDataSource(request.data));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getScannerStatus, async (_event, payload) => {
+    const request = getScannerStatusRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies ScannerStatusResponse;
+    }
+
+    return runScannerStatusOperation(() => services.dataSourcesService.listDataSources());
+  });
+
+  ipcMain.handle(IPC_CHANNELS.rescanAllSources, async (_event, payload) => {
+    const request = rescanAllSourcesRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies SourcesResponse;
+    }
+
+    return runSourcesOperation(async () => {
+      const current = await services.dataSourcesService.listDataSources();
+      const scanTargets = current.sources.filter(
+        (source) => source.enabled && !source.readOnly && source.validationStatus === "Valid"
+      );
+      let latest = current;
+
+      for (const source of scanTargets) {
+        latest = await services.dataSourcesService.scanDataSource({
+          sourceId: source.sourceId
+        });
+      }
+
+      return latest;
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.rescanScannerSource, async (_event, payload) => {
+    const request = rescanSourceRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies SourcesResponse;
+    }
+
+    return runSourcesOperation(() => services.dataSourcesService.scanDataSource(request.data));
   });
 
   ipcMain.handle(IPC_CHANNELS.createArchive, async (_event, payload) => {
@@ -143,6 +332,23 @@ export function registerIpcHandlers(
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.getDashboardStats, async (_event, payload) => {
+    const request = dashboardStatsRequestSchema.safeParse(payload ?? {});
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies DashboardStatsResponse;
+    }
+
+    try {
+      return dashboardStatsResponseSchema.parse({
+        ok: true,
+        stats: await services.triageService.getOverview(request.data)
+      }) satisfies DashboardStatsResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies DashboardStatsResponse;
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.getOverview, async (_event, payload) => {
     const request = getOverviewRequestSchema.safeParse(payload ?? {});
 
@@ -174,6 +380,26 @@ export function registerIpcHandlers(
       }) satisfies ListProjectsResponse;
     } catch {
       return buildSessionLoadFailedError() satisfies ListProjectsResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getProject, async (_event, payload) => {
+    const request = getProjectRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies GetProjectResponse;
+    }
+
+    try {
+      const projects = await services.triageService.listProjects();
+
+      return getProjectResponseSchema.parse({
+        ok: true,
+        project:
+          projects.find((project) => project.projectId === request.data.projectId) ?? null
+      }) satisfies GetProjectResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies GetProjectResponse;
     }
   });
 
@@ -217,6 +443,25 @@ export function registerIpcHandlers(
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.getSession, async (_event, payload) => {
+    const request = getSessionRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies GetSessionResponse;
+    }
+
+    try {
+      const session = await services.sessionService.getSessionById(request.data);
+
+      return getSessionResponseSchema.parse({
+        ok: true,
+        session
+      }) satisfies GetSessionResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies GetSessionResponse;
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.getSessionDetail, async (_event, payload) => {
     const request = getSessionByIdRequestSchema.safeParse(payload);
 
@@ -234,6 +479,116 @@ export function registerIpcHandlers(
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.getSessionTimeline, async (_event, payload) => {
+    const request = getSessionTimelineRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies SessionTimelineResponse;
+    }
+
+    try {
+      const detail = await services.sessionDetailService.getSessionDetail(request.data);
+
+      return sessionTimelineResponseSchema.parse({
+        ok: true,
+        timeline: detail?.timeline ?? null
+      }) satisfies SessionTimelineResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies SessionTimelineResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getEvents, async (_event, payload) => {
+    const request = getEventsRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies EventsResponse;
+    }
+
+    try {
+      const detail = await services.sessionDetailService.getSessionDetail(request.data);
+
+      return eventsResponseSchema.parse({
+        ok: true,
+        events: detail?.timeline ?? null
+      }) satisfies EventsResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies EventsResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getToolCalls, async (_event, payload) => {
+    const request = getToolCallsRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies ToolCallsResponse;
+    }
+
+    try {
+      const detail = await services.sessionDetailService.getSessionDetail(request.data);
+
+      return toolCallsResponseSchema.parse({
+        ok: true,
+        toolCalls: detail?.timeline.filter((event) => event.kind === "tool-call") ?? null
+      }) satisfies ToolCallsResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies ToolCallsResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getShellCommands, async (_event, payload) => {
+    const request = getShellCommandsRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies ShellCommandsResponse;
+    }
+
+    try {
+      const detail = await services.sessionDetailService.getSessionDetail(request.data);
+
+      return shellCommandsResponseSchema.parse({
+        ok: true,
+        shellCommands: detail?.timeline.filter((event) => event.kind === "shell-command") ?? null
+      }) satisfies ShellCommandsResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies ShellCommandsResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getOutputArtifactPreview, async (_event, payload) => {
+    const request = outputArtifactRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies OutputArtifactPreviewResponse;
+    }
+
+    try {
+      return outputArtifactPreviewResponseSchema.parse({
+        ok: true,
+        preview: await services.outputArtifactService.getPreview(request.data)
+      }) satisfies OutputArtifactPreviewResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies OutputArtifactPreviewResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.loadOutputArtifact, async (_event, payload) => {
+    const request = outputArtifactRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies OutputArtifactLoadResponse;
+    }
+
+    try {
+      return outputArtifactLoadResponseSchema.parse({
+        ok: true,
+        artifact: await services.outputArtifactService.loadArtifact(request.data)
+      }) satisfies OutputArtifactLoadResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies OutputArtifactLoadResponse;
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.getRunAudit, async (_event, payload) => {
     const request = getSessionByIdRequestSchema.safeParse(payload);
 
@@ -248,6 +603,88 @@ export function registerIpcHandlers(
       }) satisfies GetRunAuditResponse;
     } catch {
       return buildSessionLoadFailedError() satisfies GetRunAuditResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getAuditRunAudit, async (_event, payload) => {
+    const request = getSessionByIdRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies GetRunAuditResponse;
+    }
+
+    try {
+      return getRunAuditResponseSchema.parse({
+        ok: true,
+        runAudit: await services.runAuditService.getRunAudit(request.data)
+      }) satisfies GetRunAuditResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies GetRunAuditResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getGitSnapshot, async (_event, payload) => {
+    const request = gitSnapshotRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies GitSnapshotResponse;
+    }
+
+    try {
+      const project = (await services.triageService.listProjects()).find(
+        (candidate) => candidate.projectId === request.data.projectId
+      );
+
+      return gitSnapshotResponseSchema.parse({
+        ok: true,
+        snapshot: project
+          ? {
+              projectId: project.projectId,
+              validatedRepoRoot: project.validatedRepoRoot,
+              remoteUrl: project.remoteUrl,
+              status: project.gitStatus,
+              branch: project.branch,
+              head: project.head,
+              dirtyState: project.dirtyState,
+              changedFiles: project.changedFiles,
+              untrackedFiles: project.untrackedFiles,
+              additions: project.additions,
+              deletions: project.deletions
+            }
+          : null
+      }) satisfies GitSnapshotResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies GitSnapshotResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getGitHubSnapshot, async (_event, payload) => {
+    const request = githubSnapshotRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies GitHubSnapshotResponse;
+    }
+
+    try {
+      const project = (await services.triageService.listProjects()).find(
+        (candidate) => candidate.projectId === request.data.projectId
+      );
+
+      return githubSnapshotResponseSchema.parse({
+        ok: true,
+        snapshot: project
+          ? {
+              projectId: project.projectId,
+              remoteUrl: project.remoteUrl,
+              status: project.githubStatus,
+              pullRequest: project.pullRequest,
+              checks: project.checks,
+              reviewStatus: project.reviewStatus
+            }
+          : null
+      }) satisfies GitHubSnapshotResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies GitHubSnapshotResponse;
     }
   });
 
@@ -363,6 +800,7 @@ function createDefaultIpcServices(): IpcServices {
     archiveExportService: createArchiveExportService({ runtime }),
     sessionService: createSessionViewModelService({ runtime }),
     sessionDetailService: createSessionDetailViewModelService({ runtime }),
+    outputArtifactService: createOutputArtifactViewModelService({ runtime }),
     runAuditService: createRunAuditViewModelService({ runtime }),
     triageService: createTriageViewModelService({ runtime }),
     diagnosticsService: createDiagnosticsViewModelService({ runtime }),
@@ -391,6 +829,71 @@ async function runDataSourcesOperation(
     }) satisfies DataSourcesResponse;
   } catch {
     return buildDataSourcesLoadFailedError() satisfies DataSourcesResponse;
+  }
+}
+
+async function runSourcesOperation(
+  operation: () => Promise<Awaited<ReturnType<DataSourcesViewModelService["listDataSources"]>>>
+): Promise<SourcesResponse> {
+  try {
+    return sourcesResponseSchema.parse({
+      ok: true,
+      sources: await operation()
+    }) satisfies SourcesResponse;
+  } catch {
+    return buildDataSourcesLoadFailedError() satisfies SourcesResponse;
+  }
+}
+
+async function runHarnessesOperation(
+  operation: () => Promise<Awaited<ReturnType<DataSourcesViewModelService["listDataSources"]>>["adapters"]>
+): Promise<ListHarnessesResponse> {
+  try {
+    return listHarnessesResponseSchema.parse({
+      ok: true,
+      harnesses: await operation()
+    }) satisfies ListHarnessesResponse;
+  } catch {
+    return buildDataSourcesLoadFailedError() satisfies ListHarnessesResponse;
+  }
+}
+
+async function runHarnessCapabilitiesOperation(
+  operation: () => Promise<Awaited<ReturnType<DataSourcesViewModelService["listDataSources"]>>["adapters"]>
+): Promise<GetHarnessCapabilitiesResponse> {
+  try {
+    return getHarnessCapabilitiesResponseSchema.parse({
+      ok: true,
+      harnesses: await operation()
+    }) satisfies GetHarnessCapabilitiesResponse;
+  } catch {
+    return buildDataSourcesLoadFailedError() satisfies GetHarnessCapabilitiesResponse;
+  }
+}
+
+async function runScannerStatusOperation(
+  operation: () => Promise<Awaited<ReturnType<DataSourcesViewModelService["listDataSources"]>>>
+): Promise<ScannerStatusResponse> {
+  try {
+    const dataSources = await operation();
+    const activeScans = dataSources.sources.filter(
+      (source) => source.scanStatus === "Scanning"
+    ).length;
+
+    return scannerStatusResponseSchema.parse({
+      ok: true,
+      scanner: {
+        status: activeScans > 0 ? "scanning" : "idle",
+        totalSources: dataSources.sources.length,
+        enabledSources: dataSources.sources.filter((source) => source.enabled).length,
+        activeScans,
+        staleSources: dataSources.sources.filter(
+          (source) => source.scanStatus === "Stale" || source.cacheStatus === "Stale"
+        ).length
+      }
+    }) satisfies ScannerStatusResponse;
+  } catch {
+    return buildDataSourcesLoadFailedError() satisfies ScannerStatusResponse;
   }
 }
 

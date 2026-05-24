@@ -27,6 +27,8 @@ export function SessionDetailSummaryRail({ detail }: SessionDetailSummaryRailPro
           { label: "Project", value: session.projectDisplayName ?? "Unknown" },
           { label: "Session ID", value: session.sessionId },
           { label: "Native Session ID", value: session.nativeSessionId ?? "Unknown" },
+          { label: "Models", value: session.usageSummary.models.displayValue },
+          { label: "Tokens", value: session.usageSummary.tokenCount.displayValue },
           {
             label: "Attention Reasons",
             value: session.attentionReasons.join(", ") || "None"

@@ -10,7 +10,7 @@ import { formatTimestamp } from "../format.js";
 import { flattenSessionCapabilities, type SessionPreviewView } from "../types.js";
 
 const evidenceLabels: Array<{
-  key: keyof SessionPreviewView["evidenceSummary"];
+  key: keyof SessionPreviewView["evidenceMetrics"];
   label: string;
 }> = [
   { key: "messages", label: "Messages" },
@@ -97,6 +97,8 @@ export function SessionPreview({
           { label: "Started", value: formatTimestamp(session.startedAt) ?? "Unknown" },
           { label: "Ended", value: formatTimestamp(session.endedAt) ?? "Unknown" },
           { label: "Project", value: session.projectDisplayName ?? "Unknown" },
+          { label: "Models", value: session.usageSummary.models.displayValue },
+          { label: "Tokens", value: session.usageSummary.tokenCount.displayValue },
           { label: "Verification", value: session.verificationState.label },
           { label: "Run Audit", value: session.runAuditState.label }
         ]}
@@ -134,7 +136,7 @@ export function SessionPreview({
         <div className="flex flex-wrap gap-2">
           {evidenceLabels.map((item) => (
             <Badge key={item.key} variant="outline">
-              {item.label}: {session.evidenceSummary[item.key]}
+              {item.label}: {session.evidenceMetrics[item.key].displayValue}
             </Badge>
           ))}
         </div>

@@ -6,6 +6,7 @@ import {
   type GetSessionByIdRequest,
   type SessionDetailViewModel
 } from "../ipc/view-models.js";
+import type { OutputArtifact } from "../core/model/entities.js";
 import {
   buildSessionPreviewViewModel,
   getDerivedSession,
@@ -51,14 +52,14 @@ export function createSessionDetailViewModelService(
       const sessionOutputArtifacts = data.outputArtifactsBySessionId.get(session.id) ?? [];
       const sessionFileMutations = data.fileMutationsBySessionId.get(session.id) ?? [];
       const messagesByEventId = buildEntityByEventId(sessionMessages, (message) => message.eventIds ?? []);
-      const toolCallsByEventId = buildEntityBySourceEventId(sessionToolCalls);
-      const shellCommandsByEventId = buildEntityBySourceEventId(sessionShellCommands);
-      const outputArtifactsByEventId = buildEntityBySourceEventId(sessionOutputArtifacts);
-      const fileMutationsByEventId = buildEntityBySourceEventId(sessionFileMutations);
+      const toolCallsByEventId = buildFirstEntityBySourceEventId(sessionToolCalls);
+      const shellCommandsByEventId = buildFirstEntityBySourceEventId(sessionShellCommands);
+      const outputArtifactsByEventId = buildEntitiesBySourceEventId(sessionOutputArtifacts);
+      const fileMutationsByEventId = buildFirstEntityBySourceEventId(sessionFileMutations);
 
       const detail = {
         session: buildSessionPreviewViewModel(data, session),
-        timeline: sessionEvents.map((event) => {
+        timeline: sessionEvents.flatMap<SessionDetailViewModel["timeline"][number]>((event) => {
             const message = messagesByEventId.get(event.id);
             const toolCall = toolCallsByEventId.get(event.id);
             const shellCommand = shellCommandsByEventId.get(event.id);
@@ -67,12 +68,16 @@ export function createSessionDetailViewModelService(
                   (candidate) => candidate.shellCommandId === shellCommand.id
                 )
               : undefined;
-            const outputArtifact = outputArtifactsByEventId.get(event.id);
+            const outputArtifacts = getOutputArtifactsForEvent(
+              sessionOutputArtifacts,
+              outputArtifactsByEventId,
+              event
+            );
             const fileMutation = fileMutationsByEventId.get(event.id);
 
             switch (event.kind) {
               case "message":
-                return {
+                return [{
                   id: event.id,
                   kind: "message" as const,
                   timestamp: event.timestamp,
@@ -82,18 +87,18 @@ export function createSessionDetailViewModelService(
                     { label: "Role", value: humanizeMessageRole(message?.role) },
                     { label: "Order Key", value: event.orderKey ?? "Unknown" }
                   ]
-                };
+                }];
               case "lifecycle":
-                return {
+                return [{
                   id: event.id,
                   kind: "lifecycle" as const,
                   timestamp: event.timestamp,
                   title: event.title ?? "Lifecycle event",
                   summary: event.text ?? "Chronological lifecycle evidence",
                   metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
-                };
+                }];
               case "tool-call":
-                return {
+                return [{
                   id: event.id,
                   kind: "tool-call" as const,
                   timestamp: event.timestamp,
@@ -109,9 +114,9 @@ export function createSessionDetailViewModelService(
                       value: String(toolCall?.outputArtifactIds?.length ?? 0)
                     }
                   ]
-                };
+                }];
               case "shell-command":
-                return {
+                return [{
                   id: event.id,
                   kind: "shell-command" as const,
                   timestamp: event.timestamp,
@@ -134,27 +139,47 @@ export function createSessionDetailViewModelService(
                           : "Unknown"
                     }
                   ]
-                };
+                }];
               case "tool-result":
-                return {
-                  id: event.id,
+                if (outputArtifacts.length === 0) {
+                  return [{
+                    id: event.id,
+                    kind: "output-artifact" as const,
+                    timestamp: event.timestamp,
+                    title: "Output artifact",
+                    summary: event.text ?? "Output artifact",
+                    metadata: [
+                      {
+                        label: "Kind",
+                        value: "unknown"
+                      },
+                      {
+                        label: "Reference",
+                        value: event.text ?? event.title ?? "Unknown"
+                      }
+                    ]
+                  }];
+                }
+
+                return outputArtifacts.map((artifact) => ({
+                  id: artifact.id,
                   kind: "output-artifact" as const,
                   timestamp: event.timestamp,
                   title: "Output artifact",
-                  summary: summarizeArtifact(outputArtifact) ?? event.text ?? "Output artifact",
+                  summary: summarizeArtifact(artifact) ?? event.text ?? "Output artifact",
                   metadata: [
                     {
                       label: "Kind",
-                      value: summarizeArtifactKind(outputArtifact)
+                      value: summarizeArtifactKind(artifact)
                     },
                     {
                       label: "Reference",
-                      value: summarizeArtifact(outputArtifact) ?? "Unknown"
+                      value: summarizeArtifact(artifact) ?? "Unknown"
                     }
                   ]
-                };
+                }));
               case "file-event":
-                return {
+                return [{
                   id: event.id,
                   kind: "file-mutation" as const,
                   timestamp: event.timestamp,
@@ -166,25 +191,25 @@ export function createSessionDetailViewModelService(
                       value: humanizeMutationKind(fileMutation?.mutationKind)
                     }
                   ]
-                };
+                }];
               case "metadata":
-                return {
+                return [{
                   id: event.id,
                   kind: "unknown" as const,
                   timestamp: event.timestamp,
                   title: "Unknown evidence marker",
                   summary: event.text ?? "Metadata evidence is available only as a safe marker.",
                   metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
-                };
+                }];
               default:
-                return {
+                return [{
                   id: event.id,
                   kind: "unknown" as const,
                   timestamp: event.timestamp,
                   title: event.title ?? "Unknown evidence marker",
                   summary: event.text ?? "Timeline evidence is available as a safe marker.",
                   metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
-                };
+                }];
             }
           })
       };
@@ -325,7 +350,7 @@ function buildEntityByEventId<TItem extends { id: string }>(
   return map;
 }
 
-function buildEntityBySourceEventId<
+function buildFirstEntityBySourceEventId<
   TItem extends {
     source?:
       | { eventId?: string | undefined; rawEvent?: { eventId?: string | undefined } | undefined }
@@ -345,4 +370,101 @@ function buildEntityBySourceEventId<
   }
 
   return map;
+}
+
+function buildEntitiesBySourceEventId<
+  TItem extends {
+    source?:
+      | { eventId?: string | undefined; rawEvent?: { eventId?: string | undefined } | undefined }
+      | undefined;
+  }
+>(
+  items: readonly TItem[]
+): Map<string, TItem[]> {
+  const map = new Map<string, TItem[]>();
+
+  for (const item of items) {
+    const eventId = item.source?.eventId ?? item.source?.rawEvent?.eventId;
+
+    if (!eventId) {
+      continue;
+    }
+
+    const current = map.get(eventId) ?? [];
+
+    current.push(item);
+    map.set(eventId, current);
+  }
+
+  return map;
+}
+
+function getOutputArtifactsForEvent(
+  artifacts: readonly OutputArtifact[],
+  artifactsByEventId: Map<string, readonly OutputArtifact[]>,
+  event: {
+    id: string;
+    nativeId?: string;
+    title?: string;
+    text?: string;
+  }
+): readonly OutputArtifact[] {
+  const directMatches = artifactsByEventId.get(event.id) ?? [];
+
+  if (directMatches.length > 0) {
+    return directMatches;
+  }
+
+  const eventReferences = new Set(
+    [event.id, event.nativeId, event.title, event.text]
+      .flatMap((value) => normalizeArtifactReference(value))
+  );
+
+  if (eventReferences.size === 0) {
+    return [];
+  }
+
+  return artifacts.filter((artifact) =>
+    [artifact.nativeRef, artifact.nativeId, artifact.path]
+      .flatMap((value) => normalizeArtifactReference(value))
+      .some((reference) => eventReferences.has(reference))
+  );
+}
+
+function normalizeArtifactReference(value?: string): string[] {
+  if (!value) {
+    return [];
+  }
+
+  const trimmed = value.trim();
+
+  if (trimmed.length === 0) {
+    return [];
+  }
+
+  const normalizedValues = new Set<string>();
+  const prefixes = ["session-event:", "artifact:"];
+  const queue = [trimmed];
+
+  while (queue.length > 0) {
+    const current = queue.pop();
+
+    if (!current) {
+      continue;
+    }
+
+    const normalized = path.normalize(current).replace(/\\/gu, "/");
+
+    if (normalized.length > 0) {
+      normalizedValues.add(normalized);
+    }
+
+    for (const prefix of prefixes) {
+      if (current.startsWith(prefix)) {
+        queue.push(current.slice(prefix.length));
+      }
+    }
+  }
+
+  return [...normalizedValues];
 }

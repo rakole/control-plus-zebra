@@ -25,6 +25,22 @@ describe("Session detail route", () => {
     expect(screen.getByText("Session Timeline")).toBeInTheDocument();
     expect(screen.getByText("npm run typecheck")).toBeInTheDocument();
     expect(screen.getByText("Type checking passed.")).toBeInTheDocument();
+    expect(screen.getByText("Output artifact")).toBeInTheDocument();
+  });
+
+  it("loads output artifact previews through the public bridge", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Session Detail" });
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+
+    expect(window.agentWorkbench.getOutputArtifactPreview).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      outputArtifactId: "artifact-1"
+    });
+    expect(await screen.findByText("Preview Ready")).toBeInTheDocument();
+    expect(screen.getAllByText("Type checking passed.").length).toBeGreaterThan(0);
   });
 
   it("opens run audit from the detail route action", async () => {

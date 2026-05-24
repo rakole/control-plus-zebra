@@ -4,6 +4,7 @@ import { createArchiveImportService } from "./app/archive-import-service.js";
 import { createArchiveExportService } from "./app/archive-export-service.js";
 import { createDiagnosticsViewModelService } from "./app/diagnostics-view-model-service.js";
 import { createDataSourcesViewModelService } from "./app/data-sources-view-model-service.js";
+import { createOutputArtifactViewModelService } from "./app/output-artifact-view-model-service.js";
 import { createRunAuditViewModelService } from "./app/run-audit-view-model-service.js";
 import { createSessionViewModelService } from "./app/session-view-model-service.js";
 import { createSessionDetailViewModelService } from "./app/session-detail-view-model-service.js";
@@ -46,6 +47,7 @@ async function bootstrap(): Promise<void> {
     archiveExportService: createArchiveExportService({ runtime }),
     sessionService: createSessionViewModelService({ runtime }),
     sessionDetailService: createSessionDetailViewModelService({ runtime }),
+    outputArtifactService: createOutputArtifactViewModelService({ runtime }),
     runAuditService: createRunAuditViewModelService({ runtime }),
     triageService: createTriageViewModelService({ runtime }),
     diagnosticsService: createDiagnosticsViewModelService({ runtime }),
