@@ -366,7 +366,7 @@ const derivedSchema = z
   })
   .strict();
 
-const recordSchema = z
+export const normalizedCacheRecordSchema = z
   .object({
     cacheKey: z.string().min(1),
     adapterId: z.string().min(1),
@@ -382,7 +382,7 @@ const recordSchema = z
 const cacheFileSchema = z
   .object({
     version: z.literal(1),
-    records: z.array(recordSchema)
+    records: z.array(normalizedCacheRecordSchema)
   })
   .strict();
 

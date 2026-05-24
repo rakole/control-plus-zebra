@@ -9,6 +9,7 @@ import type {
   ListDiagnosticsRequest,
   ListProjectsRequest,
   ListSessionsRequest,
+  OpenArchiveRequest,
   ScanDataSourceRequest,
   SetDataSourceEnabledRequest,
   UpdateDataSourceRequest,
@@ -22,6 +23,9 @@ const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
   },
   createArchive(request: CreateArchiveRequest) {
     return ipcRenderer.invoke(IPC_CHANNELS.createArchive, request);
+  },
+  openArchive(request: OpenArchiveRequest = {}) {
+    return ipcRenderer.invoke(IPC_CHANNELS.openArchive, request);
   },
   getOverview(request: GetOverviewRequest = {}) {
     return ipcRenderer.invoke(IPC_CHANNELS.getOverview, request);

@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+import { normalizedCacheRecordSchema } from "../cache/file-backed-cache-store.js";
+import { persistedDiagnosticSchema } from "../registry/source-registry-store.js";
+
 export const ARCHIVE_FORMAT = "agent-workbench-archive";
 export const ARCHIVE_MANIFEST_VERSION = 1;
 
@@ -130,8 +133,8 @@ export const archiveDocumentSchema = z
     payload: z
       .object({
         sources: z.array(archivedSourceRecordSchema),
-        cacheRecords: z.array(z.unknown()),
-        sourceDiagnostics: z.array(z.unknown()),
+        cacheRecords: z.array(normalizedCacheRecordSchema),
+        sourceDiagnostics: z.array(persistedDiagnosticSchema),
         rawArtifacts: z.array(archivedRawArtifactSchema).optional()
       })
       .strict()

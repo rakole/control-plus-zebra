@@ -73,6 +73,8 @@ export function DataSourceList({
               </span>
             </span>
             <span className="source-row-badges">
+              <SourceStatusBadge label={source.sourceKind} />
+              {source.readOnlyLabel ? <SourceStatusBadge label={source.readOnlyLabel} /> : null}
               <SourceStatusBadge label={source.enabledLabel} />
               <SourceStatusBadge
                 label={source.validation.label}

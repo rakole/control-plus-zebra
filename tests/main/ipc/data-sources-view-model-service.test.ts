@@ -5,12 +5,16 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createDataSourcesViewModelService } from "../../../src/main/app/data-sources-view-model-service.js";
+import { createTriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import { createWorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
+import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter.js";
+import { ArchiveImporter } from "../../../src/main/core/archive/archive-importer.js";
 import {
   dataSourcesViewModelSchema,
   dataSourceViewModelSchema,
   type DataSourceViewModel
 } from "../../../src/main/ipc/view-models.js";
+import { createScannedRuntime } from "./triage-test-runtime.js";
 
 const fakeFixturePath = path.resolve(
   "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json"
@@ -119,6 +123,58 @@ describe("data sources view model service", () => {
         diagnostics: []
       })
     ).toThrow();
+  });
+
+  it("lists imported archives as read-only sources and blocks live operations", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const service = createDataSourcesViewModelService({ runtime });
+    const triageService = createTriageViewModelService({ runtime });
+    const projectId = (await triageService.listProjects()).find(
+      (project) => project.projectName === "control-plus-zebra"
+    )?.projectId;
+
+    expect(projectId).toBeDefined();
+    if (!projectId) {
+      throw new Error("Expected a scanned project.");
+    }
+
+    const archivePath = path.join(runtime.appDataDir, "exports", "imported.awb-archive.json");
+    const exporter = new ArchiveExporter({
+      cacheStore: runtime.cacheStore,
+      rawArtifactIndex: runtime.rawArtifactIndex,
+      sourceRegistry: runtime.sourceRegistry
+    });
+
+    await exporter.createArchive({
+      destinationPath: archivePath,
+      includeRawArtifacts: false,
+      privacyWarningAcknowledged: true,
+      scope: { kind: "project", projectId }
+    });
+
+    const importer = new ArchiveImporter({
+      cacheStore: runtime.cacheStore,
+      sourceRegistry: runtime.sourceRegistry
+    });
+    const imported = await importer.importArchive({ archivePath });
+    const viewModel = await service.listDataSources();
+    const importedSource = findSource(viewModel, imported.sourceId);
+
+    expect(importedSource.sourceKind).toBe("Imported Archive");
+    expect(importedSource.addedBy).toBe("Import");
+    expect(importedSource.readOnly).toBe(true);
+    expect(importedSource.readOnlyLabel).toBe("Read Only");
+    expect(importedSource.archiveMetadata).toMatchObject({
+      archivePath,
+      scopeKind: "project"
+    });
+
+    await expect(service.validateDataSource({ sourceId: imported.sourceId })).rejects.toThrow(
+      /read-only/u
+    );
+    await expect(service.scanDataSource({ sourceId: imported.sourceId })).rejects.toThrow(
+      /read-only/u
+    );
   });
 });
 

@@ -11,6 +11,7 @@ describe("preload API surface", () => {
 
     expect(typesSource).toContain("getShellState()");
     expect(typesSource).toContain("createArchive(request");
+    expect(typesSource).toContain("openArchive(request?");
     expect(typesSource).toContain("getOverview(request?");
     expect(typesSource).toContain("listProjects(request?");
     expect(typesSource).toContain("listSessions(request?");
@@ -27,6 +28,7 @@ describe("preload API surface", () => {
     expect(extractBridgeMethodNames(typesSource)).toEqual([
       "getShellState",
       "createArchive",
+      "openArchive",
       "getOverview",
       "listProjects",
       "listSessions",
@@ -51,6 +53,7 @@ describe("preload API surface", () => {
     expect(extractBridgeMethodNames(preloadSource)).toEqual([
       "getShellState",
       "createArchive",
+      "openArchive",
       "getOverview",
       "listProjects",
       "listSessions",

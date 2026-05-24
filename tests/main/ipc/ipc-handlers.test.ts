@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { ArchiveImportService } from "../../../src/main/app/archive-import-service.js";
 import type { ArchiveExportService } from "../../../src/main/app/archive-export-service.js";
 import type { DiagnosticsViewModelService } from "../../../src/main/app/diagnostics-view-model-service.js";
 import { IPC_CHANNELS, registerIpcHandlers } from "../../../src/main/ipc/index.js";
@@ -32,6 +33,7 @@ describe("ipc handlers", () => {
     expect([...collector.handlers.keys()]).toEqual([
       IPC_CHANNELS.getShellState,
       IPC_CHANNELS.createArchive,
+      IPC_CHANNELS.openArchive,
       IPC_CHANNELS.getOverview,
       IPC_CHANNELS.listProjects,
       IPC_CHANNELS.listSessions,
@@ -123,6 +125,7 @@ function createIpcCollector() {
 }
 
 function createFakeServices(): {
+  archiveImportService: ArchiveImportService;
   archiveExportService: ArchiveExportService;
   dataSourcesService: DataSourcesViewModelService;
   diagnosticsService: DiagnosticsViewModelService;
@@ -209,6 +212,14 @@ function createFakeServices(): {
     }
   };
 
+  const archiveImportService: ArchiveImportService = {
+    async openArchive() {
+      return {
+        status: "cancelled"
+      };
+    }
+  };
+
   const sessionService: SessionViewModelService = {
     getShellState() {
       return {
@@ -217,6 +228,7 @@ function createFakeServices(): {
         allowedOperations: [
           IPC_CHANNELS.getShellState,
           IPC_CHANNELS.createArchive,
+          IPC_CHANNELS.openArchive,
           IPC_CHANNELS.getOverview,
           IPC_CHANNELS.listProjects,
           IPC_CHANNELS.listSessions,
@@ -382,6 +394,7 @@ function createFakeServices(): {
   };
 
   return {
+    archiveImportService,
     archiveExportService,
     dataSourcesService,
     diagnosticsService,

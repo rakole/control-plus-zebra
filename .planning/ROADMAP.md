@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Gemini CLI Adapter End-to-End** - Parse Gemini fixtures into the same normalized flow as the fake adapter.
 - [x] **Phase 5: Shared Shell, Verification, and Run Audit** - Turn evidence into trustworthy command, verification, and audit classifications.
 - [x] **Phase 6: Harness-Neutral Triage UI** - Deliver the user-facing dashboards, detail views, diagnostics, and capability-gated states.
-- [ ] **Phase 7: Git, GitHub, Export, and Import** - Add read-only repo/PR context plus portable archive workflows.
+- [x] **Phase 7: Git, GitHub, Export, and Import** - Add read-only repo/PR context plus portable archive workflows.
 - [ ] **Phase 8: Hardening, Packaging, and Readiness** - Verify the full desktop app, packaging path, and safety gates for V1.
 
 ## Phase Details
@@ -190,7 +190,7 @@ Plans:
 - [x] 07-02: Implement optional read-only GitHub provider and failure semantics.
 - [x] 07-03: Implement harness-neutral export archive with privacy warnings.
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 07-04: Implement archive import as a read-only source.
+- [x] 07-04: Implement archive import as a read-only source.
 
 Cross-cutting constraints:
 - Repo and GitHub truth stay shared-main, project-scoped, and read-only; renderer routes consume typed DTOs only and never execute `git` or `gh` themselves.
@@ -228,5 +228,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 4. Gemini CLI Adapter End-to-End | 4/4 | Complete | 2026-05-23 |
 | 5. Shared Shell, Verification, and Run Audit | 4/4 | Complete | 2026-05-24 |
 | 6. Harness-Neutral Triage UI | 5/5 | Complete | 2026-05-24 |
-| 7. Git, GitHub, Export, and Import | 2/4 | In Progress | - |
+| 7. Git, GitHub, Export, and Import | 4/4 | Complete | 2026-05-24 |
 | 8. Hardening, Packaging, and Readiness | 0/3 | Not started | - |

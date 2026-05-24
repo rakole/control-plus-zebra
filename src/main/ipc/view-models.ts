@@ -3,6 +3,7 @@ import { z } from "zod";
 const operationChannelSchema = z.enum([
   "app:getShellState",
   "export:createArchive",
+  "import:openArchive",
   "overview:get",
   "projects:list",
   "sessions:list",
@@ -535,6 +536,46 @@ export const createArchiveResponseSchema = z.discriminatedUnion("ok", [
 ]);
 export type CreateArchiveResponse = z.infer<typeof createArchiveResponseSchema>;
 
+export const openArchiveRequestSchema = z
+  .object({
+    archivePath: z.string().min(1).optional()
+  })
+  .strict();
+export type OpenArchiveRequest = z.infer<typeof openArchiveRequestSchema>;
+
+export const openArchiveResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("cancelled")
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("imported"),
+      archivePath: z.string().min(1),
+      manifestVersion: z.number().int().positive(),
+      sourceId: z.string().min(1)
+    })
+    .strict()
+]);
+export type OpenArchiveResult = z.infer<typeof openArchiveResultSchema>;
+
+export const openArchiveResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      archiveImport: openArchiveResultSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type OpenArchiveResponse = z.infer<typeof openArchiveResponseSchema>;
+
 export const getSessionDetailResponseSchema = z.discriminatedUnion("ok", [
   z
     .object({
@@ -669,6 +710,27 @@ export const dataSourceViewModelSchema = z
     rootPath: z.string().min(1),
     enabled: z.boolean(),
     enabledLabel: z.enum(["Enabled", "Disabled"]),
+    sourceKind: z.enum(["Local Source", "Imported Archive"]),
+    addedBy: z.enum(["Configured", "Import"]),
+    readOnly: z.boolean(),
+    readOnlyLabel: z.literal("Read Only").optional(),
+    readOnlyReason: z.string().min(1).optional(),
+    archiveMetadata: z
+      .object({
+        archivePath: z.string().min(1),
+        exportedAt: z.string().min(1),
+        importedAt: z.string().min(1),
+        manifestVersion: z.number().int().positive(),
+        scopeKind: z.enum(["project", "session"]),
+        scopeId: z.string().min(1),
+        scopeLabel: z.string().min(1),
+        sourceCount: z.number().int().nonnegative(),
+        sessionCount: z.number().int().nonnegative(),
+        projectCount: z.number().int().nonnegative(),
+        rawArtifactCount: z.number().int().nonnegative()
+      })
+      .strict()
+      .optional(),
     validationStatus: dataSourceValidationStatusSchema,
     validationUpdatedAt: z.string().min(1).optional(),
     validationPath: z.string().min(1).optional(),

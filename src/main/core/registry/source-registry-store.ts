@@ -5,6 +5,22 @@ import { z } from "zod";
 
 import type { SourceRecord } from "./source-registry.js";
 
+const importedArchiveMetadataSchema = z
+  .object({
+    archivePath: z.string().min(1),
+    exportedAt: z.string().min(1),
+    importedAt: z.string().min(1),
+    manifestVersion: z.number().int().positive(),
+    scopeKind: z.enum(["project", "session"]),
+    scopeId: z.string().min(1),
+    scopeLabel: z.string().min(1),
+    sourceCount: z.number().int().nonnegative(),
+    sessionCount: z.number().int().nonnegative(),
+    projectCount: z.number().int().nonnegative(),
+    rawArtifactCount: z.number().int().nonnegative()
+  })
+  .strict();
+
 const confidenceSchema = z
   .object({
     level: z.enum(["high", "medium", "low", "unknown"]),
@@ -13,7 +29,7 @@ const confidenceSchema = z
   })
   .strict();
 
-const diagnosticSchema = z
+export const persistedDiagnosticSchema = z
   .object({
     id: z.string().min(1),
     code: z.string().min(1),
@@ -52,7 +68,7 @@ const validationSummarySchema = z
       "unsupported",
       "unknown"
     ]),
-    diagnostics: z.array(diagnosticSchema),
+    diagnostics: z.array(persistedDiagnosticSchema),
     normalizedPath: z.string().min(1).optional(),
     updatedAt: z.string().min(1).optional()
   })
@@ -70,7 +86,7 @@ const operationalSummarySchema = z
       "unsupported",
       "unknown"
     ]),
-    diagnostics: z.array(diagnosticSchema),
+    diagnostics: z.array(persistedDiagnosticSchema),
     artifactCount: z.number().int().nonnegative().optional(),
     sessionCount: z.number().int().nonnegative().optional(),
     updatedAt: z.string().min(1).optional(),
@@ -95,11 +111,15 @@ const sourceRecordSchema = z
     displayName: z.string().min(1).optional(),
     rootPath: z.string().min(1),
     enabled: z.boolean(),
+    sourceKind: z.enum(["local-root", "imported-archive"]).default("local-root"),
+    addedBy: z.enum(["user", "import"]).default("user"),
+    readOnly: z.boolean().default(false),
     validation: validationSummarySchema,
     scan: operationalSummarySchema,
     cache: operationalSummarySchema,
     watch: watchSummarySchema,
-    diagnostics: z.array(diagnosticSchema),
+    diagnostics: z.array(persistedDiagnosticSchema),
+    archive: importedArchiveMetadataSchema.optional(),
     createdAt: z.string().min(1),
     updatedAt: z.string().min(1)
   })

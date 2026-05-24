@@ -433,6 +433,12 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
         rawArtifactCount: 0
       }
     }),
+    openArchive: vi.fn().mockResolvedValue({
+      ok: true,
+      archiveImport: {
+        status: "cancelled"
+      }
+    }),
     getOverview: vi.fn().mockResolvedValue({
       ok: true,
       overview: options.overview ?? buildOverview()

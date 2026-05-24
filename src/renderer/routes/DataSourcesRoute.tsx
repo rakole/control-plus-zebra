@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   addDataSource,
   listDataSources,
+  openArchive,
   scanDataSource,
   setDataSourceEnabled,
   updateDataSource,
@@ -22,7 +23,7 @@ import { DataSourcesLoadingSkeleton } from "../components/DataSourcesLoadingSkel
 
 const EMPTY_HEADING = "No data sources configured";
 const EMPTY_BODY =
-  "Add a harness source root, validate it, then scan it to populate local sessions.";
+  "Add a local harness source or import an archive to populate sessions and project summaries.";
 const ERROR_COPY =
   "Data sources could not load. Check the source registry bridge and IPC handler, then reload data sources.";
 
@@ -54,7 +55,7 @@ export function DataSourcesRoute() {
   const [isActionPending, setIsActionPending] = useState(false);
   const [pathAutoFocusKey, setPathAutoFocusKey] = useState<string | null>(null);
 
-  const loadDataSources = useCallback(async () => {
+  const loadDataSources = useCallback(async (preferredSourceId?: string) => {
     setIsLoading(true);
     setLoadFailed(false);
 
@@ -68,6 +69,16 @@ export function DataSourcesRoute() {
       setAdapters(response.adapters);
       setSources(response.sources);
       setSelectedSource((current) => {
+        if (preferredSourceId) {
+          const preferred = response.sources.find(
+            (source) => source.sourceId === preferredSourceId
+          );
+
+          if (preferred) {
+            return createEditableSource(preferred);
+          }
+        }
+
         if (current?.isDraft) {
           return current;
         }
@@ -98,9 +109,15 @@ export function DataSourcesRoute() {
   }, [loadDataSources]);
 
   const displaySources = buildDisplaySources(sources, selectedSource);
-  const canValidate = Boolean(selectedSource?.adapterId && selectedSource.rootPath.trim());
+  const canValidate = Boolean(
+    selectedSource &&
+      !selectedSource.readOnly &&
+      selectedSource.adapterId &&
+      selectedSource.rootPath.trim()
+  );
   const canScan = Boolean(
     selectedSource &&
+      !selectedSource.readOnly &&
       selectedSource.validation.label === "Valid" &&
       selectedSource.enabled &&
       !selectedSource.isDraft
@@ -300,19 +317,40 @@ export function DataSourcesRoute() {
     }
   }
 
+  async function handleImportArchive() {
+    setIsActionPending(true);
+
+    try {
+      const response = await openArchive();
+
+      if (!response.ok) {
+        throw new Error(response.error.message);
+      }
+
+      if (response.archiveImport.status === "imported") {
+        await loadDataSources(response.archiveImport.sourceId);
+      }
+    } finally {
+      setIsActionPending(false);
+    }
+  }
+
   return (
     <main className="route-shell" aria-labelledby="data-sources-title">
       <section className="route-header">
         <div>
-          <p className="route-kicker">Local sources</p>
+          <p className="route-kicker">Local and archived sources</p>
           <h1 id="data-sources-title">Data Sources</h1>
         </div>
         <div className="route-actions">
           <button className="secondary-button" onClick={() => void loadDataSources()} type="button">
             Reload Data Sources
           </button>
-          <button className="primary-button" onClick={handleAddSource} type="button">
+          <button className="secondary-button" onClick={handleAddSource} type="button">
             Add Source
+          </button>
+          <button className="primary-button" onClick={() => void handleImportArchive()} type="button">
+            Import Archive
           </button>
         </div>
       </section>
@@ -400,6 +438,9 @@ function buildDraftSource(
     rootPath: "",
     enabled: true,
     enabledLabel: "Enabled",
+    sourceKind: "Local Source",
+    addedBy: "Configured",
+    readOnly: false,
     validation: defaultValidation,
     scan: defaultScan,
     cache: defaultCache,
