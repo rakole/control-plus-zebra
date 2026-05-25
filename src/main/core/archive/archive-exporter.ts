@@ -1,7 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { RawArtifactRef } from "../adapter-contract/types.js";
+import type {
+  AdapterNormalizationResult,
+  RawArtifactRef
+} from "../adapter-contract/types.js";
 import type {
   DerivedCacheRecord,
   FileBackedCacheStore,
@@ -86,6 +89,13 @@ interface ScopeResolution {
   sources: ArchivedSourceRecord[];
 }
 
+interface ScopeResolutionContext {
+  cacheRecords: NormalizedCacheRecord[];
+  merged: AdapterNormalizationResult;
+  rawArtifactEntries: RawArtifactIndexEntry[];
+  sourceRecords: SourceRecord[];
+}
+
 interface ArchivedSourceScope {
   archivedSource: ArchivedSourceRecord;
   diagnostics: Diagnostic[];
@@ -108,6 +118,18 @@ export class ArchiveExporter {
     scope: ArchiveExportScope
   ): Promise<ArchiveExportAvailability> {
     return (await this.#resolveScope(scope)).availability;
+  }
+
+  async getScopeAvailabilities(
+    scopes: ArchiveExportScope[]
+  ): Promise<ArchiveExportAvailability[]> {
+    if (scopes.length === 0) {
+      return [];
+    }
+
+    const context = await this.#loadScopeResolutionContext();
+
+    return scopes.map((scope) => this.#resolveScopeWithContext(scope, context).availability);
   }
 
   async createArchive(input: CreateArchiveInput): Promise<CreateArchiveResult> {
@@ -190,6 +212,10 @@ export class ArchiveExporter {
   }
 
   async #resolveScope(scope: ArchiveExportScope): Promise<ScopeResolution> {
+    return this.#resolveScopeWithContext(scope, await this.#loadScopeResolutionContext());
+  }
+
+  async #loadScopeResolutionContext(): Promise<ScopeResolutionContext> {
     const [cacheRecords, rawArtifactEntries, sourceRecords] = await Promise.all([
       this.#cacheStore.listLatestRecords(),
       this.#rawArtifactIndex.load(),
@@ -203,6 +229,20 @@ export class ArchiveExporter {
         "No cached source data is available for archive export."
       );
     }
+
+    return {
+      cacheRecords,
+      merged,
+      rawArtifactEntries,
+      sourceRecords
+    };
+  }
+
+  #resolveScopeWithContext(
+    scope: ArchiveExportScope,
+    context: ScopeResolutionContext
+  ): ScopeResolution {
+    const { cacheRecords, merged, rawArtifactEntries, sourceRecords } = context;
 
     const selectedProject =
       scope.kind === "project"

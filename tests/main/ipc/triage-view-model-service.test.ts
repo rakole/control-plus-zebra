@@ -70,6 +70,62 @@ describe("triage view model service", () => {
     expect(JSON.stringify(projects)).not.toContain("rawEvents");
   });
 
+  it("loads archive availability once for Projects route rollups", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const originalCacheStore = runtime.cacheStore;
+    const originalRawArtifactIndex = runtime.rawArtifactIndex;
+    const originalSourceRegistry = runtime.sourceRegistry;
+    let latestRecordLoadCount = 0;
+    let rawArtifactIndexLoadCount = 0;
+    let sourceListCount = 0;
+
+    runtime.cacheStore = {
+      listLatestRecords: async () => {
+        latestRecordLoadCount += 1;
+        return originalCacheStore.listLatestRecords();
+      }
+    } as unknown as typeof runtime.cacheStore;
+    runtime.rawArtifactIndex = {
+      load: async () => {
+        rawArtifactIndexLoadCount += 1;
+        return originalRawArtifactIndex.load();
+      }
+    } as unknown as typeof runtime.rawArtifactIndex;
+    runtime.sourceRegistry = {
+      listSources: async () => {
+        sourceListCount += 1;
+        return originalSourceRegistry.listSources();
+      }
+    } as unknown as typeof runtime.sourceRegistry;
+
+    const triageService = createTriageViewModelService({ runtime });
+    const projects = await triageService.listProjects();
+
+    expect(projects.length).toBeGreaterThan(1);
+    expect(latestRecordLoadCount).toBe(2);
+    expect(rawArtifactIndexLoadCount).toBe(1);
+    expect(sourceListCount).toBe(1);
+  });
+
+  it("keeps project rollups visible when archive availability cannot be read", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+
+    runtime.rawArtifactIndex = {
+      load: async () => {
+        throw new Error("raw artifact index unavailable");
+      }
+    } as unknown as typeof runtime.rawArtifactIndex;
+
+    const triageService = createTriageViewModelService({ runtime });
+    const projects = await triageService.listProjects();
+
+    expect(projects.length).toBeGreaterThan(0);
+    expect(projects.every((project) => !project.archiveExport.rawArtifactsAvailable)).toBe(true);
+    expect(projects[0]?.archiveExport.rawArtifactsReason).toBe(
+      "Archive export availability could not be resolved for this scope."
+    );
+  });
+
   it("keeps session summaries explicit about verification and audit truth", async () => {
     const runtime = await createScannedRuntime(tempDirs);
     const sessionService = createSessionViewModelService({ runtime });

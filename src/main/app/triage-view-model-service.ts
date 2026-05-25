@@ -1,6 +1,10 @@
 import type { HarnessDescriptor } from "../core/adapter-contract/index.js";
 import { deriveRunAuditForSession } from "../core/audit/run-audit-engine.js";
-import { ArchiveExporter } from "../core/archive/archive-exporter.js";
+import {
+  ArchiveExporter,
+  type ArchiveExportAvailability,
+  type ArchiveExportScope
+} from "../core/archive/archive-exporter.js";
 import type {
   DerivedProjectCacheRecord,
   NormalizedCacheRecord
@@ -64,6 +68,14 @@ interface LoadedTriageData {
   diagnosticsBySessionId: Map<string, Diagnostic[]>;
   derivedBySessionId: Map<string, DerivedSession>;
   projectSnapshotsByProjectId: Map<string, DerivedProject>;
+}
+
+interface ProjectRollupInput {
+  archiveScope: ArchiveExportScope;
+  key: string;
+  latestSession: Session;
+  project?: Project;
+  projectSessions: Session[];
 }
 
 export interface TriageViewModelService {
@@ -140,33 +152,59 @@ export function createTriageViewModelService(
         groupedSessions.set(key, current);
       }
 
-      const projects = await Promise.all(
-        [...groupedSessions.entries()].map(async ([key, projectSessions]) => {
+      const projectRollups = [...groupedSessions.entries()]
+        .map(([key, projectSessions]): ProjectRollupInput | null => {
           const project = projectSessions[0]?.projectId
             ? data.projectsById.get(projectSessions[0].projectId)
             : undefined;
           const latestSession = [...projectSessions].sort(compareSessionsByActivity)[0];
+
+          if (!latestSession) {
+            return null;
+          }
+
+          return {
+            archiveScope: project?.id
+              ? {
+                  kind: "project",
+                  projectId: project.id
+                }
+              : {
+                  kind: "session",
+                  sessionId: latestSession.id
+                },
+            key,
+            latestSession,
+            ...(project ? { project } : {}),
+            projectSessions
+          };
+        })
+        .filter((rollup): rollup is ProjectRollupInput => rollup !== null);
+      const archiveExportsByScope = await getArchiveExportsForRollups(
+        archiveExporter,
+        projectRollups
+      );
+
+      const projects = projectRollups.map(
+        ({ archiveScope, key, latestSession, project, projectSessions }) => {
           const observedHarnesses = unique(
             projectSessions.map(
               (session) => data.descriptors.get(session.adapterId)?.displayName ?? session.adapterId
             )
           );
 
-          if (!latestSession) {
-            return null;
-          }
-
           const projectSnapshot = getProjectGitSnapshot(data, project);
           const githubSnapshot = getProjectGitHubSnapshot(data, project);
-          const archiveExport = project?.id
-            ? await archiveExporter.getScopeAvailability({
-                kind: "project",
-                projectId: project.id
-              })
-            : await archiveExporter.getScopeAvailability({
-                kind: "session",
-                sessionId: latestSession.id
-              });
+          const archiveExport =
+            archiveExportsByScope.get(getArchiveScopeKey(archiveScope)) ??
+            buildUnavailableArchiveExport(
+              {
+                archiveScope,
+                latestSession,
+                projectSessions
+              },
+              project
+            );
 
           const projectDisplayName = getProjectDisplayName(project) ?? "Unknown Project";
 
@@ -198,14 +236,80 @@ export function createTriageViewModelService(
             reviewStatus: toGitHubSummaryField(githubSnapshot, (snapshot) => snapshot.reviewSummary),
             archiveExport
           });
-        })
+        }
       );
 
       return projects
-        .filter((project): project is ProjectSummaryViewModel => project !== null)
         .sort((left, right) => compareTimestampStrings(right.latestActivityAt, left.latestActivityAt));
     }
   };
+}
+
+async function getArchiveExportsForRollups(
+  archiveExporter: ArchiveExporter,
+  rollups: ProjectRollupInput[]
+): Promise<Map<string, ArchiveExportAvailability>> {
+  const archiveExportsByScope = new Map<string, ArchiveExportAvailability>();
+
+  if (rollups.length === 0) {
+    return archiveExportsByScope;
+  }
+
+  try {
+    const archiveExports = await archiveExporter.getScopeAvailabilities(
+      rollups.map((rollup) => rollup.archiveScope)
+    );
+
+    for (const archiveExport of archiveExports) {
+      const scopeKey =
+        archiveExport.scopeKind === "project"
+          ? `project:${archiveExport.scopeId}`
+          : `session:${archiveExport.scopeId}`;
+
+      archiveExportsByScope.set(scopeKey, archiveExport);
+    }
+  } catch {
+    for (const rollup of rollups) {
+      archiveExportsByScope.set(
+        getArchiveScopeKey(rollup.archiveScope),
+        buildUnavailableArchiveExport(rollup, rollup.project)
+      );
+    }
+  }
+
+  return archiveExportsByScope;
+}
+
+function buildUnavailableArchiveExport(
+  rollup: Pick<
+    ProjectRollupInput,
+    "archiveScope" | "latestSession" | "projectSessions"
+  >,
+  project?: Project
+): ArchiveExportAvailability {
+  return {
+    scopeKind: rollup.archiveScope.kind,
+    scopeId:
+      rollup.archiveScope.kind === "project"
+        ? rollup.archiveScope.projectId
+        : rollup.archiveScope.sessionId,
+    scopeLabel:
+      rollup.archiveScope.kind === "project"
+        ? getProjectDisplayName(project) ?? "Project Archive"
+        : rollup.latestSession.title ?? rollup.latestSession.nativeId ?? "Session Archive",
+    sessionCount: rollup.projectSessions.length,
+    sourceCount: 0,
+    rawArtifactsAvailable: false,
+    rawArtifactCount: 0,
+    rawArtifactsReason:
+      "Archive export availability could not be resolved for this scope."
+  };
+}
+
+function getArchiveScopeKey(scope: ArchiveExportScope): string {
+  return scope.kind === "project"
+    ? `${scope.kind}:${scope.projectId}`
+    : `${scope.kind}:${scope.sessionId}`;
 }
 
 export async function loadTriageData(
