@@ -1,4 +1,5 @@
 import type { HarnessDescriptor } from "../core/adapter-contract/index.js";
+import { deriveRunAuditForSession } from "../core/audit/run-audit-engine.js";
 import { ArchiveExporter } from "../core/archive/archive-exporter.js";
 import type {
   DerivedProjectCacheRecord,
@@ -16,6 +17,7 @@ import type {
   ShellCommandEvidence,
   ToolCall
 } from "../core/model/entities.js";
+import { deriveVerificationForSession } from "../core/verification/verification-classifier.js";
 import {
   getOverviewRequestSchema,
   listProjectsRequestSchema,
@@ -906,39 +908,22 @@ function buildOverviewUsageSummary(
     };
   });
   const models = unique(sessionUsage.flatMap((item) => item.models));
-  const modelStatus = summarizeUsageCapability(
-    sessionUsage,
-    "modelCapability",
-    (item) => item.models.length > 0
+  const sessionsWithModels = sessionUsage.filter((item) => item.models.length > 0).length;
+  const sessionsWithTokens = sessionUsage.filter((item) => typeof item.tokenCount === "number").length;
+  const modelCoverageReason = buildUsageCoverageReason(
+    "Model names",
+    sessionsWithModels,
+    sessionUsage.length
   );
-  const tokenStatus = summarizeUsageCapability(
-    sessionUsage,
-    "tokenCapability",
-    (item) => typeof item.tokenCount === "number"
+  const tokenCoverageReason = buildUsageCoverageReason(
+    "Token counts",
+    sessionsWithTokens,
+    sessionUsage.length
   );
 
   return {
-    models:
-      modelStatus === "value" && models.length > 0
-        ? toFieldValueWithDisplay(models.join(", "), models.join(", "))
-        : toFieldState(
-            modelStatus === "unsupported" ? "Unsupported" : "Unknown",
-            modelStatus === "unsupported"
-              ? "Selected sessions do not expose model names."
-              : "Model names are not available for every selected session."
-          ),
-    tokenCount:
-      tokenStatus === "value"
-        ? toMetricValue(
-            sessionUsage.reduce((total, item) => total + (item.tokenCount ?? 0), 0)
-          )
-        : toMetricState(
-            tokenStatus === "unsupported" ? "unsupported" : "unknown",
-            tokenStatus === "unsupported" ? "Unsupported" : "Unknown",
-            tokenStatus === "unsupported"
-              ? "Selected sessions do not expose token counts."
-              : "Token counts are not available for every selected session."
-          )
+    models: buildOverviewModelsField(sessionUsage, models, modelCoverageReason),
+    tokenCount: buildOverviewTokenMetric(sessionUsage, tokenCoverageReason)
   };
 }
 
@@ -988,7 +973,7 @@ function buildDerivedBySession(
   const derived = new Map<string, DerivedSession>();
 
   for (const record of records) {
-    for (const session of record.derived?.sessions ?? []) {
+    for (const session of buildRecordDerivedSessions(record)) {
       derived.set(session.sessionId, session);
     }
   }
@@ -1002,12 +987,153 @@ function buildDerivedByProject(
   const derived = new Map<string, DerivedProjectCacheRecord>();
 
   for (const record of records) {
-    for (const project of record.derived?.projects ?? []) {
+    for (const project of buildRecordDerivedProjects(record)) {
       derived.set(project.projectId, project);
     }
   }
 
   return derived;
+}
+
+function buildRecordDerivedSessions(
+  record: NormalizedCacheRecord
+): DerivedSession[] {
+  const normalized = record.normalized;
+  const adapterCapabilities =
+    record.capabilitySnapshots?.adapter ?? normalized.capabilities.adapter;
+  const sourceCapabilities =
+    record.capabilitySnapshots?.source ?? normalized.capabilities.source;
+  const sessionCapabilitiesBySessionId = new Map(
+    (record.capabilitySnapshots?.sessions ?? normalized.capabilities.sessions).map((snapshot) => [
+      snapshot.sessionId,
+      snapshot
+    ] as const)
+  );
+  const messagesBySessionId = groupBy(normalized.messages, (message) => message.sessionId);
+  const eventsBySessionId = groupBy(normalized.events, (event) => event.sessionId);
+  const toolCallsBySessionId = groupBy(normalized.toolCalls, (toolCall) => toolCall.sessionId);
+  const fileMutationsBySessionId = groupBy(
+    normalized.fileMutations,
+    (fileMutation) => fileMutation.sessionId
+  );
+  const shellCommandsBySessionId = new Map(
+    (record.shellCommands?.sessions ?? []).map((session) => [
+      session.sessionId,
+      session.shellCommands
+    ] as const)
+  );
+  const projectGitSnapshotsByProjectId = new Map(
+    (record.gitSnapshots?.projects ?? []).map((project) => [project.projectId, project.git] as const)
+  );
+  const diagnostics = record.diagnostics?.entries ?? normalized.diagnostics;
+
+  return normalized.sessions.map((session) => {
+    const shellCommands = shellCommandsBySessionId.get(session.id) ?? [];
+    const sessionMessages = messagesBySessionId.get(session.id) ?? [];
+    const sessionEvents = eventsBySessionId.get(session.id) ?? [];
+    const sessionToolCalls = toolCallsBySessionId.get(session.id) ?? [];
+    const sessionFileMutations = fileMutationsBySessionId.get(session.id) ?? [];
+    const sessionDiagnostics = collectRecordSessionDiagnostics(
+      diagnostics,
+      session,
+      shellCommands
+    );
+    const sessionCapabilities = sessionCapabilitiesBySessionId.get(session.id);
+    const verification = deriveVerificationForSession({
+      adapterCapabilities,
+      parsedShellCommands: shellCommands,
+      session,
+      sessionMessages,
+      ...(sessionCapabilities ? { sessionCapabilities } : {}),
+      sourceCapabilities
+    });
+    const projectGitSnapshot = session.projectId
+      ? projectGitSnapshotsByProjectId.get(session.projectId)
+      : undefined;
+
+    return {
+      sessionId: session.id,
+      shellCommands,
+      verification,
+      audit: deriveRunAuditForSession({
+        adapterCapabilities,
+        diagnostics: sessionDiagnostics,
+        parsedShellCommands: shellCommands,
+        ...(projectGitSnapshot ? { projectGitSnapshot } : {}),
+        session,
+        sessionEvents,
+        sessionFileMutations,
+        sessionMessages,
+        sessionToolCalls,
+        verification,
+        ...(sessionCapabilities ? { sessionCapabilities } : {}),
+        sourceCapabilities
+      })
+    };
+  });
+}
+
+function buildRecordDerivedProjects(
+  record: NormalizedCacheRecord
+): DerivedProjectCacheRecord[] {
+  const projectsById = new Map<string, DerivedProjectCacheRecord>();
+
+  for (const project of record.gitSnapshots?.projects ?? []) {
+    projectsById.set(project.projectId, {
+      projectId: project.projectId,
+      git: project.git
+    });
+  }
+
+  for (const project of record.githubSnapshots?.projects ?? []) {
+    const current = projectsById.get(project.projectId);
+
+    projectsById.set(project.projectId, {
+      projectId: project.projectId,
+      git: current?.git ?? {
+        status: "unknown",
+        rootConfidence: "unknown",
+        diagnosticIds: []
+      },
+      github: project.github
+    });
+  }
+
+  return [...projectsById.values()];
+}
+
+function collectRecordSessionDiagnostics(
+  diagnostics: Diagnostic[],
+  session: Session,
+  shellCommands: DerivedSession["shellCommands"]
+): Diagnostic[] {
+  const relatedEntityIds = new Set([
+    session.id,
+    ...(session.eventIds ?? []),
+    ...(session.messageIds ?? []),
+    ...(session.toolCallIds ?? []),
+    ...(session.shellCommandIds ?? []),
+    ...(session.outputArtifactIds ?? []),
+    ...(session.fileMutationIds ?? []),
+    ...shellCommands.flatMap((shellCommand) => [
+      shellCommand.shellCommandId,
+      ...(shellCommand.toolCallId ? [shellCommand.toolCallId] : []),
+      ...(shellCommand.artifactIds ?? []),
+      ...(shellCommand.diagnosticIds ?? [])
+    ])
+  ]);
+  const nativeSessionId = getSessionNativeSessionId(session) ?? session.nativeId;
+
+  return dedupeDiagnostics(
+    diagnostics.filter(
+      (diagnostic) =>
+        relatedEntityIds.has(diagnostic.id) ||
+        diagnostic.relatedEntityIds?.some((entityId) => relatedEntityIds.has(entityId)) === true ||
+        session.diagnosticIds?.includes(diagnostic.id) === true ||
+        (typeof diagnostic.metadata?.sessionId === "string" &&
+          diagnostic.metadata.sessionId === nativeSessionId)
+    )
+  );
 }
 
 function compareSessionsByActivity(left: Session, right: Session): number {
@@ -1336,6 +1462,79 @@ function getSessionModelNames(
       .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
       .map((value) => sanitizeText(value))
   );
+}
+
+function buildOverviewModelsField(
+  sessionUsage: Array<{
+    modelCapability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined;
+    models: string[];
+  }>,
+  models: string[],
+  coverageReason?: string
+): FieldValueViewModel {
+  if (models.length > 0) {
+    return {
+      ...toFieldValueWithDisplay(models.join(", "), models.join(", ")),
+      ...(coverageReason ? { reason: coverageReason } : {})
+    };
+  }
+
+  const modelStatus = summarizeUsageCapability(
+    sessionUsage,
+    "modelCapability",
+    (item) => item.models.length > 0
+  );
+
+  return toFieldState(
+    modelStatus === "unsupported" ? "Unsupported" : "Unknown",
+    modelStatus === "unsupported"
+      ? "Selected sessions do not expose model names."
+      : "Model names are not available for the selected sessions."
+  );
+}
+
+function buildOverviewTokenMetric(
+  sessionUsage: Array<{
+    tokenCapability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined;
+    tokenCount: number | undefined;
+  }>,
+  coverageReason?: string
+): MetricStateViewModel {
+  const hasObservedTokenCount = sessionUsage.some((item) => typeof item.tokenCount === "number");
+  const tokenCount = sessionUsage.reduce((total, item) => total + (item.tokenCount ?? 0), 0);
+
+  if (hasObservedTokenCount) {
+    return {
+      ...toMetricValue(tokenCount),
+      ...(coverageReason ? { reason: coverageReason } : {})
+    };
+  }
+
+  const tokenStatus = summarizeUsageCapability(
+    sessionUsage,
+    "tokenCapability",
+    (item) => typeof item.tokenCount === "number"
+  );
+
+  return toMetricState(
+    tokenStatus === "unsupported" ? "unsupported" : "unknown",
+    tokenStatus === "unsupported" ? "Unsupported" : "Unknown",
+    tokenStatus === "unsupported"
+      ? "Selected sessions do not expose token counts."
+      : "Token counts are not available for the selected sessions."
+  );
+}
+
+function buildUsageCoverageReason(
+  label: string,
+  availableCount: number,
+  totalCount: number
+): string | undefined {
+  if (totalCount === 0 || availableCount === 0 || availableCount === totalCount) {
+    return undefined;
+  }
+
+  return `${label} are available for ${availableCount} of ${totalCount} selected sessions.`;
 }
 
 function summarizeUsageCapability<TItem>(

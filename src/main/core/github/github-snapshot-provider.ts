@@ -161,14 +161,15 @@ export class GitHubSnapshotProvider {
     code: string,
     message: string
   ): ProjectGitHubSnapshotResult {
+    const isNoMatchingPullRequest = code === "github.pr.no-match";
     const diagnostics = [
       buildDiagnostic(
         project.adapterId ?? "unknown-adapter",
         code,
         message,
-        "warning",
+        isNoMatchingPullRequest ? "info" : "warning",
         "project",
-        code === "github.pr.no-match" ? HIGH_CONFIDENCE : MEDIUM_CONFIDENCE,
+        isNoMatchingPullRequest ? HIGH_CONFIDENCE : MEDIUM_CONFIDENCE,
         {
           ...(project.sourceId ? { sourceId: project.sourceId } : {}),
           nativeId: `${project.nativeId ?? project.id}:${code}`,

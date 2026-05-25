@@ -21,7 +21,7 @@ describe("Session detail route", () => {
 
     expect(await screen.findByRole("heading", { name: "Session Detail" })).toBeInTheDocument();
     expect(screen.getByLabelText("Session detail summary")).toBeInTheDocument();
-    expect(screen.getByText("Capability Warnings")).toBeInTheDocument();
+    expect(screen.getByText("Capability Coverage")).toBeInTheDocument();
     expect(screen.getByText("Session Timeline")).toBeInTheDocument();
     expect(screen.getByText("npm run typecheck")).toBeInTheDocument();
     expect(screen.getByText("Type checking passed.")).toBeInTheDocument();

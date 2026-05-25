@@ -10,7 +10,7 @@ interface SessionDetailSummaryRailProps {
 
 export function SessionDetailSummaryRail({ detail }: SessionDetailSummaryRailProps) {
   const session = detail.session;
-  const capabilityWarnings = flattenSessionCapabilities(session.capabilityGroups).filter(
+  const capabilityGaps = flattenSessionCapabilities(session.capabilityGroups).filter(
     (badge) => badge.state !== "Supported"
   );
 
@@ -42,10 +42,10 @@ export function SessionDetailSummaryRail({ detail }: SessionDetailSummaryRailPro
       </div>
 
       <section className="space-y-2">
-        <h3 className="text-sm font-medium text-foreground">Capability Warnings</h3>
+        <h3 className="text-sm font-medium text-foreground">Capability Coverage</h3>
         <div className="flex flex-wrap gap-2">
-          {(capabilityWarnings.length > 0
-            ? capabilityWarnings
+          {(capabilityGaps.length > 0
+            ? capabilityGaps
             : [{ key: "supported", label: "Capabilities", state: "Supported" as const }]
           ).map((badge) => (
             <div

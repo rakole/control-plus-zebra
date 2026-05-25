@@ -13,13 +13,13 @@ describe("diagnostics view model service", () => {
     await cleanupTempDirs(tempDirs);
   });
 
-  it("groups source, normalization, and capability diagnostics into sanitized DTOs", async () => {
+  it("groups source, normalization, and cache diagnostics into sanitized DTOs", async () => {
     const runtime = await createScannedRuntime(tempDirs);
     const service = createDiagnosticsViewModelService({ runtime });
     const diagnostics = await service.listDiagnostics();
 
     expect(diagnostics.groups.length).toBeGreaterThan(0);
-    expect(diagnostics.groups.some((group) => group.sourceArea === "capability")).toBe(true);
+    expect(diagnostics.groups.some((group) => group.sourceArea === "capability")).toBe(false);
     expect(
       diagnostics.groups.every((group) =>
         group.diagnostics.every((diagnostic) => !diagnostic.message.includes("/tmp/"))
@@ -41,5 +41,13 @@ describe("diagnostics view model service", () => {
 
     expect(new Set(rowKeys).size).toBe(rowKeys.length);
     expect(rows.filter((row) => row.sessionId).every((row) => row.sessionTitle)).toBe(true);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "github.pr.no-match",
+          severity: "info"
+        })
+      ])
+    );
   });
 });

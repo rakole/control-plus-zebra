@@ -334,13 +334,13 @@ export function createRunAuditViewModelService(
             id: "capability-gaps",
             title: "Capability Gaps",
             summary: "Unsupported and unknown evidence stays visible instead of reading clean.",
-            items: capabilityWarnings.length
-              ? capabilityWarnings.map((badge) => ({
-                  label: badge.label,
-                  value: badge.state,
-                  tone: badge.state === "Unsupported" ? "warning" : "neutral",
-                  hint: badge.reason
-                }))
+                items: capabilityWarnings.length
+                  ? capabilityWarnings.map((badge) => ({
+                      label: badge.label,
+                      value: badge.state,
+                      tone: badge.state === "Unsupported" ? "neutral" : "warning",
+                      hint: badge.reason
+                    }))
               : [
                   {
                     label: "Capability Warnings",

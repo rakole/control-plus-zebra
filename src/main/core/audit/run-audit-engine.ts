@@ -69,7 +69,7 @@ export function deriveRunAuditForSession(args: {
   }
 
   if (
-    isVerificationCapabilityBlocked(args.verification.status) ||
+    isVerificationCapabilityBlocked(args.verification) ||
     isSharedGitAssessmentUnavailable(completionClaim.status, args.projectGitSnapshot)
   ) {
     attentionReasons.add("capability-missing");
@@ -173,8 +173,14 @@ function deriveAuditConfidence(
   return HIGH_CONFIDENCE;
 }
 
-function isVerificationCapabilityBlocked(status: VerificationResult["status"]) {
-  return status === "unsupported" || status === "unknown";
+function isVerificationCapabilityBlocked(verification: VerificationResult) {
+  if (verification.status === "unsupported") {
+    return true;
+  }
+
+  return verification.reasonCodes.some(
+    (reasonCode) => reasonCode === "capability-unsupported" || reasonCode === "capability-unknown"
+  );
 }
 
 function hasDirtyProjectStateAfterClaim(

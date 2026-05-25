@@ -94,4 +94,29 @@ describe("session detail view model service", () => {
       expect.arrayContaining([firstArtifact.id, secondArtifact.id])
     );
   });
+
+  it("renders Gemini metadata events as metadata instead of unknown evidence markers", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const service = createSessionDetailViewModelService({ runtime });
+    const records = await runtime.cacheStore.listLatestRecords();
+    const geminiSession = records
+      .flatMap((record) => record.normalized.sessions)
+      .find((session) => session.adapterId === "gemini-cli");
+
+    expect(geminiSession).toBeDefined();
+    if (!geminiSession) {
+      throw new Error("Expected a Gemini session.");
+    }
+
+    const detail = await service.getSessionDetail({ sessionId: geminiSession.id });
+    const metadataEvent = detail?.timeline.find((event) => event.kind === "metadata");
+
+    expect(metadataEvent).toEqual(
+      expect.objectContaining({
+        kind: "metadata",
+        title: "Session metadata"
+      })
+    );
+    expect(metadataEvent?.summary).not.toContain("Unknown evidence marker");
+  });
 });

@@ -340,6 +340,7 @@ export const timelineEventViewModelSchema = z
     kind: z.enum([
       "message",
       "lifecycle",
+      "metadata",
       "tool-call",
       "shell-command",
       "output-artifact",

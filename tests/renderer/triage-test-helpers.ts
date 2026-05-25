@@ -454,7 +454,7 @@ export function buildDiagnostics(overrides: Partial<DiagnosticsFixture> = {}) {
     groups: [
       {
         groupId: "capability:warning",
-        title: "Capability Warnings",
+        title: "Capability Gaps",
         sourceArea: "capability" as const,
         severity: "warning" as const,
         count: 1,

@@ -195,10 +195,13 @@ export function createSessionDetailViewModelService(
               case "metadata":
                 return [{
                   id: event.id,
-                  kind: "unknown" as const,
+                  kind: "metadata" as const,
                   timestamp: event.timestamp,
-                  title: "Unknown evidence marker",
-                  summary: event.text ?? "Metadata evidence is available only as a safe marker.",
+                  title: "Session metadata",
+                  summary:
+                    event.text ??
+                    event.title ??
+                    "Session metadata is available as a safe marker.",
                   metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
                 }];
               default:

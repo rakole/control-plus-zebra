@@ -53,6 +53,12 @@ describe("GitHubSnapshotProvider", () => {
 
     expect(result.github.status).toBe("no-matching-pr");
     expect(result.github.reason).toMatch(/No matching pull request/u);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "github.pr.no-match",
+        severity: "info"
+      })
+    ]);
   });
 
   it("marks github as unsupported when gh is missing", async () => {

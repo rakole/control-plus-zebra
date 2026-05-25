@@ -17,7 +17,6 @@ import {
   loadTriageData,
   sanitizeText
 } from "./triage-view-model-service.js";
-import { flattenCapabilityGroups } from "./capability-view-models.js";
 import {
   createWorkbenchRuntime,
   type WorkbenchRuntime,
@@ -53,7 +52,7 @@ export function createDiagnosticsViewModelService(
         ...sessions.flatMap((session) => {
           const preview = buildSessionPreviewViewModel(data, session);
           const project = getProjectForSession(data, session);
-          const diagnostics = getDiagnosticsForSession(data, session).map((diagnostic) =>
+          return getDiagnosticsForSession(data, session).map((diagnostic) =>
             toDiagnosticRow(
               data,
               session.adapterId,
@@ -64,26 +63,6 @@ export function createDiagnosticsViewModelService(
               getProjectDisplayName(project)
             )
           );
-          const capabilityRows = flattenCapabilityGroups(preview.capabilityGroups)
-            .filter((badge) => badge.state !== "Supported")
-            .map((badge) => ({
-              code: `capability.${badge.key}`,
-              severity: "warning" as const,
-              sourceArea: "capability" as const,
-              adapterId: session.adapterId,
-              adapterDisplayName:
-                data.descriptors.get(session.adapterId)?.displayName ?? session.adapterId,
-              sessionId: session.id,
-              sessionTitle: preview.title,
-              ...(getProjectDisplayName(project)
-                ? { projectDisplayName: getProjectDisplayName(project) }
-                : {}),
-              message: badge.reason
-                ? `${badge.label} is ${badge.state}. ${sanitizeText(badge.reason)}`
-                : `${badge.label} is ${badge.state}.`
-            }));
-
-          return [...diagnostics, ...capabilityRows];
         })
       ]
         .filter((row) => !parsed.adapterId || row.adapterId === parsed.adapterId)
@@ -235,7 +214,7 @@ function toDiagnosticRow(
 ): DiagnosticRowViewModel {
   return {
     code: diagnostic.code,
-    severity: diagnostic.severity,
+    severity: resolveDiagnosticSeverity(diagnostic),
     sourceArea,
     adapterId,
     adapterDisplayName: data.descriptors.get(adapterId)?.displayName ?? adapterId,
@@ -244,4 +223,14 @@ function toDiagnosticRow(
     ...(projectDisplayName ? { projectDisplayName } : {}),
     message: sanitizeText(diagnostic.message)
   };
+}
+
+function resolveDiagnosticSeverity(
+  diagnostic: Diagnostic
+): DiagnosticRowViewModel["severity"] {
+  if (diagnostic.code === "github.pr.no-match") {
+    return "info";
+  }
+
+  return diagnostic.severity;
 }

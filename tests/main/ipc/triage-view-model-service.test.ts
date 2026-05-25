@@ -26,21 +26,24 @@ describe("triage view model service", () => {
     const rawExportProject = projects.find((project) => project.archiveExport.rawArtifactsAvailable);
 
     expect(overview.metrics.totalSessions.numericValue).toBeGreaterThan(0);
-    expect(overview.usageSummary.models.displayValue).toBe("Unknown");
-    expect(overview.usageSummary.tokenCount.displayValue).toBe("Unknown");
+    expect(overview.usageSummary.models.status).toBe("value");
+    expect(overview.usageSummary.models.displayValue).toContain("gemini-3-flash-preview");
+    expect(overview.usageSummary.models.reason).toContain("selected sessions");
+    expect(overview.usageSummary.tokenCount.status).toBe("value");
+    expect(overview.usageSummary.tokenCount.numericValue).toBeGreaterThan(0);
+    expect(overview.usageSummary.tokenCount.reason).toContain("selected sessions");
     expect(overview.harnessFilters.map((filter) => filter.label)).toEqual(
       expect.arrayContaining(["Fake Test Harness", "Gemini CLI"])
     );
     await expect(triageService.getOverview({ adapterId: "gemini-cli" })).resolves.toMatchObject({
       usageSummary: {
         models: {
-          displayValue: "Unknown",
-          reason: "Model names are not available for every selected session."
+          status: "value",
+          displayValue: "gemini-3-flash-preview"
         },
         tokenCount: {
-          status: "unknown",
-          displayValue: "Unknown",
-          reason: "Token counts are not available for every selected session."
+          status: "value",
+          numericValue: expect.any(Number)
         }
       }
     });
@@ -89,4 +92,94 @@ describe("triage view model service", () => {
     ).toBe(true);
     expect(JSON.stringify(sessions)).not.toContain("artifactPath");
   });
+
+  it("re-derives session verification and audit truth instead of trusting stale cache sections", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const sessionService = createSessionViewModelService({ runtime });
+    const sessions = await sessionService.listSessions();
+    const target = sessions.find(
+      (session) =>
+        session.verificationState.label !== "Unknown" ||
+        !session.attentionReasons.includes("Capability Missing")
+    );
+
+    expect(target).toBeDefined();
+    if (!target) {
+      throw new Error("Expected at least one scanned session with non-stale truth.");
+    }
+
+    const expectedPreview = await sessionService.getSessionById({
+      sessionId: target.sessionId
+    });
+
+    expect(expectedPreview).toBeDefined();
+    if (!expectedPreview) {
+      throw new Error("Expected a preview for the selected session.");
+    }
+
+    const records = await runtime.cacheStore.load();
+    const record = records.find((candidate) =>
+      candidate.normalized.sessions.some((session) => session.id === target.sessionId)
+    );
+
+    expect(record).toBeDefined();
+    if (!record) {
+      throw new Error("Expected a cache record for the selected session source.");
+    }
+
+    record.verificationResults = {
+      sessions: upsertBySessionId(record.verificationResults?.sessions ?? [], target.sessionId, {
+        sessionId: target.sessionId,
+        verification: {
+          status: "unknown",
+          confidence: {
+            level: "low",
+            normalizedLevel: "inferred"
+          },
+          commandIds: [],
+          intentResults: [],
+          reasonCodes: ["no-qualifying-commands"]
+        }
+      })
+    };
+    record.runAudits = {
+      sessions: upsertBySessionId(record.runAudits?.sessions ?? [], target.sessionId, {
+        sessionId: target.sessionId,
+        audit: {
+          status: "needs-review",
+          attentionReasons: ["capability-missing"],
+          confidence: {
+            level: "medium",
+            normalizedLevel: "observed"
+          },
+          completionClaim: "claimed",
+          supportingCommandIds: [],
+          supportingToolCallIds: [],
+          supportingMessageIds: []
+        }
+      })
+    };
+
+    await runtime.cacheStore.save(records);
+
+    const reloadedPreview = await sessionService.getSessionById({
+      sessionId: target.sessionId
+    });
+
+    expect(reloadedPreview).toEqual(expectedPreview);
+  });
 });
+
+function upsertBySessionId<TItem extends { sessionId: string }>(
+  items: TItem[],
+  sessionId: string,
+  replacement: TItem
+): TItem[] {
+  const index = items.findIndex((item) => item.sessionId === sessionId);
+
+  if (index === -1) {
+    return [...items, replacement];
+  }
+
+  return items.map((item, itemIndex) => (itemIndex === index ? replacement : item));
+}

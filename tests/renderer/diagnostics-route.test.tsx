@@ -22,7 +22,7 @@ describe("Diagnostics route", () => {
         groups: [
           {
             groupId: "capability:warning",
-            title: "Capability Warnings",
+            title: "Capability Gaps",
             sourceArea: "capability",
             severity: "warning",
             count: 1,
@@ -66,7 +66,7 @@ describe("Diagnostics route", () => {
     expect(await screen.findByRole("heading", { name: "Diagnostics" })).toBeInTheDocument();
     const route = screen.getByRole("region", { name: "Diagnostics route" });
 
-    const warningGroup = within(route).getByRole("region", { name: "Capability Warnings" });
+    const warningGroup = within(route).getByRole("region", { name: "Capability Gaps" });
     expect(within(warningGroup).getByText("Git Context Capture is Unsupported. Git evidence is unavailable.")).toBeInTheDocument();
     expect(within(warningGroup).getByText("Fake Test Harness")).toBeInTheDocument();
 
@@ -77,7 +77,7 @@ describe("Diagnostics route", () => {
     const user = userEvent.setup();
     await user.selectOptions(screen.getByRole("combobox", { name: "Severity" }), "error");
 
-    expect(screen.queryByRole("region", { name: "Capability Warnings" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Capability Gaps" })).not.toBeInTheDocument();
     expect(await screen.findByRole("region", { name: "Cache Errors" })).toBeInTheDocument();
   });
 
@@ -89,7 +89,7 @@ describe("Diagnostics route", () => {
         groups: [
           {
             groupId: "capability:warning",
-            title: "Capability Warnings",
+            title: "Capability Gaps",
             sourceArea: "capability",
             severity: "warning",
             count: 1,

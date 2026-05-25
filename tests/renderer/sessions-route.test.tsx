@@ -38,6 +38,7 @@ describe("Sessions route", () => {
     expect(
       within(route).getByRole("heading", { name: "Fixture session" })
     ).toBeInTheDocument();
+    expect(within(route).getByText("Capability Coverage")).toBeInTheDocument();
     expect(within(route).getAllByText("Unsupported").length).toBeGreaterThan(0);
     expect(within(route).getAllByText("Unknown").length).toBeGreaterThan(0);
   });

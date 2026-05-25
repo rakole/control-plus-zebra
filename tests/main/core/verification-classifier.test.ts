@@ -260,6 +260,30 @@ describe("verification classifier", () => {
     });
   });
 
+  it("ignores trailing system notices when deciding whether a completed run ended with an assistant response", () => {
+    const result = deriveVerificationForSession({
+      adapterCapabilities: createCapabilities("supported"),
+      parsedShellCommands: [],
+      session: createSession(),
+      sessionMessages: [
+        createMessage(),
+        createMessage({
+          id: "message-02",
+          nativeId: "native-message-02",
+          role: "system",
+          text: "Gemini CLI update available.",
+          timestamp: "2026-05-24T10:00:01.000Z"
+        })
+      ]
+    });
+
+    expect(result).toMatchObject({
+      status: "not-run",
+      reasonCodes: ["no-qualifying-commands"],
+      confidence: HIGH_CONFIDENCE
+    });
+  });
+
   it("resolves missing shell capability to unsupported instead of passed", () => {
     const unsupported = deriveVerificationForSession({
       adapterCapabilities: createCapabilities("unsupported"),

@@ -409,4 +409,23 @@ describe("run audit engine", () => {
     expect(result.status).toBe("needs-review");
     expect(result.attentionReasons).toContain("capability-missing");
   });
+
+  it("does not treat no qualifying verification commands as a capability gap by itself", () => {
+    const result = deriveRunAuditForSession({
+      adapterCapabilities: createCapabilities("supported"),
+      diagnostics: [],
+      parsedShellCommands: [],
+      projectGitSnapshot: createProjectGitSnapshot(),
+      session: createSession(),
+      sessionEvents: [createEvent({ id: "message-event-01", kind: "message" })],
+      sessionFileMutations: [],
+      sessionMessages: [createMessage()],
+      sessionToolCalls: [],
+      verification: createVerification("not-run")
+    });
+
+    expect(result.status).toBe("needs-review");
+    expect(result.attentionReasons).not.toContain("capability-missing");
+    expect(result.attentionReasons).toContain("no-verification");
+  });
 });

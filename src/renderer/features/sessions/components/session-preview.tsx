@@ -58,7 +58,7 @@ export function SessionPreview({
     );
   }
 
-  const capabilityWarnings = flattenSessionCapabilities(session.capabilityGroups).filter(
+  const capabilityGaps = flattenSessionCapabilities(session.capabilityGroups).filter(
     (badge) => badge.state !== "Supported"
   );
 
@@ -105,10 +105,10 @@ export function SessionPreview({
       />
 
       <section className="space-y-2">
-        <h3 className="text-sm font-medium text-foreground">Capability Warnings</h3>
+        <h3 className="text-sm font-medium text-foreground">Capability Coverage</h3>
         <div className="flex flex-wrap gap-2">
-          {(capabilityWarnings.length > 0
-            ? capabilityWarnings
+          {(capabilityGaps.length > 0
+            ? capabilityGaps
             : flattenSessionCapabilities(session.capabilityGroups).slice(0, 1)
           ).map((badge) => (
             <div
