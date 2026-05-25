@@ -7,14 +7,29 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createOutputArtifactViewModelService } from "../../../src/main/app/output-artifact-view-model-service.js";
 import { createSessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
 import { createSessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
-import type { SessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
 import type { WorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
-import type { SessionDetailViewModel } from "../../../src/main/ipc/view-models.js";
 import type { RawArtifactIndexEntry } from "../../../src/main/core/ingestion/raw-artifact-index.js";
+import type {
+  FileMutationEvidence,
+  OutputArtifact,
+  Session,
+  SessionEvent,
+  SessionMessage,
+  ShellCommandEvidence,
+  ToolCall
+} from "../../../src/main/core/model/entities.js";
 import type { SourceRecord } from "../../../src/main/core/registry/source-registry.js";
 import {
+  encodeOpaqueCursor,
+  type WorkbenchCurrentRunScope,
+  type WorkbenchSessionPageQuery,
+  type WorkbenchSessionRecord,
+  type WorkbenchTimelinePageQuery,
+  type WorkbenchTimelineRecord
+} from "../../../src/main/core/store/index.js";
+import {
   createLargeSourceFixture,
-  summarizeHydratedRecords
+  type LargeSourceFixture
 } from "../../fixtures/large-source-fixture.js";
 
 describe("large source hydration removal sentinels", () => {
@@ -26,18 +41,12 @@ describe("large source hydration removal sentinels", () => {
     );
   });
 
-  it("removal sentinel: listSessionsPage still hydrates full timeline, message, tool, and artifact arrays before paging", async () => {
+  it("listSessionsPage serves the first page from store queries without cache hydration", async () => {
     const fixture = createLargeSourceFixture();
     let listLatestRecordsCalls = 0;
-    let hydratedCounts = summarizeHydratedRecords([]);
-
-    const runtime = createRuntimeStub({
-      records: fixture.records,
-      sources: fixture.sources,
-      rawArtifactEntries: fixture.rawArtifactEntries,
-      onListLatestRecords(records) {
+    const runtime = createRuntimeStub(fixture, {
+      onListLatestRecords() {
         listLatestRecordsCalls += 1;
-        hydratedCounts = summarizeHydratedRecords(records);
       }
     });
     const service = createSessionViewModelService({ runtime });
@@ -46,48 +55,23 @@ describe("large source hydration removal sentinels", () => {
       throw new Error("Expected listSessionsPage to be available.");
     }
 
-    const page = await service.listSessionsPage({
-      limit: 2
-    });
+    const page = await service.listSessionsPage({ limit: 2 });
 
-    expect(listLatestRecordsCalls).toBe(1);
+    expect(listLatestRecordsCalls).toBe(0);
     expect(page.sessions).toHaveLength(2);
     expect(page.pageInfo.totalCount).toBe(fixture.summary.sessionCount);
-    expect(hydratedCounts).toMatchObject({
-      sourceCount: fixture.summary.sourceCount,
-      sessionCount: fixture.summary.sessionCount,
-      eventCount: fixture.summary.eventCount,
-      messageCount: fixture.summary.messageCount,
-      toolCallCount: fixture.summary.toolCallCount,
-      shellCommandCount: fixture.summary.shellCommandCount,
-      outputArtifactCount: fixture.summary.outputArtifactCount
-    });
-    expect(hydratedCounts.sessionCount).toBeGreaterThan(page.sessions.length);
-    expect(hydratedCounts.eventCount).toBeGreaterThan(page.sessions.length);
-    expect(hydratedCounts.messageCount).toBeGreaterThan(page.sessions.length);
-    expect(hydratedCounts.toolCallCount).toBeGreaterThan(page.sessions.length);
-    expect(hydratedCounts.outputArtifactCount).toBeGreaterThan(page.sessions.length);
   });
 
-  it("removal sentinel: getSessionTimeline(limit) still loads unrelated sources and sessions via full triage hydration", async () => {
+  it("getSessionTimeline(limit) only queries the target session timeline from the store", async () => {
     const fixture = createLargeSourceFixture();
-    let loadedSourceIds: string[] = [];
-    let loadedSessionIds: string[] = [];
-    let loadedEventCount = 0;
-
-    const runtime = createRuntimeStub({
-      records: fixture.records,
-      sources: fixture.sources,
-      rawArtifactEntries: fixture.rawArtifactEntries,
-      onListLatestRecords(records) {
-        loadedSourceIds = records.map((record) => record.sourceId);
-        loadedSessionIds = records.flatMap((record) =>
-          record.normalized.sessions.map((session) => session.id)
-        );
-        loadedEventCount = records.reduce(
-          (count, record) => count + record.normalized.events.length,
-          0
-        );
+    let listLatestRecordsCalls = 0;
+    const timelineQueries: Array<{ sourceId: string; sessionId: string }> = [];
+    const runtime = createRuntimeStub(fixture, {
+      onListLatestRecords() {
+        listLatestRecordsCalls += 1;
+      },
+      onTimelineQuery(query) {
+        timelineQueries.push(query);
       }
     });
     const service = createSessionDetailViewModelService({ runtime });
@@ -101,44 +85,34 @@ describe("large source hydration removal sentinels", () => {
       limit: 1
     });
 
-    expect(fixture.unrelated.sourceId).not.toBe(fixture.target.sourceId);
+    expect(listLatestRecordsCalls).toBe(0);
     expect(result.timeline).toHaveLength(1);
     expect(result.pageInfo.totalCount).toBe(fixture.target.timelineEntryCount);
-    expect(loadedSourceIds).toContain(fixture.unrelated.sourceId);
-    expect(loadedSessionIds).toContain(fixture.unrelated.sessionId);
-    expect(loadedEventCount).toBe(fixture.summary.eventCount);
-    expect(loadedEventCount).toBeGreaterThan(fixture.target.timelineEntryCount);
+    expect(timelineQueries).toEqual([{
+      sourceId: fixture.target.sourceId,
+      sessionId: fixture.target.sessionId
+    }]);
   });
 
-  it("removal sentinel: output artifact preview still resolves through full session detail and the full raw artifact index", async () => {
+  it("output artifact preview resolves from store-backed timeline and raw artifact metadata only", async () => {
     const fixture = createLargeSourceFixture();
-    let sessionDetailCalls = 0;
-    let requestedSessionId = "";
-    let hydratedTimelineLength = 0;
+    let listLatestRecordsCalls = 0;
     let rawArtifactLoadCalls = 0;
-    let loadedRawArtifactEntryCount = 0;
-
-    const runtime = createRuntimeStub({
-      records: fixture.records,
-      sources: fixture.sources,
-      rawArtifactEntries: fixture.rawArtifactEntries,
-      onRawArtifactLoad(entries) {
+    let sessionDetailCalls = 0;
+    const runtime = createRuntimeStub(fixture, {
+      onListLatestRecords() {
+        listLatestRecordsCalls += 1;
+      },
+      onRawArtifactLoad() {
         rawArtifactLoadCalls += 1;
-        loadedRawArtifactEntryCount = entries.length;
       }
     });
     const service = createOutputArtifactViewModelService({
       runtime,
       sessionDetailService: {
-        async getSessionDetail(request) {
+        async getSessionDetail() {
           sessionDetailCalls += 1;
-          requestedSessionId = request.sessionId;
-          hydratedTimelineLength = fixture.target.timelineEntryCount;
-
-          return {
-            session: {} as SessionDetailViewModel["session"],
-            timeline: buildFullTimelineSentinel(fixture.target)
-          };
+          return null;
         }
       }
     });
@@ -153,15 +127,12 @@ describe("large source hydration removal sentinels", () => {
       outputArtifactId: fixture.target.outputArtifactId,
       text: fixture.target.outputArtifactPreview
     });
-    expect(sessionDetailCalls).toBe(1);
-    expect(requestedSessionId).toBe(fixture.target.sessionId);
-    expect(hydratedTimelineLength).toBe(fixture.target.timelineEntryCount);
-    expect(rawArtifactLoadCalls).toBe(1);
-    expect(loadedRawArtifactEntryCount).toBe(fixture.summary.rawArtifactEntryCount);
-    expect(loadedRawArtifactEntryCount).toBeGreaterThan(1);
+    expect(listLatestRecordsCalls).toBe(0);
+    expect(rawArtifactLoadCalls).toBe(0);
+    expect(sessionDetailCalls).toBe(0);
   });
 
-  it("removal sentinel: output artifact load still enters real session detail hydration and full raw artifact index loading", async () => {
+  it("output artifact load reads the target file without cache hydration or raw index loading", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-large-artifact-load-"));
     const fixture = createLargeSourceFixture({
       rootBasePath: tempDir
@@ -175,35 +146,17 @@ describe("large source hydration removal sentinels", () => {
     await mkdir(path.dirname(targetEntry.path ?? ""), { recursive: true });
     await writeFile(targetEntry.path ?? "", fixture.target.outputArtifactPreview, "utf8");
 
-    const hydratedRecordCounts: ReturnType<typeof summarizeHydratedRecords>[] = [];
+    let listLatestRecordsCalls = 0;
     let rawArtifactLoadCalls = 0;
-    let loadedRawArtifactEntryCount = 0;
-    let hydratedDetailTimelineLength = 0;
-    const runtime = createRuntimeStub({
-      records: fixture.records,
-      sources: fixture.sources,
-      rawArtifactEntries: fixture.rawArtifactEntries,
-      onListLatestRecords(records) {
-        hydratedRecordCounts.push(summarizeHydratedRecords(records));
+    const runtime = createRuntimeStub(fixture, {
+      onListLatestRecords() {
+        listLatestRecordsCalls += 1;
       },
-      onRawArtifactLoad(entries) {
+      onRawArtifactLoad() {
         rawArtifactLoadCalls += 1;
-        loadedRawArtifactEntryCount = entries.length;
       }
     });
-    const realSessionDetailService = createSessionDetailViewModelService({ runtime });
-    const measuringSessionDetailService: SessionDetailViewModelService = {
-      async getSessionDetail(request) {
-        const detail = await realSessionDetailService.getSessionDetail(request);
-
-        hydratedDetailTimelineLength = detail?.timeline.length ?? 0;
-        return detail;
-      }
-    };
-    const service = createOutputArtifactViewModelService({
-      runtime,
-      sessionDetailService: measuringSessionDetailService
-    });
+    const service = createOutputArtifactViewModelService({ runtime });
 
     const loaded = await service.loadArtifact({
       sessionId: fixture.target.sessionId,
@@ -215,36 +168,120 @@ describe("large source hydration removal sentinels", () => {
       outputArtifactId: fixture.target.outputArtifactId,
       text: fixture.target.outputArtifactPreview
     });
-    expect(hydratedRecordCounts).toHaveLength(2);
-    expect(hydratedRecordCounts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          sourceCount: fixture.summary.sourceCount,
-          sessionCount: fixture.summary.sessionCount,
-          eventCount: fixture.summary.eventCount,
-          outputArtifactCount: fixture.summary.outputArtifactCount
-        })
-      ])
-    );
-    expect(hydratedDetailTimelineLength).toBe(fixture.target.timelineEntryCount);
-    expect(rawArtifactLoadCalls).toBe(1);
-    expect(loadedRawArtifactEntryCount).toBe(fixture.summary.rawArtifactEntryCount);
-    expect(loadedRawArtifactEntryCount).toBeGreaterThan(1);
+    expect(listLatestRecordsCalls).toBe(0);
+    expect(rawArtifactLoadCalls).toBe(0);
   });
 });
 
-function createRuntimeStub(input: {
-  records: WorkbenchRuntime["cacheStore"] extends { listLatestRecords(): Promise<infer T> } ? T : never;
-  rawArtifactEntries: WorkbenchRuntime["rawArtifactIndex"] extends { load(): Promise<infer T> } ? T : never;
-  sources: SourceRecord[];
-  onListLatestRecords?: (
-    records: WorkbenchRuntime["cacheStore"] extends { listLatestRecords(): Promise<infer T> } ? T : never
-  ) => void;
-  onRawArtifactLoad?: (
-    entries: WorkbenchRuntime["rawArtifactIndex"] extends { load(): Promise<infer T> } ? T : never
-  ) => void;
-}): WorkbenchRuntime {
-  const sourcesById = new Map(input.sources.map((source) => [source.sourceId, source] as const));
+function createRuntimeStub(
+  fixture: LargeSourceFixture,
+  hooks: {
+    onListLatestRecords?: () => void;
+    onRawArtifactLoad?: () => void;
+    onTimelineQuery?: (query: { sourceId: string; sessionId: string }) => void;
+  } = {}
+): WorkbenchRuntime {
+  const sourcesById = new Map(fixture.sources.map((source) => [source.sourceId, source] as const));
+  const sessionsBySourceId = new Map<string, Session[]>();
+  const sessionRollups = new Map<string, WorkbenchSessionRecord>();
+  const timelineRecordsBySessionId = new Map<string, WorkbenchTimelineRecord[]>();
+  const outputArtifactsByKey = new Map<string, OutputArtifact>();
+  const rawMetadataByArtifactId = new Map<string, {
+    artifactId: string;
+    sourceId: string;
+    sessionId?: string;
+    outputArtifactId?: string;
+    status: "available";
+    entry: RawArtifactIndexEntry;
+  }>();
+  const rawMetadataByOutputArtifactId = new Map<string, {
+    artifactId: string;
+    sourceId: string;
+    sessionId?: string;
+    outputArtifactId?: string;
+    status: "available";
+    entry: RawArtifactIndexEntry;
+  }>();
+
+  for (const record of fixture.records) {
+    const sessions = [...record.normalized.sessions].sort(compareSessionsByActivity);
+    const messagesByEventId = indexByEventId(record.normalized.messages, (item) => item.source);
+    const toolCallsByEventId = indexByEventId(record.normalized.toolCalls, (item) => item.source);
+    const shellCommandsByEventId = indexByEventId(
+      record.normalized.shellCommands,
+      (item) => item.source
+    );
+    const outputArtifactsByEventId = groupArtifactsByEventId(record.normalized.outputArtifacts);
+    const fileMutationsByEventId = indexByEventId(
+      record.normalized.fileMutations,
+      (item) => item.source
+    );
+
+    sessionsBySourceId.set(record.sourceId, sessions);
+
+    for (const session of sessions) {
+      sessionRollups.set(session.id, {
+        ...(session.projectId ? { projectId: session.projectId } : {}),
+        ...(session.runAudit ? { runAudit: session.runAudit } : {}),
+        ...(session.verification ? { verification: session.verification } : {}),
+        session
+      });
+    }
+
+    for (const outputArtifact of record.normalized.outputArtifacts) {
+      outputArtifactsByKey.set(buildOutputArtifactKey(record.sourceId, outputArtifact.id), outputArtifact);
+    }
+
+    for (const entry of fixture.rawArtifactEntries.filter((candidate) => candidate.sourceId === record.sourceId)) {
+      const outputArtifact = record.normalized.outputArtifacts.find(
+        (candidate) => candidate.nativeRef === entry.nativeRef
+      );
+      const metadata = {
+        artifactId: entry.id,
+        sourceId: record.sourceId,
+        ...(outputArtifact?.sessionId ? { sessionId: outputArtifact.sessionId } : {}),
+        ...(outputArtifact?.id ? { outputArtifactId: outputArtifact.id } : {}),
+        status: "available" as const,
+        entry
+      };
+
+      rawMetadataByArtifactId.set(entry.id, metadata);
+      if (outputArtifact?.id) {
+        rawMetadataByOutputArtifactId.set(
+          buildOutputArtifactKey(record.sourceId, outputArtifact.id),
+          metadata
+        );
+      }
+    }
+
+    const eventsBySessionId = new Map<string, SessionEvent[]>();
+    for (const event of record.normalized.events) {
+      const current = eventsBySessionId.get(event.sessionId) ?? [];
+      current.push(event);
+      eventsBySessionId.set(event.sessionId, current);
+    }
+
+    for (const [sessionId, events] of eventsBySessionId.entries()) {
+      const timelineRecords = [...events]
+        .sort(compareEventsByOrder)
+        .map((event): WorkbenchTimelineRecord => ({
+          event,
+          ...(messagesByEventId.get(event.id) ? { message: messagesByEventId.get(event.id)! } : {}),
+          ...(toolCallsByEventId.get(event.id) ? { toolCall: toolCallsByEventId.get(event.id)! } : {}),
+          ...(shellCommandsByEventId.get(event.id)
+            ? { shellCommand: shellCommandsByEventId.get(event.id)! }
+            : {}),
+          ...(outputArtifactsByEventId.get(event.id)
+            ? { outputArtifacts: outputArtifactsByEventId.get(event.id)! }
+            : {}),
+          ...(fileMutationsByEventId.get(event.id)
+            ? { fileMutation: fileMutationsByEventId.get(event.id)! }
+            : {})
+        }));
+
+      timelineRecordsBySessionId.set(sessionId, timelineRecords);
+    }
+  }
 
   return {
     appDataDir: "/virtual/agent-workbench",
@@ -258,14 +295,107 @@ function createRuntimeStub(input: {
     } as WorkbenchRuntime["adapterRegistry"],
     cacheStore: {
       async listLatestRecords() {
-        input.onListLatestRecords?.(input.records);
-        return input.records;
+        hooks.onListLatestRecords?.();
+        return fixture.records;
       }
     } as WorkbenchRuntime["cacheStore"],
+    entityStore: {
+      async getCurrentIngestRun({ sourceId }: WorkbenchCurrentRunScope) {
+        return sourcesById.has(sourceId)
+          ? {
+              ingestRunId: `run-${sourceId}`,
+              adapterId: "fake-test",
+              sourceId,
+              status: "published",
+              startedAt: "2026-05-25T12:00:00.000Z",
+              updatedAt: "2026-05-25T12:00:00.000Z",
+              publishedAt: "2026-05-25T12:00:00.000Z"
+            }
+          : undefined;
+      },
+
+      async listSessionsPage(query: WorkbenchSessionPageQuery) {
+        const sessions = (sessionsBySourceId.get(query.sourceId) ?? [])
+          .filter((session) => !query.adapterId || session.adapterId === query.adapterId)
+          .filter((session) => !query.projectId || session.projectId === query.projectId);
+        const limit = query.limit ?? 50;
+        const items = sessions.slice(0, limit).map((session) => ({
+          ...(session.runAudit ? { runAudit: session.runAudit } : {}),
+          ...(session.verification ? { verification: session.verification } : {}),
+          session
+        }));
+
+        return {
+          items,
+          pageInfo: {
+            hasMore: sessions.length > limit,
+            ...(sessions.length > limit
+              ? {
+                  nextCursor: encodeOpaqueCursor({
+                    lastUpdatedAt: sessions[limit - 1]?.lastUpdatedAt ?? sessions[limit - 1]?.startedAt ?? "",
+                    sessionId: sessions[limit - 1]?.id ?? ""
+                  })
+                }
+              : {}),
+            totalCount: sessions.length
+          }
+        };
+      },
+
+      async listDiagnostics() {
+        return [];
+      },
+
+      async listProjectRollups() {
+        return [];
+      },
+
+      async getSessionRollup({ sessionId }: { sourceId: string; sessionId: string }) {
+        return sessionRollups.get(sessionId);
+      },
+
+      async getSessionTimelinePage(query: WorkbenchTimelinePageQuery) {
+        hooks.onTimelineQuery?.({
+          sourceId: query.sourceId,
+          sessionId: query.sessionId
+        });
+        const records = timelineRecordsBySessionId.get(query.sessionId) ?? [];
+        const limit = query.limit ?? 50;
+
+        return {
+          items: records.slice(0, limit),
+          pageInfo: {
+            hasMore: records.length > limit,
+            totalCount: records.length
+          }
+        };
+      },
+
+      async getOutputArtifact(
+        { sourceId, outputArtifactId }: { sourceId: string; outputArtifactId: string }
+      ) {
+        return outputArtifactsByKey.get(buildOutputArtifactKey(sourceId, outputArtifactId));
+      },
+
+      async getRawArtifactMetadata(
+        { sourceId, artifactId }: { sourceId: string; artifactId: string }
+      ) {
+        const metadata = rawMetadataByArtifactId.get(artifactId);
+        return metadata?.sourceId === sourceId ? metadata : undefined;
+      },
+
+      async getRawArtifactMetadataByOutputArtifactId(
+        { sourceId, outputArtifactId }: { sourceId: string; outputArtifactId: string }
+      ) {
+        return rawMetadataByOutputArtifactId.get(
+          buildOutputArtifactKey(sourceId, outputArtifactId)
+        );
+      }
+    } as unknown as WorkbenchRuntime["entityStore"],
     rawArtifactIndex: {
       async load() {
-        input.onRawArtifactLoad?.(input.rawArtifactEntries);
-        return input.rawArtifactEntries;
+        hooks.onRawArtifactLoad?.();
+        return fixture.rawArtifactEntries;
       }
     } as WorkbenchRuntime["rawArtifactIndex"],
     sourceRegistry: {
@@ -273,7 +403,7 @@ function createRuntimeStub(input: {
         return sourcesById.get(sourceId);
       },
       async listSources() {
-        return input.sources;
+        return fixture.sources;
       }
     } as WorkbenchRuntime["sourceRegistry"],
     scanner: {} as WorkbenchRuntime["scanner"],
@@ -281,30 +411,70 @@ function createRuntimeStub(input: {
   };
 }
 
-function buildFullTimelineSentinel(target: {
-  outputArtifactId: string;
-  timelineEntryCount: number;
-}): SessionDetailViewModel["timeline"] {
-  return Array.from({ length: target.timelineEntryCount }, (_, index) => ({
-    id:
-      index === target.timelineEntryCount - 1
-        ? target.outputArtifactId
-        : `timeline-sentinel-${index + 1}`,
-    kind:
-      index === target.timelineEntryCount - 1
-        ? "output-artifact"
-        : "metadata",
-    timestamp: `2026-05-25T12:${String(index).padStart(2, "0")}:00.000Z`,
-    title:
-      index === target.timelineEntryCount - 1
-        ? "Output artifact"
-        : `Timeline sentinel ${index + 1}`,
-    summary:
-      index === target.timelineEntryCount - 1
-        ? "Target output artifact"
-        : "Unrelated timeline entry",
-    metadata: []
-  }));
+function buildOutputArtifactKey(sourceId: string, outputArtifactId: string): string {
+  return `${sourceId}\0${outputArtifactId}`;
+}
+
+function indexByEventId<TItem>(
+  items: TItem[],
+  selectSource: (item: TItem) => unknown
+): Map<string, TItem> {
+  const indexed = new Map<string, TItem>();
+
+  for (const item of items) {
+    const eventId = getSourceEventId(selectSource(item));
+
+    if (eventId) {
+      indexed.set(eventId, item);
+    }
+  }
+
+  return indexed;
+}
+
+function groupArtifactsByEventId(items: OutputArtifact[]): Map<string, OutputArtifact[]> {
+  const grouped = new Map<string, OutputArtifact[]>();
+
+  for (const item of items) {
+    const eventId = getSourceEventId(item.source);
+
+    if (!eventId) {
+      continue;
+    }
+
+    const current = grouped.get(eventId) ?? [];
+    current.push(item);
+    grouped.set(eventId, current);
+  }
+
+  return grouped;
+}
+
+function getSourceEventId(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const eventId = (value as { eventId?: unknown }).eventId;
+  return typeof eventId === "string" ? eventId : undefined;
+}
+
+function compareSessionsByActivity(left: Session, right: Session): number {
+  const leftTimestamp = left.lastUpdatedAt ?? left.startedAt ?? "";
+  const rightTimestamp = right.lastUpdatedAt ?? right.startedAt ?? "";
+
+  if (leftTimestamp !== rightTimestamp) {
+    return rightTimestamp.localeCompare(leftTimestamp);
+  }
+
+  return right.id.localeCompare(left.id);
+}
+
+function compareEventsByOrder(left: SessionEvent, right: SessionEvent): number {
+  const leftKey = left.orderKey ?? left.timestamp ?? left.id;
+  const rightKey = right.orderKey ?? right.timestamp ?? right.id;
+
+  return leftKey.localeCompare(rightKey);
 }
 
 function findTargetRawArtifactEntry(

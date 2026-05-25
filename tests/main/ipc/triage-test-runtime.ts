@@ -5,6 +5,10 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { createWorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
+import {
+  syncAllLatestCacheRecordsToEntityStore,
+  syncLatestSourceCacheRecordToEntityStore
+} from "../../../src/main/app/workbench-entity-store-sync.js";
 import { GitHubSnapshotProvider } from "../../../src/main/core/github/github-snapshot-provider.js";
 import { Scanner } from "../../../src/main/core/ingestion/index.js";
 
@@ -29,6 +33,7 @@ export async function createScannedRuntime(tempDirs: string[]) {
   const fakeValidated = await runtime.scanner.validateSource(fakeSource.sourceId);
 
   await runtime.scanner.scanSource(fakeValidated.source.sourceId);
+  await syncLatestSourceCacheRecordToEntityStore(runtime, fakeValidated.source.sourceId);
 
   const geminiRoot = path.join(runtime.appDataDir, "gemini-root");
 
@@ -42,6 +47,7 @@ export async function createScannedRuntime(tempDirs: string[]) {
   const geminiValidated = await runtime.scanner.validateSource(geminiSource.sourceId);
 
   await runtime.scanner.scanSource(geminiValidated.source.sourceId);
+  await syncLatestSourceCacheRecordToEntityStore(runtime, geminiValidated.source.sourceId);
   return runtime;
 }
 
@@ -74,6 +80,7 @@ export async function createTempRuntime(tempDirs: string[]) {
     sourceRegistry: runtime.sourceRegistry,
     watchOrchestrator: runtime.watchOrchestrator
   });
+  await syncAllLatestCacheRecordsToEntityStore(runtime);
 
   return runtime;
 }

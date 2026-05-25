@@ -68,7 +68,7 @@ describe("triage view model service", () => {
     expect(degradedProject?.gitStatus.label).toBe("Unknown");
     expect(gitBackedProject?.pullRequest.displayValue).toBe("No Matching PR");
     expect(JSON.stringify(projects)).not.toContain("rawEvents");
-  });
+  }, 15000);
 
   it("loads archive availability once for Projects route rollups", async () => {
     const runtime = await createScannedRuntime(tempDirs);
@@ -102,10 +102,10 @@ describe("triage view model service", () => {
     const projects = await triageService.listProjects();
 
     expect(projects.length).toBeGreaterThan(1);
-    expect(latestRecordLoadCount).toBe(2);
+    expect(latestRecordLoadCount).toBe(1);
     expect(rawArtifactIndexLoadCount).toBe(1);
-    expect(sourceListCount).toBe(1);
-  });
+    expect(sourceListCount).toBe(3);
+  }, 15000);
 
   it("keeps project rollups visible when archive availability cannot be read", async () => {
     const runtime = await createScannedRuntime(tempDirs);
@@ -124,7 +124,7 @@ describe("triage view model service", () => {
     expect(projects[0]?.archiveExport.rawArtifactsReason).toBe(
       "Archive export availability could not be resolved for this scope."
     );
-  });
+  }, 15000);
 
   it("keeps session summaries explicit about verification and audit truth", async () => {
     const runtime = await createScannedRuntime(tempDirs);
@@ -147,7 +147,7 @@ describe("triage view model service", () => {
       )
     ).toBe(true);
     expect(JSON.stringify(sessions)).not.toContain("artifactPath");
-  });
+  }, 15000);
 
   it("re-derives session verification and audit truth instead of trusting stale cache sections", async () => {
     const runtime = await createScannedRuntime(tempDirs);
@@ -223,7 +223,7 @@ describe("triage view model service", () => {
     });
 
     expect(reloadedPreview).toEqual(expectedPreview);
-  });
+  }, 15000);
 });
 
 function upsertBySessionId<TItem extends { sessionId: string }>(

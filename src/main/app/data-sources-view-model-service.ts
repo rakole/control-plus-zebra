@@ -37,6 +37,7 @@ import {
   type WorkbenchRuntime,
   type WorkbenchRuntimeOptions
 } from "./workbench-runtime.js";
+import { syncLatestSourceCacheRecordToEntityStore } from "./workbench-entity-store-sync.js";
 import { toCapabilityGroups } from "./capability-view-models.js";
 
 const settingsChangedReason = "Source settings changed. Validate again before scanning.";
@@ -146,6 +147,7 @@ export function createDataSourcesViewModelService(
       }
 
       await runtime.scanner.scanSource(parsed.sourceId);
+      await syncLatestSourceCacheRecordToEntityStore(runtime, parsed.sourceId);
       return buildViewModel(runtime);
     }
   };

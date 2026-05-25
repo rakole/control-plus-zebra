@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createTriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import { createSessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import { createWorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
+import {
+  syncAllLatestCacheRecordsToEntityStore,
+  syncLatestSourceCacheRecordToEntityStore
+} from "../../../src/main/app/workbench-entity-store-sync.js";
 import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter.js";
 import { ArchiveImporter } from "../../../src/main/core/archive/archive-importer.js";
 
@@ -98,6 +102,7 @@ describe("session view model service", () => {
     const validated = await runtime.scanner.validateSource(source.sourceId);
 
     await runtime.scanner.scanSource(validated.source.sourceId);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, validated.source.sourceId);
 
     const service = createSessionViewModelService({ runtime });
     const sessions = await service.listSessions();
@@ -170,6 +175,7 @@ describe("session view model service", () => {
     const validated = await runtime.scanner.validateSource(source.sourceId);
 
     await runtime.scanner.scanSource(validated.source.sourceId);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, validated.source.sourceId);
 
     const service = createSessionViewModelService({ runtime });
     const sessions = await service.listSessions();
@@ -217,6 +223,7 @@ describe("session view model service", () => {
     });
 
     await importer.importArchive({ archivePath });
+    await syncAllLatestCacheRecordsToEntityStore(importRuntime);
 
     const service = createSessionViewModelService({ runtime: importRuntime });
     const sessions = await service.listSessions();
@@ -239,6 +246,7 @@ async function createScannedRuntime(tempDirs: string[]) {
   const validated = await runtime.scanner.validateSource(source.sourceId);
 
   await runtime.scanner.scanSource(validated.source.sourceId);
+  await syncLatestSourceCacheRecordToEntityStore(runtime, validated.source.sourceId);
   return runtime;
 }
 

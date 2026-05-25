@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createOutputArtifactViewModelService } from "../../../src/main/app/output-artifact-view-model-service.js";
 import { loadTriageData } from "../../../src/main/app/triage-view-model-service.js";
 import { createWorkbenchRuntime, type WorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
+import {
+  syncAllLatestCacheRecordsToEntityStore,
+  syncLatestSourceCacheRecordToEntityStore
+} from "../../../src/main/app/workbench-entity-store-sync.js";
 import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter.js";
 import { ArchiveImporter } from "../../../src/main/core/archive/archive-importer.js";
 import type { OutputArtifact } from "../../../src/main/core/model/entities.js";
@@ -81,6 +85,7 @@ describe("output artifact view model service", () => {
     await runtime.rawArtifactIndex.save(
       entries.filter((entry) => !matchingEntryIds.has(entry.id))
     );
+    await syncRawArtifactIndexBackToStore(runtime, fixture.sourceId);
 
     const service = createOutputArtifactViewModelService({ runtime });
     const loaded = await service.loadArtifact({
@@ -113,6 +118,7 @@ describe("output artifact view model service", () => {
         : artifact
     );
     await runtime.cacheStore.save(records);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, fixture.sourceId);
 
     const service = createOutputArtifactViewModelService({ runtime });
     const preview = await service.getPreview({
@@ -174,6 +180,7 @@ describe("output artifact view model service", () => {
           : entry
       )
     );
+    await syncRawArtifactIndexBackToStore(runtime, fixture.sourceId);
 
     const service = createOutputArtifactViewModelService({ runtime });
     const loaded = await service.loadArtifact({
@@ -215,6 +222,7 @@ describe("output artifact view model service", () => {
         : artifact
     );
     await runtime.cacheStore.save(records);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, fixture.sourceId);
 
     const service = createOutputArtifactViewModelService({ runtime });
     const preview = await service.getPreview({
@@ -266,6 +274,7 @@ describe("output artifact view model service", () => {
       sourceRegistry: importRuntime.sourceRegistry
     });
     const imported = await importer.importArchive({ archivePath });
+    await syncAllLatestCacheRecordsToEntityStore(importRuntime);
     const importedFixture = await loadGeminiArtifactFixture(importRuntime, {
       sourceId: imported.sourceId
     });
@@ -375,4 +384,23 @@ function findRawArtifactEntries(
           (artifact.path && entry.path?.endsWith(path.normalize(artifact.path))))
     );
   });
+}
+
+async function syncRawArtifactIndexBackToStore(
+  runtime: WorkbenchRuntime,
+  sourceId: string
+): Promise<void> {
+  const records = await runtime.cacheStore.load();
+  const record = records.find((candidate) => candidate.sourceId === sourceId);
+
+  if (!record) {
+    throw new Error(`Expected cached record for source '${sourceId}'.`);
+  }
+
+  record.rawArtifactIndex = {
+    version: 1,
+    entries: await runtime.rawArtifactIndex.load()
+  };
+  await runtime.cacheStore.save(records);
+  await syncLatestSourceCacheRecordToEntityStore(runtime, sourceId);
 }

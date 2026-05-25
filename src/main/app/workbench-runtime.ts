@@ -6,6 +6,7 @@ import { createBundledAdapterRegistry } from "../core/registry/register-bundled-
 import { SourceRegistry } from "../core/registry/source-registry.js";
 import { FileBackedSourceRegistryStore } from "../core/registry/source-registry-store.js";
 import { RawArtifactIndex } from "../core/ingestion/raw-artifact-index.js";
+import { SQLiteWorkbenchEntityStore } from "../core/store/index.js";
 import { Scanner } from "../core/ingestion/scanner.js";
 import { WatchOrchestrator } from "../core/watcher/watch-orchestrator.js";
 
@@ -18,6 +19,7 @@ export interface WorkbenchRuntime {
   appDataDir: string;
   adapterRegistry: AdapterRegistry;
   cacheStore: FileBackedCacheStore;
+  entityStore: SQLiteWorkbenchEntityStore;
   rawArtifactIndex: RawArtifactIndex;
   scanner: Scanner;
   sourceRegistry: SourceRegistry;
@@ -40,6 +42,10 @@ export function createWorkbenchRuntime(
   const cacheStore = new FileBackedCacheStore(
     path.join(appDataDir, "normalized-cache.json")
   );
+  const entityStore = new SQLiteWorkbenchEntityStore({
+    artifactBlobRootDir: path.join(appDataDir, "artifact-blobs"),
+    databasePath: path.join(appDataDir, "workbench.sqlite")
+  });
   const watchOrchestrator = new WatchOrchestrator({
     async onSourceCacheStale(event) {
       const source = await sourceRegistry.getSource(event.sourceId);
@@ -76,6 +82,7 @@ export function createWorkbenchRuntime(
     appDataDir,
     adapterRegistry,
     cacheStore,
+    entityStore,
     rawArtifactIndex,
     scanner,
     sourceRegistry,

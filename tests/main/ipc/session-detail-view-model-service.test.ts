@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createSessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
+import { syncLatestSourceCacheRecordToEntityStore } from "../../../src/main/app/workbench-entity-store-sync.js";
 import {
   cleanupTempDirs,
   createScannedRuntime
@@ -82,6 +83,7 @@ describe("session detail view model service", () => {
     };
     record.normalized.outputArtifacts.push(firstArtifact, secondArtifact);
     await runtime.cacheStore.save(records);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, record.sourceId);
 
     const service = createSessionDetailViewModelService({ runtime });
     const detail = await service.getSessionDetail({ sessionId: session.id });

@@ -1,5 +1,6 @@
 import type { AttentionReasonCode, RunAuditResult } from "../audit/types.js";
 import type { Diagnostic, DiagnosticSeverity } from "../diagnostics/diagnostic.js";
+import type { ParsedShellCommand } from "../shell/types.js";
 import type { VerificationResult } from "../verification/types.js";
 import type { HarnessCapabilities } from "./capabilities.js";
 import type { Confidence, ConfidenceScore } from "./confidence.js";
@@ -158,6 +159,7 @@ export interface Session extends NormalizedEntityBase {
   usage?: UsageSummary;
   verification?: VerificationResult;
   runAudit?: RunAuditResult;
+  parsedShellCommands?: ParsedShellCommand[];
   rawArtifactRefs?: RawArtifactRef[];
   confidence?: ConfidenceScore;
 }

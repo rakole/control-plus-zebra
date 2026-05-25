@@ -11,6 +11,7 @@ import {
   type WorkbenchRuntime,
   type WorkbenchRuntimeOptions
 } from "./workbench-runtime.js";
+import { syncLatestSourceCacheRecordToEntityStore } from "./workbench-entity-store-sync.js";
 
 export interface ArchiveImportService {
   openArchive(request?: OpenArchiveRequest): Promise<OpenArchiveResult>;
@@ -52,6 +53,7 @@ export function createArchiveImportService(
       const result = await importer.importArchive({
         archivePath
       });
+      await syncLatestSourceCacheRecordToEntityStore(runtime, result.sourceId);
 
       return openArchiveResultSchema.parse({
         status: "imported",

@@ -48,13 +48,18 @@ import {
   type WorkbenchRuntime,
   type WorkbenchRuntimeOptions
 } from "./workbench-runtime.js";
+import {
+  listAllStoreSessions,
+  listCurrentStoreSources,
+  listProjectRollupsBySourceId
+} from "./store-session-query.js";
 
 type DerivedSession = NonNullable<NormalizedCacheRecord["derived"]>["sessions"][number];
 type DerivedProject = NonNullable<
   NonNullable<NormalizedCacheRecord["derived"]>["projects"]
 >[number];
 
-interface LoadedTriageData {
+export interface LoadedTriageData {
   descriptors: Map<string, HarnessDescriptor>;
   records: NormalizedCacheRecord[];
   projectsById: Map<string, Project>;
@@ -100,7 +105,7 @@ export function createTriageViewModelService(
   return {
     async getOverview(request) {
       const parsed = getOverviewRequestSchema.parse(request ?? {});
-      const data = await loadTriageData(runtime);
+      const data = await loadStoreTriageData(runtime, parsed.adapterId);
       const sessions = filterSessions(data, parsed.adapterId);
       const latestTimestamp = getLatestTimestamp(sessions);
 
@@ -127,7 +132,10 @@ export function createTriageViewModelService(
           toolActivity: toMetricValue(
             sessions.reduce(
               (total, session) =>
-                total + (data.toolCallsBySessionId.get(session.id)?.length ?? 0),
+                total +
+                (data.toolCallsBySessionId.get(session.id)?.length ??
+                  session.toolCallIds?.length ??
+                  0),
               0
             )
           )
@@ -140,7 +148,7 @@ export function createTriageViewModelService(
 
     async listProjects(request) {
       const parsed = listProjectsRequestSchema.parse(request ?? {});
-      const data = await loadTriageData(runtime);
+      const data = await loadStoreTriageData(runtime, parsed.adapterId);
       const sessions = filterSessions(data, parsed.adapterId);
       const groupedSessions = new Map<string, Session[]>();
 
@@ -348,6 +356,78 @@ export async function loadTriageData(
     diagnosticsBySessionId: buildDiagnosticsBySession(records, sessions),
     derivedBySessionId: buildDerivedBySession(records),
     projectSnapshotsByProjectId: buildDerivedByProject(records)
+  };
+}
+
+export async function loadStoreTriageData(
+  runtime: WorkbenchRuntime,
+  adapterId?: string,
+  options: {
+    includeSessionDiagnostics?: boolean;
+  } = {}
+): Promise<LoadedTriageData> {
+  const [descriptors, sources, sessionRows] = await Promise.all([
+    Promise.resolve(runtime.adapterRegistry.listDescriptors()),
+    listCurrentStoreSources(runtime, adapterId),
+    listAllStoreSessions(runtime, adapterId)
+  ]);
+  const sessions = sessionRows.map((row) => row.session);
+  const projectRollups = (
+    await Promise.all(sources.map((source) => listProjectRollupsBySourceId(runtime, source.sourceId)))
+  ).flatMap((rollupsByProjectId) => [...rollupsByProjectId.values()]);
+  const diagnosticsBySessionId = new Map<string, Diagnostic[]>();
+
+  if (options.includeSessionDiagnostics) {
+    const diagnosticsBySession = await Promise.all(
+      sessions.map(async (session) => [
+        session.id,
+        await runtime.entityStore.listDiagnostics({
+          sourceId: session.sourceId,
+          sessionId: session.id
+        })
+      ] as const)
+    );
+
+    for (const [sessionId, diagnostics] of diagnosticsBySession) {
+      diagnosticsBySessionId.set(sessionId, diagnostics);
+    }
+  }
+
+  return {
+    descriptors: new Map(
+      descriptors.map((descriptor) => [descriptor.id, descriptor] as const)
+    ),
+    records: [],
+    projectsById: new Map(
+      projectRollups
+        .filter((rollup): rollup is typeof rollup & { project: Project } => Boolean(rollup.project))
+        .map((rollup) => [rollup.project.id, rollup.project] as const)
+    ),
+    sessionsById: new Map(sessions.map((session) => [session.id, session] as const)),
+    eventsBySessionId: new Map(),
+    messagesBySessionId: new Map(),
+    toolCallsBySessionId: new Map(),
+    shellCommandsBySessionId: new Map(),
+    outputArtifactsBySessionId: new Map(),
+    fileMutationsBySessionId: new Map(),
+    diagnosticsBySessionId,
+    derivedBySessionId: new Map(),
+    projectSnapshotsByProjectId: new Map(
+      projectRollups
+        .filter((rollup): rollup is typeof rollup & { projectId: string } => Boolean(rollup.projectId))
+        .map((rollup) => [
+          rollup.projectId,
+          {
+            projectId: rollup.projectId,
+            git: rollup.git ?? {
+              status: "unknown",
+              rootConfidence: "unknown",
+              diagnosticIds: []
+            },
+            ...(rollup.github ? { github: rollup.github } : {})
+          }
+        ] as const)
+    )
   };
 }
 
@@ -862,15 +942,20 @@ function buildSessionBaseViewModel(
     "modelNames"
   );
   const derived = getDerivedSession(data, session.id);
+  const parsedShellCommands = derived?.shellCommands ?? session.parsedShellCommands ?? [];
   const firstUserPrompt =
     getSessionFirstUserPrompt(session) ?? getFirstPrompt(data, session.id);
   const projectDisplayName = getProjectDisplayName(getProjectForSession(data, session));
   const capabilityGroups = toCapabilityGroups(capabilityEnvelope?.capabilities);
-  const messageCount = data.messagesBySessionId.get(session.id)?.length ?? 0;
-  const toolCallCount = data.toolCallsBySessionId.get(session.id)?.length ?? 0;
-  const shellCommandCount = derived?.shellCommands.length ?? 0;
-  const outputArtifactCount = data.outputArtifactsBySessionId.get(session.id)?.length ?? 0;
-  const fileMutationCount = data.fileMutationsBySessionId.get(session.id)?.length ?? 0;
+  const messageCount =
+    data.messagesBySessionId.get(session.id)?.length ?? session.messageIds?.length ?? 0;
+  const toolCallCount =
+    data.toolCallsBySessionId.get(session.id)?.length ?? session.toolCallIds?.length ?? 0;
+  const shellCommandCount = parsedShellCommands.length;
+  const outputArtifactCount =
+    data.outputArtifactsBySessionId.get(session.id)?.length ?? session.outputArtifactIds?.length ?? 0;
+  const fileMutationCount =
+    data.fileMutationsBySessionId.get(session.id)?.length ?? session.fileMutationIds?.length ?? 0;
   const diagnosticCount = diagnostics.length;
   const toolCallMetric = toCapabilityCountMetric(toolCallCount, toolCallCapability);
   const shellCommandMetric = toCapabilityCountMetric(shellCommandCount, shellCapability);
@@ -902,7 +987,7 @@ function buildSessionBaseViewModel(
     evidenceSummary: {
       messages: messageCount,
       toolCalls: toolCallCount,
-      shellCommands: data.shellCommandsBySessionId.get(session.id)?.length ?? 0,
+      shellCommands: data.shellCommandsBySessionId.get(session.id)?.length ?? session.shellCommandIds?.length ?? 0,
       outputArtifacts: outputArtifactCount,
       fileMutations: fileMutationCount,
       diagnostics: diagnosticCount
@@ -926,7 +1011,7 @@ function buildSessionBaseViewModel(
       failedCommands:
         shellCapability?.status === "supported"
           ? toMetricValue(
-              derived?.shellCommands.filter((command) => command.result === "failed").length ?? 0
+              parsedShellCommands.filter((command) => command.result === "failed").length
             )
           : toMetricStateFromCapability(shellCapability),
       tokenCount: toTokenCountMetric(session, tokenCountCapability)
@@ -1099,7 +1184,7 @@ function buildDerivedByProject(
   return derived;
 }
 
-function buildRecordDerivedSessions(
+export function buildRecordDerivedSessions(
   record: NormalizedCacheRecord
 ): DerivedSession[] {
   const normalized = record.normalized;
@@ -1560,6 +1645,16 @@ function getSessionModelNames(
   data: LoadedTriageData,
   session: Session
 ): string[] {
+  const metadataModelNames = session.metadata?.modelNames;
+
+  if (Array.isArray(metadataModelNames) && metadataModelNames.length > 0) {
+    return unique(
+      metadataModelNames
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .map((value) => sanitizeText(value))
+    );
+  }
+
   return unique(
     (data.messagesBySessionId.get(session.id) ?? [])
       .map((message) => message.modelName)

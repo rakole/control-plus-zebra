@@ -11,6 +11,7 @@ import type { SessionViewModelService } from "../../../src/main/app/session-view
 import type { SessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
 import type { ThemeService } from "../../../src/main/theme/theme-service.js";
 import type { TriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
+import { PaginationValidationError } from "../../../src/main/core/store/index.js";
 import {
   createArchiveResponseSchema,
   dashboardStatsResponseSchema,
@@ -85,6 +86,42 @@ describe("ipc handlers", () => {
       }
     });
     expect(JSON.stringify(result)).not.toMatch(/stack|\/Users|adapter|rawEvents/u);
+  });
+
+  it("returns sanitized invalid-request errors for invalid pagination cursors", async () => {
+    const collector = createIpcCollector();
+    const services = createFakeServices();
+
+    services.sessionService.listSessionsPage = async () => {
+      throw new PaginationValidationError("invalid-cursor");
+    };
+    services.sessionDetailService.getSessionTimeline = async () => {
+      throw new PaginationValidationError("invalid-cursor");
+    };
+    registerIpcHandlers(collector, services);
+
+    const list = await collector.invoke(IPC_CHANNELS.listSessions, {
+      cursor: "bad-cursor"
+    });
+    const timeline = await collector.invoke(IPC_CHANNELS.getSessionTimeline, {
+      sessionId: "session_1",
+      cursor: "bad-cursor"
+    });
+
+    expect(list).toEqual({
+      ok: false,
+      error: {
+        code: "invalid-request",
+        message: "Request payload is not valid for this operation."
+      }
+    });
+    expect(timeline).toEqual({
+      ok: false,
+      error: {
+        code: "invalid-request",
+        message: "Request payload is not valid for this operation."
+      }
+    });
   });
 
   it("returns schema-valid DTOs for shell, list, and get handlers", async () => {

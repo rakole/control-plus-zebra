@@ -224,6 +224,46 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
     return row ? parseJson<WorkbenchRawArtifactMetadataRecord>(row.payload_json) : undefined;
   }
 
+  async getRawArtifactMetadataByOutputArtifactId(
+    scope: WorkbenchCurrentRunScope & { outputArtifactId: string }
+  ): Promise<WorkbenchRawArtifactMetadataRecord | undefined> {
+    const ingestRunId = this.#currentRunId(scope.sourceId);
+
+    if (!ingestRunId) {
+      return undefined;
+    }
+
+    const row = this.#prepare(
+      `SELECT payload_json
+       FROM raw_artifact_entries
+       WHERE ingest_run_id = ?
+         AND source_id = ?
+         AND output_artifact_id = ?`
+    ).get(ingestRunId, scope.sourceId, scope.outputArtifactId) as SQLiteJsonRow | undefined;
+
+    return row ? parseJson<WorkbenchRawArtifactMetadataRecord>(row.payload_json) : undefined;
+  }
+
+  async getOutputArtifact(
+    scope: WorkbenchCurrentRunScope & { outputArtifactId: string }
+  ): Promise<OutputArtifact | undefined> {
+    const ingestRunId = this.#currentRunId(scope.sourceId);
+
+    if (!ingestRunId) {
+      return undefined;
+    }
+
+    const row = this.#prepare(
+      `SELECT payload_json
+       FROM output_artifacts
+       WHERE ingest_run_id = ?
+         AND source_id = ?
+         AND output_artifact_id = ?`
+    ).get(ingestRunId, scope.sourceId, scope.outputArtifactId) as SQLiteJsonRow | undefined;
+
+    return row ? parseJson<OutputArtifact>(row.payload_json) : undefined;
+  }
+
   async getSessionRollup(
     scope: WorkbenchCurrentRunScope & { sessionId: string }
   ): Promise<WorkbenchSessionRollup | undefined> {

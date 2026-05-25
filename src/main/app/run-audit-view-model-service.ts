@@ -6,14 +6,7 @@ import {
   type RunAuditViewModel
 } from "../ipc/view-models.js";
 import {
-  buildSessionPreviewViewModel,
   getProjectDisplayName,
-  getProjectGitHubSnapshot,
-  getDerivedSession,
-  getDiagnosticsForSession,
-  getProjectGitSnapshot,
-  getProjectForSession,
-  loadTriageData,
   toGitDirtyState,
   toGitFieldValue,
   toGitHubPullRequestField,
@@ -28,6 +21,12 @@ import {
   type WorkbenchRuntime,
   type WorkbenchRuntimeOptions
 } from "./workbench-runtime.js";
+import { createSessionViewModelService } from "./session-view-model-service.js";
+import {
+  collectAllSessionTimelineRecords,
+  findStoreSessionLocation,
+  listProjectRollupsBySourceId
+} from "./store-session-query.js";
 
 export interface RunAuditViewModelService {
   getRunAudit(request: GetSessionByIdRequest): Promise<RunAuditViewModel | null>;
@@ -41,6 +40,7 @@ export function createRunAuditViewModelService(
   options: RunAuditViewModelServiceOptions = {}
 ): RunAuditViewModelService {
   const runtime = options.runtime ?? createWorkbenchRuntime(options);
+  const sessionService = createSessionViewModelService({ runtime });
   const archiveExporter = new ArchiveExporter({
     cacheStore: runtime.cacheStore,
     rawArtifactIndex: runtime.rawArtifactIndex,
@@ -50,28 +50,42 @@ export function createRunAuditViewModelService(
   return {
     async getRunAudit(request) {
       const parsed = getSessionByIdRequestSchema.parse(request);
-      const data = await loadTriageData(runtime);
-      const session = data.sessionsById.get(parsed.sessionId);
+      const location = await findStoreSessionLocation(runtime, parsed.sessionId);
 
-      if (!session) {
+      if (!location) {
         return null;
       }
 
-      const preview = buildSessionPreviewViewModel(data, session);
-      const derived = getDerivedSession(data, session.id);
-      const diagnostics = getDiagnosticsForSession(data, session);
-      const fileMutations = data.fileMutationsBySessionId.get(session.id) ?? [];
-      const commands = derived?.shellCommands ?? [];
+      const [preview, diagnostics, projectRollups, timelineRecords] = await Promise.all([
+        sessionService.getSessionById({ sessionId: parsed.sessionId }),
+        runtime.entityStore.listDiagnostics({
+          sourceId: location.source.sourceId,
+          sessionId: parsed.sessionId
+        }),
+        listProjectRollupsBySourceId(runtime, location.source.sourceId),
+        collectAllSessionTimelineRecords(runtime, location.source.sourceId, parsed.sessionId)
+      ]);
+
+      if (!preview) {
+        return null;
+      }
+
+      const session = location.session;
+      const fileMutations = timelineRecords
+        .map((record) => record.fileMutation)
+        .filter((mutation): mutation is NonNullable<typeof mutation> => Boolean(mutation));
+      const commands = session.parsedShellCommands ?? [];
       const capabilityWarnings = flattenCapabilityGroups(preview.capabilityGroups).filter(
         (badge) => badge.state !== "Supported"
       );
-      const project = getProjectForSession(data, session);
+      const project = session.projectId ? projectRollups.get(session.projectId)?.project : undefined;
       const projectRootPath =
         (project as { primaryRootPath?: string; rootPath?: string } | undefined)
           ?.primaryRootPath ??
         (project as { primaryRootPath?: string; rootPath?: string } | undefined)?.rootPath;
-      const projectSnapshot = getProjectGitSnapshot(data, project);
-      const githubSnapshot = getProjectGitHubSnapshot(data, project);
+      const projectRollup = session.projectId ? projectRollups.get(session.projectId) : undefined;
+      const projectSnapshot = projectRollup?.git;
+      const githubSnapshot = projectRollup?.github;
       const gitStatus = toGitStatusState(projectSnapshot);
       const githubStatus = toGitHubStatusState(githubSnapshot);
       const dirtyState = toGitDirtyState(projectSnapshot);
@@ -108,7 +122,7 @@ export function createRunAuditViewModelService(
             items: [
               {
                 label: "Completion Claim",
-                value: humanizeClaim(derived?.audit?.completionClaim),
+                value: humanizeClaim(session.runAudit?.completionClaim),
                 tone: "neutral"
               },
               {
@@ -140,7 +154,7 @@ export function createRunAuditViewModelService(
                 label: "Qualifying Commands",
                 value:
                   preview.triageMetrics.commands.status === "value"
-                    ? String(derived?.verification?.commandIds.length ?? 0)
+                    ? String(session.verification?.commandIds.length ?? 0)
                     : preview.triageMetrics.commands.displayValue,
                 tone: "neutral"
               },
@@ -149,7 +163,7 @@ export function createRunAuditViewModelService(
                 value:
                   preview.triageMetrics.commands.status !== "value"
                     ? preview.triageMetrics.commands.displayValue
-                    : derived?.verification?.intentResults
+                    : session.verification?.intentResults
                         .map((result) =>
                           `${result.intent}: ${humanizeResult(result.latestStatus)}`
                         )
