@@ -444,7 +444,7 @@ export type DiagnosticsViewModel = z.infer<typeof diagnosticsViewModelSchema>;
 
 export const shellStateViewModelSchema = z
   .object({
-    appName: z.literal("Agent Workbench"),
+    appName: z.literal("Ctr + Zebra"),
     readOnly: z.literal(true),
     allowedOperations: z.array(operationChannelSchema).min(1),
     adapters: z.array(

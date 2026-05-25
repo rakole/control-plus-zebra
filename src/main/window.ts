@@ -17,7 +17,7 @@ export function createMainWindow(): BrowserWindow {
     height: 760,
     minWidth: 800,
     minHeight: 680,
-    title: "Agent Workbench",
+    title: "Ctr + Zebra",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

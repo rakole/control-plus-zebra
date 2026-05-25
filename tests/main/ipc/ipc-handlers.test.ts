@@ -272,7 +272,7 @@ function createFakeServices(): {
   const sessionService: SessionViewModelService = {
     getShellState() {
       return {
-        appName: "Agent Workbench",
+        appName: "Ctr + Zebra",
         readOnly: true,
         allowedOperations: [
           IPC_CHANNELS.getShellState,

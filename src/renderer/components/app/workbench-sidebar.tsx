@@ -51,7 +51,7 @@ export function WorkbenchSidebar({
               <PanelsTopLeftIcon className="size-4" />
             </span>
             <div className={cn("min-w-0", minimized && "sr-only")}>
-              <p className="text-sm font-semibold">Agent Workbench</p>
+              <p className="text-sm font-semibold">Ctr + Zebra</p>
               <p className="text-xs text-muted-foreground">
                 Local agent evidence
               </p>

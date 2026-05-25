@@ -121,7 +121,7 @@ describe("renderer app composite behavior contracts", () => {
             </a>
           </nav>
         }
-        topbar={<header aria-label="Workbench topbar">Agent Workbench</header>}
+        topbar={<header aria-label="Workbench topbar">Ctr + Zebra</header>}
       >
         <section aria-label="Route content">
           <h1>Sessions</h1>
@@ -329,6 +329,14 @@ describe("renderer app composite behavior contracts", () => {
     const list = screen.getByRole("list", { name: "Parser diagnostics" });
     expect(within(list).getByText("One transcript emitted a non-blocking parser warning.")).toBeInTheDocument();
     expect(within(list).getByText("Missing sidecar metadata prevented classification.")).toBeInTheDocument();
+  });
+
+  it("keeps Timeline evidence in a bounded scroll viewport", async () => {
+    const source = await readFile(path.join(appComponentsRoot, "timeline.tsx"), "utf8");
+
+    expect(source).toMatch(/<ScrollArea\s+type="always"/u);
+    expect(source).toContain("h-[min(42rem,calc(100vh-16rem))]");
+    expect(source).toMatch(/\bbreak-words\b/u);
   });
 });
 

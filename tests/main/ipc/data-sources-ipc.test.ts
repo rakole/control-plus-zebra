@@ -162,7 +162,7 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
 
   const sessionService: SessionViewModelService = {
     getShellState: vi.fn(() => ({
-      appName: "Agent Workbench" as const,
+      appName: "Ctr + Zebra" as const,
       readOnly: true as const,
       allowedOperations: [
         IPC_CHANNELS.getShellState,

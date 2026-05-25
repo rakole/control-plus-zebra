@@ -36,7 +36,7 @@ export function createSessionViewModelService(
   return {
     getShellState() {
       return shellStateViewModelSchema.parse({
-        appName: "Agent Workbench",
+        appName: "Ctr + Zebra",
         readOnly: true,
         allowedOperations: ALLOWED_IPC_CHANNELS,
         adapters: runtime.adapterRegistry.listDescriptors().map((descriptor) => ({
