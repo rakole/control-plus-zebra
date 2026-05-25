@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: active
 stopped_at: Phase 7 completed
-last_updated: "2026-05-25T08:42:00Z"
-last_activity: 2026-05-25 - Completed quick task v2-bounded-import for bounded archive import/export and paged timeline loading
+last_updated: "2026-05-25T09:15:11Z"
+last_activity: 2026-05-25 - Completed quick task project-card-status-tooltips for Projects list badge filtering and tooltips
 progress:
   total_phases: 8
   completed_phases: 7
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 Phase: 8 of 8 (Hardening, Packaging, and Readiness)
 Plan: Phase 7 complete; Phase 8 not started
 Status: active
-Last activity: 2026-05-25 - Completed quick task v2-bounded-import for bounded archive import/export and paged timeline loading
+Last activity: 2026-05-25 - Completed quick task project-card-status-tooltips for Projects list badge filtering and tooltips
 
 Progress: [█████████-] 88%
 
@@ -140,6 +140,7 @@ Recent decisions affecting current work:
 
 | Date | Task | Summary | Verification |
 |------|------|---------|--------------|
+| 2026-05-25 | project-card-status-tooltips | Hid compact `Unknown` project-card bubbles in the Projects list and added category-aware hover tooltips for visible status chips. | `npm run test -- --project renderer tests/renderer/projects-route.test.tsx`; `npm run typecheck`; `npm run lint`; `npm run test:renderer` |
 | 2026-05-25 | v2-bounded-import | Replaced monolithic archive import/export with v2 sectioned NDJSON, bounded ingestion limits, chunked raw artifacts, sectioned cache records, Gemini JSONL streaming, and paged session/timeline IPC. | `npm run typecheck`; `npm run lint`; `npm run test` |
 
 ### Pending Todos

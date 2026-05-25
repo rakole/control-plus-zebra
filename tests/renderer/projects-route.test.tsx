@@ -95,6 +95,42 @@ describe("Projects route", () => {
     expect(within(repositoryMetadata).getByText("Approved")).toBeInTheDocument();
   });
 
+  it("hides unknown project-list badges and labels visible status chips", async () => {
+    installBridgeMocks({
+      projects: [
+        buildProject({
+          latestVerification: { label: "Not Run", tone: "neutral" },
+          gitStatus: { label: "Unknown", tone: "neutral" },
+          githubStatus: { label: "Unknown", tone: "neutral" },
+          dirtyState: { label: "Unknown", tone: "neutral" },
+          pullRequest: { status: "unknown", displayValue: "Unknown" }
+        })
+      ]
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
+
+    const master = screen.getByRole("region", { name: "Projects list" });
+    const projectCard = within(master).getByRole("button", { name: /control-plus-zebra/u });
+
+    expect(within(projectCard).queryByText("Unknown")).not.toBeInTheDocument();
+
+    const runAuditBadge = within(projectCard).getByText("Needs Review");
+    expect(runAuditBadge).toHaveAttribute("title", "Run audit status: Needs Review");
+
+    await user.hover(runAuditBadge);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Run audit status: Needs Review");
+
+    expect(within(projectCard).getByText("Not Run")).toHaveAttribute(
+      "title",
+      "Verification status: Not Run"
+    );
+    expect(within(projectCard).getByText("Branch main")).toHaveAttribute("title", "Branch: main");
+  });
+
   it("reuses the shared archive export panel for project archives", async () => {
     const bridge = installBridgeMocks();
     const user = userEvent.setup();

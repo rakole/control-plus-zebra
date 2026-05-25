@@ -12,17 +12,19 @@ export interface TruthStateView {
 export interface TruthStateBadgeProps {
   state: TruthStateView;
   className?: string | undefined;
+  tooltip?: string | undefined;
 }
 
 export function TruthStateBadge({
   state,
-  className
+  className,
+  tooltip
 }: TruthStateBadgeProps) {
   return (
     <StatusBadge
       tone={mapTruthBadgeTone(state.tone)}
       className={className}
-      title={state.reason ?? state.label}
+      title={tooltip ?? state.reason ?? state.label}
       aria-label={state.label}
     >
       {state.label}
