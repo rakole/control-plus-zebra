@@ -13,7 +13,7 @@ import { createRawArtifactId, createSourceId } from "../../core/model/identifier
 import { createSafeFilesystem } from "../../core/security/safe-filesystem.js";
 import { geminiCliCapabilities, geminiCliDescriptor } from "./descriptor.js";
 
-const CHAT_FILENAME_PATTERN = /^session-.*\.jsonl$/u;
+const CHAT_FILENAME_PATTERN = /^session-.*\.(?:json|jsonl)$/u;
 const TOOL_OUTPUT_SESSION_DIR_PATTERN = /^session-[0-9a-f-]+$/u;
 const IGNORED_ENTRY_NAMES = new Set([".DS_Store"]);
 
@@ -49,7 +49,7 @@ function toParseStrategy(
 ): RawArtifactRef["parseStrategy"] {
   switch (artifactType) {
     case GEMINI_CHAT_ARTIFACT_TYPE:
-      return "stream-jsonl";
+      return mediaType === "application/json" ? "json" : "stream-jsonl";
     case GEMINI_PROJECT_ROOT_ARTIFACT_TYPE:
       return "text";
     case GEMINI_LOGS_ARTIFACT_TYPE:
@@ -238,11 +238,16 @@ export async function* discoverGeminiCliArtifacts(
       .sort((left, right) => left.path.localeCompare(right.path));
 
     for (const chatFile of chatFiles) {
+      const mediaType =
+        path.extname(chatFile.path).toLowerCase() === ".json"
+          ? "application/json"
+          : "application/x-ndjson";
+
       yield buildArtifact(source, {
         nativeId: path.posix.join("chats", path.basename(chatFile.path)),
         path: chatFile.path,
         artifactType: GEMINI_CHAT_ARTIFACT_TYPE,
-        mediaType: "application/x-ndjson",
+        mediaType,
         stat: chatFile
       });
     }

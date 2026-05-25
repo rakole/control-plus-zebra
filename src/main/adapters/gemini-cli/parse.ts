@@ -180,38 +180,27 @@ function* parseChatArtifact(
   artifact: RawArtifactRef,
   artifactText: string
 ): Iterable<GeminiRawEvent> {
-  const lines = artifactText.split(/\r?\n/);
+  const rows = parseChatRows(artifact, artifactText);
   let sessionIdFromHeader = deriveSessionIdFromChatPath(artifact.path ?? artifact.nativeId ?? "");
 
-  for (const [index, line] of lines.entries()) {
-    const lineNumber = index + 1;
-    const trimmed = line.trim();
-
-    if (trimmed.length === 0) {
-      continue;
-    }
-
-    let parsed: unknown;
-
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Invalid JSON";
+  for (const row of rows) {
+    if (!row.ok) {
       yield buildParseDiagnosticEvent(
         artifact,
-        "chat-json-line",
-        `Gemini chat row ${lineNumber} failed JSON parsing: ${message}`,
+        row.diagnosticSuffix,
+        row.message,
         sessionIdFromHeader
       );
       continue;
     }
 
+    const parsed = row.parsed;
     const headerResult = sessionHeaderSchema.safeParse(parsed);
 
     if (headerResult.success) {
       sessionIdFromHeader = headerResult.data.sessionId;
       yield {
-        id: `${artifact.id}:header:${lineNumber}`,
+        id: `${artifact.id}:header:${row.eventKey}`,
         adapterId: artifact.adapterId,
         sourceId: artifact.sourceId,
         artifactId: artifact.id,
@@ -220,13 +209,13 @@ function* parseChatArtifact(
         nativeId: headerResult.data.sessionId,
         ...(headerResult.data.startTime ? { timestamp: headerResult.data.startTime } : {}),
         raw: parsed,
-        source: buildPointer(artifact, lineNumber),
+        source: buildPointer(artifact, row.lineNumber, row.index),
         diagnostics: [],
         payload: {
           kind: "session-header",
           sessionId: headerResult.data.sessionId,
           header: headerResult.data,
-          origin: buildOrigin(artifact.nativeId, lineNumber)
+          origin: buildOrigin(artifact.nativeId, row.lineNumber, row.index)
         }
       };
       continue;
@@ -240,7 +229,7 @@ function* parseChatArtifact(
           ? metadataPatchResult.data.$set.lastUpdated
           : undefined;
       yield {
-        id: `${artifact.id}:patch:${lineNumber}`,
+        id: `${artifact.id}:patch:${row.eventKey}`,
         adapterId: artifact.adapterId,
         sourceId: artifact.sourceId,
         artifactId: artifact.id,
@@ -249,13 +238,13 @@ function* parseChatArtifact(
         nativeId: sessionIdFromHeader ?? path.basename(artifact.path ?? artifact.id),
         ...(timestamp ? { timestamp } : {}),
         raw: parsed,
-        source: buildPointer(artifact, lineNumber),
+        source: buildPointer(artifact, row.lineNumber, row.index),
         diagnostics: [],
         payload: {
           kind: "metadata-patch",
           sessionId: sessionIdFromHeader ?? path.basename(artifact.path ?? artifact.id),
           patch: metadataPatchResult.data.$set,
-          origin: buildOrigin(artifact.nativeId, lineNumber)
+          origin: buildOrigin(artifact.nativeId, row.lineNumber, row.index)
         }
       };
       continue;
@@ -270,14 +259,14 @@ function* parseChatArtifact(
       yield buildParseDiagnosticEvent(
         artifact,
         "chat-shape",
-        `Gemini chat row ${lineNumber} failed validation: ${issues}`,
+        `Gemini chat row ${row.label} failed validation: ${issues}`,
         sessionIdFromHeader
       );
       continue;
     }
 
     yield {
-      id: `${artifact.id}:record:${lineNumber}`,
+      id: `${artifact.id}:record:${row.eventKey}`,
       adapterId: artifact.adapterId,
       sourceId: artifact.sourceId,
       artifactId: artifact.id,
@@ -286,16 +275,143 @@ function* parseChatArtifact(
       nativeId: transcriptResult.data.id,
       timestamp: transcriptResult.data.timestamp,
       raw: parsed,
-      source: buildPointer(artifact, lineNumber),
+      source: buildPointer(artifact, row.lineNumber, row.index),
       diagnostics: [],
       payload: {
         kind: "transcript-record",
         sessionId: sessionIdFromHeader ?? path.basename(artifact.path ?? artifact.id),
         record: transcriptResult.data,
-        origin: buildOrigin(artifact.nativeId, lineNumber)
+        origin: buildOrigin(artifact.nativeId, row.lineNumber, row.index)
       }
     };
   }
+}
+
+type ParsedChatRow =
+  | {
+      ok: true;
+      eventKey: string;
+      index?: number;
+      label: string;
+      lineNumber?: number;
+      parsed: unknown;
+    }
+  | {
+      ok: false;
+      diagnosticSuffix: string;
+      message: string;
+    };
+
+function parseChatRows(
+  artifact: RawArtifactRef,
+  artifactText: string
+): ParsedChatRow[] {
+  if (isJsonChatArtifact(artifact)) {
+    return parseJsonChatRows(artifactText);
+  }
+
+  return parseJsonlChatRows(artifactText);
+}
+
+function isJsonChatArtifact(artifact: RawArtifactRef): boolean {
+  return (
+    artifact.mediaType === "application/json" ||
+    path.extname(artifact.path ?? artifact.nativeId ?? "").toLowerCase() === ".json"
+  );
+}
+
+function parseJsonlChatRows(artifactText: string): ParsedChatRow[] {
+  const rows: ParsedChatRow[] = [];
+
+  for (const [index, line] of artifactText.split(/\r?\n/).entries()) {
+    const lineNumber = index + 1;
+    const trimmed = line.trim();
+
+    if (trimmed.length === 0) {
+      continue;
+    }
+
+    try {
+      rows.push({
+        ok: true,
+        eventKey: String(lineNumber),
+        label: String(lineNumber),
+        lineNumber,
+        parsed: JSON.parse(trimmed)
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid JSON";
+      rows.push({
+        ok: false,
+        diagnosticSuffix: "chat-json-line",
+        message: `Gemini chat row ${lineNumber} failed JSON parsing: ${message}`
+      });
+    }
+  }
+
+  return rows;
+}
+
+function parseJsonChatRows(artifactText: string): ParsedChatRow[] {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(artifactText);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Invalid JSON";
+    return [
+      {
+        ok: false,
+        diagnosticSuffix: "chat-json",
+        message: `Gemini chat JSON parsing failed: ${message}`
+      }
+    ];
+  }
+
+  const records = extractJsonChatRecords(parsed);
+
+  if (!records) {
+    return [
+      {
+        ok: false,
+        diagnosticSuffix: "chat-json-shape",
+        message:
+          "Gemini chat JSON must contain a transcript record object or an array of transcript records."
+      }
+    ];
+  }
+
+  return records.map((record, index) => ({
+    ok: true,
+    eventKey: `index-${index}`,
+    index,
+    label: `index ${index}`,
+    parsed: record
+  }));
+}
+
+function extractJsonChatRecords(parsed: unknown): unknown[] | undefined {
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+
+  if (!isRecord(parsed)) {
+    return undefined;
+  }
+
+  for (const property of ["records", "events", "messages", "transcript", "entries"]) {
+    const value = parsed[property];
+
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+
+  return [parsed];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function* parseToolOutputArtifact(
@@ -431,7 +547,7 @@ function buildOrigin(
 
 function deriveSessionIdFromChatPath(artifactPath: string): string | undefined {
   const fileName = path.basename(artifactPath);
-  const match = fileName.match(/session-[0-9T-]+-([0-9a-f-]+)\.jsonl$/u);
+  const match = fileName.match(/session-[0-9T-]+-([0-9a-f-]+)\.(?:json|jsonl)$/u);
   return match?.[1];
 }
 

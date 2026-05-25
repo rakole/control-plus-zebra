@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -124,6 +124,71 @@ describe("gemini-cli normalization", () => {
     expect(normalized.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
       "gemini-cli.normalize.missing-sidecar"
     );
+  });
+
+  it("discovers and parses Gemini chat sessions stored as JSON arrays", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const jsonlChatPath = path.join(
+        rootPath,
+        "beta-project",
+        "chats",
+        "session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl"
+      );
+      const jsonChatPath = jsonlChatPath.replace(/\.jsonl$/u, ".json");
+      const chatRecords = (await readFile(jsonlChatPath, "utf8"))
+        .split(/\r?\n/u)
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as unknown);
+
+      await writeFile(jsonChatPath, `${JSON.stringify(chatRecords, null, 2)}\n`, "utf8");
+      await rm(jsonlChatPath);
+
+      const betaSource = await requireGeminiSource(rootPath, "beta-project");
+      const artifacts = await collectGeminiArtifacts(betaSource);
+      const chatArtifact = artifacts.find(
+        (artifact) =>
+          artifact.artifactType === "gemini-chat" && artifact.nativeId?.endsWith(".json")
+      );
+
+      expect(chatArtifact).toMatchObject({
+        artifactType: "gemini-chat",
+        mediaType: "application/json",
+        parseStrategy: "json"
+      });
+
+      const rawEvents = (
+        await Promise.all(
+          artifacts.map((artifact) =>
+            collectAsync(
+              geminiCliAdapter.parseArtifact(
+                artifact,
+                createGeminiAdapterContext(betaSource.rootPath)
+              )
+            )
+          )
+        )
+      ).flat();
+      const normalized = await geminiCliAdapter.normalize(
+        {
+          source: betaSource,
+          artifacts,
+          rawEvents
+        },
+        createGeminiAdapterContext(betaSource.rootPath)
+      );
+
+      expect(normalized.sessions[0]).toMatchObject({
+        lifecycleStatus: "active",
+        nativeSessionId: "33333333-3333-4333-8333-333333333333"
+      });
+      expect(normalized.messages.map((message) => message.role)).toEqual(
+        expect.arrayContaining(["user"])
+      );
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
   });
 
   it("surfaces missing sidecars when no inline tool-result evidence is available", async () => {
