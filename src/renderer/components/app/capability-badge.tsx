@@ -9,6 +9,7 @@ export interface CapabilityBadgeProps {
   state: CapabilityState;
   reason?: string | undefined;
   className?: string | undefined;
+  tooltip?: string | undefined;
 }
 
 const capabilityToneByState = {
@@ -21,13 +22,14 @@ export function CapabilityBadge({
   label,
   state,
   reason,
-  className
+  className,
+  tooltip
 }: CapabilityBadgeProps) {
   return (
     <StatusBadge
       tone={capabilityToneByState[state]}
       className={className}
-      title={reason ?? label ?? state}
+      title={tooltip ?? reason ?? label ?? state}
       aria-label={label ? `${label}: ${state}` : state}
     >
       {state}

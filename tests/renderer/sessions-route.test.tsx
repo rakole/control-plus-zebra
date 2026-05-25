@@ -64,6 +64,35 @@ describe("Sessions route", () => {
     expect(screen.getByRole("heading", { name: "Bridge preview session" })).toBeInTheDocument();
   });
 
+  it("adds labeled tooltips to session status, metric, and capability bubbles", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("button", { name: /Fixture session/u });
+
+    const master = screen.getByRole("region", { name: "Session summaries" });
+    const preview = screen.getAllByRole("region", { name: "Selected session preview" })[0]!;
+    const sessionRow = within(master).getByRole("button", { name: /Fixture session/u });
+
+    const runAuditBadge = within(sessionRow).getByText("Needs Review");
+    expect(runAuditBadge).toHaveAttribute("title", "Run audit status: Needs Review");
+
+    await user.hover(runAuditBadge);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Run audit status: Needs Review");
+
+    const commandsBadge = within(sessionRow).getByText("1 commands");
+    expect(commandsBadge).toHaveAttribute("title", "Commands: 1");
+
+    const capabilityBadge = within(sessionRow).getByText("Unsupported");
+    expect(capabilityBadge).toHaveAttribute(
+      "title",
+      "Git Context: Unsupported. Git evidence is unavailable."
+    );
+
+    const lifecycleBadge = within(preview).getByText("Completed");
+    expect(lifecycleBadge).toHaveAttribute("title", "Session lifecycle: Completed");
+  });
+
   it("opens session detail from the selected preview action", async () => {
     const user = userEvent.setup();
     render(<App />);

@@ -1,13 +1,11 @@
-import type { ReactElement } from "react";
-
 import { Badge } from "../../../components/ui/badge.js";
-import { TruthStateBadge } from "../../../components/app/truth-state-badge.js";
+import { StatusChipTooltip } from "../../../components/app/status-chip-tooltip.js";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger
-} from "../../../components/ui/tooltip.js";
+  getFieldTooltip,
+  getTruthTooltip
+} from "../../../components/app/status-chip-tooltips.js";
+import { TruthStateBadge } from "../../../components/app/truth-state-badge.js";
+import { TooltipProvider } from "../../../components/ui/tooltip.js";
 import { cn } from "../../../lib/utils.js";
 
 type ProjectsResponse = Awaited<ReturnType<Window["agentWorkbench"]["listProjects"]>>;
@@ -19,37 +17,6 @@ interface ProjectListProps {
   projects: ProjectSummary[];
   selectedProjectId: string | null;
   onSelect(projectId: string): void;
-}
-
-interface StatusChipTooltipProps {
-  children: ReactElement;
-  tooltip: string;
-}
-
-function StatusChipTooltip({
-  children,
-  tooltip
-}: StatusChipTooltipProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-flex">{children}</span>
-      </TooltipTrigger>
-      <TooltipContent side="top" sideOffset={6}>
-        {tooltip}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
-function getTruthTooltip(label: string, state: ProjectTruthState): string {
-  return state.reason ? `${label}: ${state.label}. ${state.reason}` : `${label}: ${state.label}`;
-}
-
-function getFieldTooltip(label: string, field: ProjectFieldValue): string {
-  return field.reason
-    ? `${label}: ${field.displayValue}. ${field.reason}`
-    : `${label}: ${field.displayValue}`;
 }
 
 function shouldShowTruthState(state: ProjectTruthState): boolean {

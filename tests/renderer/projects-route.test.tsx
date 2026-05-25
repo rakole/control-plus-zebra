@@ -95,13 +95,13 @@ describe("Projects route", () => {
     expect(within(repositoryMetadata).getByText("Approved")).toBeInTheDocument();
   });
 
-  it("hides unknown project-list badges and labels visible status chips", async () => {
+  it("hides unknown project badges and labels visible status chips", async () => {
     installBridgeMocks({
       projects: [
         buildProject({
           latestVerification: { label: "Not Run", tone: "neutral" },
           gitStatus: { label: "Unknown", tone: "neutral" },
-          githubStatus: { label: "Unknown", tone: "neutral" },
+          githubStatus: { label: "Available", tone: "info" },
           dirtyState: { label: "Unknown", tone: "neutral" },
           pullRequest: { status: "unknown", displayValue: "Unknown" }
         })
@@ -114,6 +114,7 @@ describe("Projects route", () => {
     expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument();
 
     const master = screen.getByRole("region", { name: "Projects list" });
+    const detail = screen.getByRole("region", { name: "Selected project details" });
     const projectCard = within(master).getByRole("button", { name: /control-plus-zebra/u });
 
     expect(within(projectCard).queryByText("Unknown")).not.toBeInTheDocument();
@@ -129,6 +130,14 @@ describe("Projects route", () => {
       "Verification status: Not Run"
     );
     expect(within(projectCard).getByText("Branch main")).toHaveAttribute("title", "Branch: main");
+
+    const detailBadge = within(detail).getByText("Available");
+    expect(detailBadge).toHaveAttribute("title", "GitHub status: Available");
+    expect(within(detail).queryByTitle("Git status: Unknown")).not.toBeInTheDocument();
+    expect(within(detail).queryByTitle("Dirty state: Unknown")).not.toBeInTheDocument();
+
+    await user.hover(detailBadge);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("GitHub status: Available");
   });
 
   it("reuses the shared archive export panel for project archives", async () => {
