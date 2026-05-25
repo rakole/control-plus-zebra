@@ -213,6 +213,7 @@ export interface WorkbenchEntityStore {
   getRawArtifactMetadata(
     scope: WorkbenchCurrentRunScope & { artifactId: RawArtifactId }
   ): Promise<WorkbenchRawArtifactMetadataRecord | undefined>;
+  listRawArtifactMetadata(scope: WorkbenchCurrentRunScope): Promise<WorkbenchRawArtifactMetadataRecord[]>;
   getSessionRollup(
     scope: WorkbenchCurrentRunScope & { sessionId: SessionId }
   ): Promise<WorkbenchSessionRollup | undefined>;

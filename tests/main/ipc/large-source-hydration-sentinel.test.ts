@@ -384,6 +384,12 @@ function createRuntimeStub(
         return metadata?.sourceId === sourceId ? metadata : undefined;
       },
 
+      async listRawArtifactMetadata({ sourceId }: { sourceId: string }) {
+        return [...rawMetadataByArtifactId.values()].filter(
+          (metadata) => metadata.sourceId === sourceId
+        );
+      },
+
       async getRawArtifactMetadataByOutputArtifactId(
         { sourceId, outputArtifactId }: { sourceId: string; outputArtifactId: string }
       ) {
@@ -392,12 +398,21 @@ function createRuntimeStub(
         );
       }
     } as unknown as WorkbenchRuntime["entityStore"],
+    projectDir: "/virtual/project",
     rawArtifactIndex: {
       async load() {
         hooks.onRawArtifactLoad?.();
         return fixture.rawArtifactEntries;
       }
     } as WorkbenchRuntime["rawArtifactIndex"],
+    scanJobRunner: {
+      getActiveScanCount() {
+        return 0;
+      },
+      async scanSource() {
+        throw new Error("large-source hydration sentinel runtime does not support scans");
+      }
+    },
     sourceRegistry: {
       async getSource(sourceId) {
         return sourcesById.get(sourceId);

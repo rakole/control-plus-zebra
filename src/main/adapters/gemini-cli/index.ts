@@ -9,10 +9,11 @@ import {
   discoverGeminiCliSources,
   validateGeminiCliSourceRoot
 } from "./discovery.js";
-import { normalizeGeminiCliEvents, type GeminiOutputArtifactBinding } from "./normalize.js";
+import {
+  normalizeGeminiCliEventBatches,
+  normalizeGeminiCliEvents
+} from "./normalize.js";
 import { parseGeminiCliArtifact, type GeminiRawEvent } from "./parse.js";
-
-const outputArtifactBindings = new Map<string, GeminiOutputArtifactBinding>();
 
 export const geminiCliAdapter: SessionSourceAdapter<GeminiRawEvent> = {
   descriptor: geminiCliDescriptor,
@@ -23,30 +24,26 @@ export const geminiCliAdapter: SessionSourceAdapter<GeminiRawEvent> = {
   discoverSources: discoverGeminiCliSources,
   discoverArtifacts: discoverGeminiCliArtifacts,
   parseArtifact: parseGeminiCliArtifact,
-  async normalize(input, context) {
-    const normalized = await normalizeGeminiCliEvents(input);
-    const { extras, ...publicNormalized } = normalized;
-
-    outputArtifactBindings.clear();
-    extras.outputArtifactBindings.forEach((binding, artifactId) => {
-      outputArtifactBindings.set(artifactId, binding);
-    });
-
-    return publicNormalized;
+  async normalize(input) {
+    return normalizeGeminiCliEvents(input);
+  },
+  normalizeBatches(input) {
+    return normalizeGeminiCliEventBatches(input);
   },
   async loadOutputArtifact(artifact, context): Promise<LoadedOutputArtifact> {
-    const binding = outputArtifactBindings.get(artifact.id);
+    const binding = "ref" in artifact ? artifact.ref : undefined;
+    const targetPath = binding?.path ?? artifact.path;
 
-    if (!binding) {
+    if (!targetPath) {
       return { artifact };
     }
 
-    const rawText = await adapterReadTextFile(context, binding.path, binding.rawArtifactId);
-	    const mediaType =
-	      artifact.mediaType ??
-	      (artifact.contentKind === "json" || artifact.contentKind === "json-output-wrapper"
-	        ? "application/json"
-	        : "text/plain");
+    const rawText = await adapterReadTextFile(context, targetPath, binding?.id ?? artifact.id);
+    const mediaType =
+      artifact.mediaType ??
+      (artifact.contentKind === "json" || artifact.contentKind === "json-output-wrapper"
+        ? "application/json"
+        : "text/plain");
 
     if (mediaType === "application/json") {
       try {

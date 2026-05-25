@@ -636,6 +636,12 @@ export class FakeWorkbenchEntityStore implements WorkbenchEntityStore, EntityWri
     return this.#getCurrentRunState(scope.sourceId)?.rawArtifacts.get(scope.artifactId);
   }
 
+  async listRawArtifactMetadata(
+    scope: WorkbenchCurrentRunScope
+  ): Promise<WorkbenchRawArtifactMetadataRecord[]> {
+    return [...(this.#getCurrentRunState(scope.sourceId)?.rawArtifacts.values() ?? [])];
+  }
+
   async getSessionRollup(
     scope: WorkbenchCurrentRunScope & { sessionId: string }
   ): Promise<WorkbenchSessionRollup | undefined> {

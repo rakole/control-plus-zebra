@@ -13,6 +13,7 @@ import type {
   SourceRootConfig,
   SourceRootValidation
 } from "../../src/main/core/adapter-contract/index.js";
+import { normalizeSessionSource } from "../../src/main/core/adapter-contract/index.js";
 import type { Diagnostic } from "../../src/main/core/diagnostics/diagnostic.js";
 import { createSafeFilesystem } from "../../src/main/core/security/index.js";
 import {
@@ -451,7 +452,8 @@ export async function exerciseAdapter<TRawEvent extends RawHarnessEvent>(
         artifacts.map((artifact) => collectAsync(adapter.parseArtifact(artifact, runtimeContext)))
       )
     ).flat();
-    const normalized = await adapter.normalize(
+    const normalized = await normalizeSessionSource(
+      adapter,
       {
         source: discoveredSource,
         artifacts,
@@ -478,7 +480,8 @@ export async function exerciseAdapter<TRawEvent extends RawHarnessEvent>(
   const watchPlan = await adapter.getWatchPlan(primaryRun.source, runtimeContext);
 
   if (sourceRuns.length > 1) {
-    await adapter.normalize(
+    await normalizeSessionSource(
+      adapter,
       {
         source: primaryRun.source,
         artifacts: primaryRun.artifacts,

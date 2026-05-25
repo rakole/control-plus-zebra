@@ -1,4 +1,4 @@
-import { expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type {
   AdapterNormalizationInput,
@@ -14,6 +14,7 @@ import { buildDiagnostic } from "../../src/main/core/diagnostics/diagnostic.js";
 import { HIGH_CONFIDENCE } from "../../src/main/core/model/confidence.js";
 
 import {
+  exerciseAdapter,
   runAdapterContractSuite,
   type AdapterScenarioManifestEntry
 } from "./run-adapter-contract.js";
@@ -520,4 +521,28 @@ runAdapterContractSuite({
       rawExitCode: 0
     });
   }
+});
+
+describe("adapter contract streaming seam", () => {
+  it("prefers normalizeStream over legacy normalize when an adapter exposes both", async () => {
+    const streamBatchSizes: number[] = [];
+    const streamingAdapter: SessionSourceAdapter<StubRawEvent> = {
+      ...stubAdapter,
+      async normalize() {
+        throw new Error("Legacy normalize should not run when normalizeStream is available.");
+      },
+      async normalizeStream(input, context) {
+        streamBatchSizes.push(input.rawEvents.length);
+        return stubAdapter.normalize(input, context);
+      }
+    };
+
+    const exercised = await exerciseAdapter(streamingAdapter, {
+      rootPath: "tests/fixtures/stub-contract/session.fixture.json",
+      displayName: "Stub contract fixture"
+    });
+
+    expect(streamBatchSizes).toEqual([2]);
+    expect(exercised.normalized.sessions[0]?.id).toBe(stubSessionId);
+  });
 });

@@ -9,6 +9,7 @@ import { RawArtifactIndex } from "../core/ingestion/raw-artifact-index.js";
 import { SQLiteWorkbenchEntityStore } from "../core/store/index.js";
 import { Scanner } from "../core/ingestion/scanner.js";
 import { WatchOrchestrator } from "../core/watcher/watch-orchestrator.js";
+import { createInProcessScanJobRunner, type ScanJobRunner } from "./scan-job-runner.js";
 
 export interface WorkbenchRuntimeOptions {
   appDataDir?: string;
@@ -20,7 +21,9 @@ export interface WorkbenchRuntime {
   adapterRegistry: AdapterRegistry;
   cacheStore: FileBackedCacheStore;
   entityStore: SQLiteWorkbenchEntityStore;
+  projectDir: string;
   rawArtifactIndex: RawArtifactIndex;
+  scanJobRunner: ScanJobRunner;
   scanner: Scanner;
   sourceRegistry: SourceRegistry;
   watchOrchestrator: WatchOrchestrator;
@@ -72,20 +75,29 @@ export function createWorkbenchRuntime(
   const scanner = new Scanner({
     adapterRegistry,
     cacheStore,
+    entityStore,
     projectDir,
     rawArtifactIndex,
     sourceRegistry,
     watchOrchestrator
   });
 
-  return {
+  const runtime = {
     appDataDir,
     adapterRegistry,
     cacheStore,
     entityStore,
+    projectDir,
     rawArtifactIndex,
+    scanJobRunner: undefined as unknown as ScanJobRunner,
     scanner,
     sourceRegistry,
     watchOrchestrator
   };
+
+  runtime.scanJobRunner = createInProcessScanJobRunner({
+    getScanner: () => runtime.scanner
+  });
+
+  return runtime;
 }

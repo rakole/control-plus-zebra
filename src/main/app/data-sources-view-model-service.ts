@@ -146,7 +146,7 @@ export function createDataSourcesViewModelService(
         throw new Error("Source validation must succeed before scanning.");
       }
 
-      await runtime.scanner.scanSource(parsed.sourceId);
+      await runtime.scanJobRunner.scanSource(parsed.sourceId);
       await syncLatestSourceCacheRecordToEntityStore(runtime, parsed.sourceId);
       return buildViewModel(runtime);
     }

@@ -198,7 +198,9 @@ function chunkItems<TItem>(items: TItem[], chunkSize: number): TItem[][] {
   return chunks;
 }
 
-function buildRawArtifactMetadata(record: NormalizedCacheRecord): WorkbenchRawArtifactMetadataRecord[] {
+export function buildRawArtifactMetadata(
+  record: NormalizedCacheRecord
+): WorkbenchRawArtifactMetadataRecord[] {
   const sessionByRawArtifactId = new Map<RawArtifactId, string>();
   const outputArtifactByRawArtifactId = new Map<RawArtifactId, string>();
 
@@ -230,7 +232,7 @@ function buildRawArtifactMetadata(record: NormalizedCacheRecord): WorkbenchRawAr
   }));
 }
 
-function buildProjectRollups(
+export function buildProjectRollups(
   record: NormalizedCacheRecord,
   rawArtifacts: WorkbenchRawArtifactMetadataRecord[]
 ): WorkbenchProjectRollup[] {
@@ -270,7 +272,7 @@ function buildProjectRollups(
   });
 }
 
-function buildSessionRollups(
+export function buildSessionRollups(
   record: NormalizedCacheRecord,
   rawArtifacts: WorkbenchRawArtifactMetadataRecord[]
 ): WorkbenchSessionRollup[] {
@@ -325,6 +327,6 @@ function hasProjectId(session: Session): session is Session & { projectId: strin
   return typeof session.projectId === "string" && session.projectId.length > 0;
 }
 
-function maxIsoTimestamp(values: Array<string | undefined>): string | undefined {
+export function maxIsoTimestamp(values: Array<string | undefined>): string | undefined {
   return values.filter((value): value is string => typeof value === "string" && value.length > 0).sort().at(-1);
 }

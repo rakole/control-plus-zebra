@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { geminiCliAdapter } from "../../../src/main/adapters/gemini-cli/index.js";
+import type { GeminiRawEvent } from "../../../src/main/adapters/gemini-cli/parse.js";
 
 import { collectAsync, exerciseAdapter } from "../../contract/run-adapter-contract.js";
 
@@ -17,6 +18,100 @@ import {
 } from "./test-helpers.js";
 
 describe("gemini-cli normalization", () => {
+  it("exposes normalizeBatches for the scanner seam without changing normalized session truth", async () => {
+    const alphaSource = await requireGeminiSource(geminiFixtureRoot, "alpha-project");
+    const artifacts = await collectGeminiArtifacts(alphaSource);
+    const rawEvents = (
+      await Promise.all(
+        artifacts.map((artifact) =>
+          collectAsync(
+            geminiCliAdapter.parseArtifact(artifact, createGeminiAdapterContext(alphaSource.rootPath))
+          )
+        )
+      )
+    ).flat();
+    const expected = await geminiCliAdapter.normalize(
+      {
+        source: alphaSource,
+        artifacts,
+        rawEvents
+      },
+      createGeminiAdapterContext(alphaSource.rootPath)
+    );
+
+    if (!geminiCliAdapter.normalizeBatches) {
+      throw new Error("Expected Gemini adapter to expose normalizeBatches.");
+    }
+
+    const [batched] = await collectAsync(
+      geminiCliAdapter.normalizeBatches(
+        {
+          source: alphaSource,
+          artifacts,
+          rawEvents: (async function* (): AsyncIterable<GeminiRawEvent> {
+            const reusable: Record<string, unknown> = {};
+
+            for (const event of rawEvents) {
+              for (const key of Object.keys(reusable)) {
+                delete reusable[key];
+              }
+
+              Object.assign(reusable, event, {
+                ...(event.diagnostics ? { diagnostics: [...event.diagnostics] } : {}),
+                ...(event.source ? { source: { ...event.source } } : {})
+              });
+              yield reusable as unknown as GeminiRawEvent;
+            }
+          })()
+        },
+        createGeminiAdapterContext(alphaSource.rootPath)
+      )
+    );
+
+    expect(batched?.sessions.map((session) => session.lifecycleStatus)).toEqual(
+      expected.sessions.map((session) => session.lifecycleStatus)
+    );
+    expect(
+      batched?.messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        text: message.text
+      }))
+    ).toEqual(
+      expected.messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        text: message.text
+      }))
+    );
+    expect(
+      batched?.toolCalls.map((toolCall) => ({
+        id: toolCall.id,
+        name: toolCall.name,
+        outputArtifactIds: toolCall.outputArtifactIds
+      }))
+    ).toEqual(
+      expected.toolCalls.map((toolCall) => ({
+        id: toolCall.id,
+        name: toolCall.name,
+        outputArtifactIds: toolCall.outputArtifactIds
+      }))
+    );
+    expect(
+      batched?.outputArtifacts.map((artifact) => ({
+        id: artifact.id,
+        nativeId: artifact.nativeId,
+        refPath: artifact.ref?.path
+      }))
+    ).toEqual(
+      expected.outputArtifacts.map((artifact) => ({
+        id: artifact.id,
+        nativeId: artifact.nativeId,
+        refPath: artifact.ref?.path
+      }))
+    );
+  });
+
   it("maps the representative Gemini source into shared projects, sessions, messages, tools, shell evidence, artifacts, and mutations", async () => {
     const exercised = await exerciseAdapter(geminiCliAdapter, geminiFixtureRoot);
     const { normalized } = exercised;

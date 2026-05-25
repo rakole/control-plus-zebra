@@ -126,6 +126,7 @@ runAdapterContractSuite({
   },
   scenarios,
   assertExercisedAdapter(adapterRun) {
+    expect(geminiCliAdapter.normalizeBatches).toEqual(expect.any(Function));
     expect(adapterRun.sources.map((source) => source.displayName).sort()).toEqual([
       "alpha-project",
       "beta-project",

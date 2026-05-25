@@ -224,6 +224,26 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
     return row ? parseJson<WorkbenchRawArtifactMetadataRecord>(row.payload_json) : undefined;
   }
 
+  async listRawArtifactMetadata(
+    scope: WorkbenchCurrentRunScope
+  ): Promise<WorkbenchRawArtifactMetadataRecord[]> {
+    const ingestRunId = this.#currentRunId(scope.sourceId);
+
+    if (!ingestRunId) {
+      return [];
+    }
+
+    const rows = this.#prepare(
+      `SELECT payload_json
+       FROM raw_artifact_entries
+       WHERE ingest_run_id = ?
+         AND source_id = ?
+       ORDER BY session_id ASC, artifact_id ASC`
+    ).all(ingestRunId, scope.sourceId) as unknown as SQLiteJsonRow[];
+
+    return rows.map((row) => parseJson<WorkbenchRawArtifactMetadataRecord>(row.payload_json));
+  }
+
   async getRawArtifactMetadataByOutputArtifactId(
     scope: WorkbenchCurrentRunScope & { outputArtifactId: string }
   ): Promise<WorkbenchRawArtifactMetadataRecord | undefined> {

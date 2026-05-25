@@ -74,6 +74,7 @@ export async function createTempRuntime(tempDirs: string[]) {
   runtime.scanner = new Scanner({
     adapterRegistry: runtime.adapterRegistry,
     cacheStore: runtime.cacheStore,
+    entityStore: runtime.entityStore,
     githubSnapshotProvider,
     projectDir: process.cwd(),
     rawArtifactIndex: runtime.rawArtifactIndex,

@@ -34,6 +34,43 @@ describe("gemini-cli output artifact loading", () => {
     expect(loadedJson.text).toBe("Updated contract types and capability fields.");
   });
 
+  it("keeps artifact loading tied to normalized artifact metadata instead of adapter-global state", async () => {
+    const alphaRun = await exerciseAdapter(geminiCliAdapter, geminiFixtureRoot);
+    const artifactContext = createGeminiArtifactContext(alphaRun.source.rootPath, alphaRun.artifacts);
+    const textArtifact = alphaRun.normalized.outputArtifacts.find((artifact) =>
+      (artifact.nativeId ?? artifact.nativeRef ?? "").endsWith("read_file_read_file_1700000000000_0_a1b2c3.txt")
+    );
+
+    if (!textArtifact || !geminiCliAdapter.loadOutputArtifact) {
+      throw new Error("Expected Gemini output artifact and lazy loader.");
+    }
+
+    const betaSource = await requireGeminiSource(geminiFixtureRoot, "beta-project");
+    const betaArtifacts = await collectGeminiArtifacts(betaSource);
+    const betaRawEvents = (
+      await Promise.all(
+        betaArtifacts.map((artifact) =>
+          collectAsync(
+            geminiCliAdapter.parseArtifact(artifact, createGeminiAdapterContext(betaSource.rootPath))
+          )
+        )
+      )
+    ).flat();
+
+    await geminiCliAdapter.normalize(
+      {
+        source: betaSource,
+        artifacts: betaArtifacts,
+        rawEvents: betaRawEvents
+      },
+      createGeminiAdapterContext(betaSource.rootPath)
+    );
+
+    const loadedText = await geminiCliAdapter.loadOutputArtifact(textArtifact, artifactContext);
+
+    expect(loadedText.text).toContain("Contract types");
+  });
+
   it("does not fabricate output artifacts or missing-sidecar diagnostics when inline output exists", async () => {
     const betaSource = await requireGeminiSource(geminiFixtureRoot, "beta-project");
     const artifacts = await collectGeminiArtifacts(betaSource);
