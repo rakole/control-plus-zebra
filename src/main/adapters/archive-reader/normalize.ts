@@ -6,7 +6,6 @@ import type {
 import { buildDiagnostic } from "../../core/diagnostics/diagnostic.js";
 import { HIGH_CONFIDENCE } from "../../core/model/confidence.js";
 import type { WatchPlan } from "../../core/watcher/watch-plan.js";
-import { archiveDocumentSchema } from "../../core/archive/archive-manifest.js";
 import { archiveReaderCapabilities, archiveReaderDescriptor } from "./descriptor.js";
 
 export interface ArchiveReaderRawEvent extends RawHarnessEvent<{
@@ -40,10 +39,6 @@ export async function normalizeArchiveReaderEvents(
           }
         )
       ];
-
-  if (archiveEvent) {
-    archiveDocumentSchema.parse(archiveEvent.payload.document);
-  }
 
   return {
     adapterId: archiveReaderDescriptor.id,

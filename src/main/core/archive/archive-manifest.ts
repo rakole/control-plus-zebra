@@ -4,7 +4,7 @@ import { normalizedCacheRecordSchema } from "../cache/file-backed-cache-store.js
 import { persistedDiagnosticSchema } from "../registry/source-registry-store.js";
 
 export const ARCHIVE_FORMAT = "agent-workbench-archive";
-export const ARCHIVE_MANIFEST_VERSION = 1;
+export const ARCHIVE_MANIFEST_VERSION = 2;
 
 export const archiveExportScopeSchema = z
   .object({
@@ -138,17 +138,56 @@ export const archivedRawArtifactSchema = z
   .strict();
 export type ArchivedRawArtifact = z.infer<typeof archivedRawArtifactSchema>;
 
-export const archiveDocumentSchema = z
+export const archivedRawArtifactMetadataSchema = archivedRawArtifactSchema.omit({
+  content: true
+});
+export type ArchivedRawArtifactMetadata = z.infer<typeof archivedRawArtifactMetadataSchema>;
+
+export const archivedRawArtifactChunkSchema = z
   .object({
-    manifest: archiveManifestSchema,
-    payload: z
-      .object({
-        sources: z.array(archivedSourceRecordSchema),
-        cacheRecords: z.array(normalizedCacheRecordSchema),
-        sourceDiagnostics: z.array(persistedDiagnosticSchema),
-        rawArtifacts: z.array(archivedRawArtifactSchema).optional()
-      })
-      .strict()
+    artifactId: z.string().min(1),
+    chunkIndex: z.number().int().nonnegative(),
+    content: z.string()
   })
   .strict();
-export type ArchiveDocument = z.infer<typeof archiveDocumentSchema>;
+export type ArchivedRawArtifactChunk = z.infer<typeof archivedRawArtifactChunkSchema>;
+
+export const archiveLineSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("manifest"),
+      manifest: archiveManifestSchema
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("source"),
+      source: archivedSourceRecordSchema
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("cache-record"),
+      record: normalizedCacheRecordSchema
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("source-diagnostic"),
+      diagnostic: persistedDiagnosticSchema
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("raw-artifact"),
+      artifact: archivedRawArtifactMetadataSchema
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("raw-artifact-chunk"),
+      chunk: archivedRawArtifactChunkSchema
+    })
+    .strict()
+]);
+export type ArchiveLine = z.infer<typeof archiveLineSchema>;

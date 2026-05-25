@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline";
 
 import type { AdapterNormalizationResult } from "../adapter-contract/types.js";
 import type {
@@ -8,6 +10,11 @@ import type {
   NormalizedCacheRecord
 } from "../cache/file-backed-cache-store.js";
 import type { Diagnostic } from "../diagnostics/diagnostic.js";
+import {
+  assertBoundedLine,
+  BoundedIngestionError,
+  DEFAULT_BOUNDED_INGESTION_LIMITS
+} from "../ingestion/bounded-ingestion.js";
 import { mergeNormalizedResults } from "../ingestion/index.js";
 import type {
   RawArtifactIndex,
@@ -41,13 +48,11 @@ import type {
   SourceRecord,
   SourceRegistry
 } from "../registry/source-registry.js";
-import { createSafeFilesystem } from "../security/safe-filesystem.js";
 import type { RunAuditResult } from "../audit/types.js";
 import type { VerificationResult } from "../verification/types.js";
 import type { ParsedShellCommand } from "../shell/types.js";
 import {
-  archiveDocumentSchema,
-  type ArchiveDocument,
+  archiveLineSchema,
   type ArchiveManifest,
   type ArchivedRawArtifact,
   type ArchivedSourceRecord
@@ -70,7 +75,9 @@ export interface ImportArchiveResult {
 export class ArchiveImportError extends Error {
   readonly code:
     | "archive-import.empty-payload"
-    | "archive-import.invalid-archive";
+    | "archive-import.invalid-archive"
+    | "archive-import.line-too-large"
+    | "archive-import.raw-chunk-too-large";
 
   constructor(code: ArchiveImportError["code"], message: string) {
     super(message);
@@ -113,6 +120,14 @@ interface PreparedImportTarget {
   target: ImportTarget;
 }
 
+interface ArchiveSections {
+  cacheRecords: NormalizedCacheRecord[];
+  manifest: ArchiveManifest;
+  rawArtifacts: ArchivedRawArtifact[];
+  sourceDiagnostics: Diagnostic[];
+  sources: ArchivedSourceRecord[];
+}
+
 export class ArchiveImporter {
   readonly #appDataDir: string | undefined;
   readonly #cacheStore: FileBackedCacheStore;
@@ -130,9 +145,9 @@ export class ArchiveImporter {
 
   async importArchive(input: ImportArchiveInput): Promise<ImportArchiveResult> {
     const archivePath = path.resolve(input.archivePath);
-    const document = await this.#readArchiveDocument(archivePath);
+    const archive = await this.#readArchiveSections(archivePath);
     const importedAt = this.#now().toISOString();
-    const importTargets = buildImportTargets(document, archivePath);
+    const importTargets = buildImportTargets(archive, archivePath);
 
     if (importTargets.length === 0) {
       throw new ArchiveImportError(
@@ -141,13 +156,19 @@ export class ArchiveImporter {
       );
     }
 
-    const previousCacheRecords = await this.#cacheStore.load();
-    const previousRawArtifactIndexEntries = this.#rawArtifactIndex
-      ? await this.#rawArtifactIndex.load()
-      : [];
     const importedSourceIds = new Set(
       importTargets.map((target) => target.importedSourceId)
     );
+    const previousCacheRecords = (
+      await Promise.all(
+        [...importedSourceIds].map((sourceId) =>
+          this.#cacheStore.listSourceRecords(sourceId)
+        )
+      )
+    ).flat();
+    const previousRawArtifactIndexEntries = this.#rawArtifactIndex
+      ? await this.#rawArtifactIndex.load()
+      : [];
     const previousSources = await Promise.all(
       importTargets.map((target) =>
         this.#sourceRegistry.getSource(target.importedSourceId)
@@ -158,7 +179,7 @@ export class ArchiveImporter {
         this.#prepareImportTarget({
           archivePath,
           importedAt,
-          rawArtifacts: document.payload.rawArtifacts ?? [],
+          rawArtifacts: archive.rawArtifacts,
           target
         })
       )
@@ -168,23 +189,19 @@ export class ArchiveImporter {
       buildImportedCacheRecord({
         archivePath,
         importedAt,
-        manifest: document.manifest,
+        manifest: archive.manifest,
         payload: preparedTarget.payload,
         sourceId: preparedTarget.target.importedSourceId
       })
-    );
-    const nextCacheRecords = previousCacheRecords.filter(
-      (record) => !importedSourceIds.has(record.sourceId)
     );
     const nextRawArtifactIndexEntries = previousRawArtifactIndexEntries.filter(
       (entry) => !importedSourceIds.has(entry.sourceId)
     );
 
-    nextCacheRecords.push(...importedCacheRecords);
     nextRawArtifactIndexEntries.push(
       ...preparedTargets.flatMap((preparedTarget) => preparedTarget.rawArtifactIndexEntries)
     );
-    await this.#cacheStore.save(nextCacheRecords);
+    await this.#cacheStore.replaceSourceRecords(importedSourceIds, importedCacheRecords);
     if (this.#rawArtifactIndex) {
       await this.#rawArtifactIndex.save(nextRawArtifactIndexEntries);
     }
@@ -201,7 +218,7 @@ export class ArchiveImporter {
             ? { existingCreatedAt: previousSources[index]?.createdAt }
             : {}),
           importedAt,
-          manifest: document.manifest,
+          manifest: archive.manifest,
           rootPath: preparedTarget.sourceRootPath,
           sourceDiagnostics: preparedTarget.target.sourceDiagnostics,
           sourceId: preparedTarget.target.importedSourceId
@@ -210,7 +227,7 @@ export class ArchiveImporter {
         importedSourceRecords.push(await this.#sourceRegistry.replaceSource(sourceRecord));
       }
     } catch (error) {
-      await this.#cacheStore.save(previousCacheRecords);
+      await this.#cacheStore.replaceSourceRecords(importedSourceIds, previousCacheRecords);
       if (this.#rawArtifactIndex) {
         await this.#rawArtifactIndex.save(previousRawArtifactIndexEntries);
       }
@@ -228,7 +245,7 @@ export class ArchiveImporter {
 
     return {
       archivePath,
-      manifest: document.manifest,
+      manifest: archive.manifest,
       sourceId: primarySourceRecord.sourceId,
       sourceIds: importedSourceRecords.map((record) => record.sourceId),
       sourceRecord: primarySourceRecord,
@@ -275,19 +292,102 @@ export class ArchiveImporter {
     };
   }
 
-  async #readArchiveDocument(archivePath: string): Promise<ArchiveDocument> {
-    const safeFilesystem = createSafeFilesystem({
-      allowedRootPaths: [archivePath]
+  async #readArchiveSections(archivePath: string): Promise<ArchiveSections> {
+    const lineReader = createInterface({
+      crlfDelay: Infinity,
+      input: createReadStream(archivePath, { encoding: "utf8" })
     });
+    let manifest: ArchiveManifest | undefined;
+    const sources: ArchivedSourceRecord[] = [];
+    const cacheRecords: NormalizedCacheRecord[] = [];
+    const sourceDiagnostics: Diagnostic[] = [];
+    const rawArtifactMetadata = new Map<string, Omit<ArchivedRawArtifact, "content">>();
+    const rawArtifactChunks = new Map<string, Array<{ chunkIndex: number; content: string }>>();
 
     try {
-      const source = await safeFilesystem.readTextFile(archivePath);
-      return archiveDocumentSchema.parse(JSON.parse(source));
-    } catch {
+      for await (const line of lineReader) {
+        const trimmed = line.trim();
+
+        if (trimmed.length === 0) {
+          continue;
+        }
+
+        assertBoundedLine({
+          code: "archive-import.line-too-large",
+          line: trimmed,
+          limitBytes: DEFAULT_BOUNDED_INGESTION_LIMITS.maxArchiveLineBytes,
+          subject: "Archive line"
+        });
+
+        const parsed = archiveLineSchema.parse(JSON.parse(trimmed));
+
+        switch (parsed.kind) {
+          case "manifest":
+            manifest = parsed.manifest;
+            break;
+          case "source":
+            sources.push(parsed.source);
+            break;
+          case "cache-record":
+            cacheRecords.push(parsed.record as unknown as NormalizedCacheRecord);
+            break;
+          case "source-diagnostic":
+            sourceDiagnostics.push(parsed.diagnostic as Diagnostic);
+            break;
+          case "raw-artifact":
+            rawArtifactMetadata.set(parsed.artifact.artifactId, parsed.artifact);
+            break;
+          case "raw-artifact-chunk": {
+            assertBoundedLine({
+              code: "artifact.raw-chunk-too-large",
+              line: parsed.chunk.content,
+              limitBytes: DEFAULT_BOUNDED_INGESTION_LIMITS.maxRawArtifactChunkBytes,
+              subject: `Raw artifact chunk ${parsed.chunk.artifactId}`
+            });
+            const chunks = rawArtifactChunks.get(parsed.chunk.artifactId) ?? [];
+            chunks.push({
+              chunkIndex: parsed.chunk.chunkIndex,
+              content: parsed.chunk.content
+            });
+            rawArtifactChunks.set(parsed.chunk.artifactId, chunks);
+            break;
+          }
+        }
+      }
+
+      if (!manifest || sources.length === 0 || cacheRecords.length === 0) {
+        throw new Error("Archive is missing required manifest, source, or cache sections.");
+      }
+
+      return {
+        manifest,
+        sources,
+        cacheRecords,
+        sourceDiagnostics,
+        rawArtifacts: [...rawArtifactMetadata.values()].map((metadata) => ({
+          ...metadata,
+          content: (rawArtifactChunks.get(metadata.artifactId) ?? [])
+            .sort((left, right) => left.chunkIndex - right.chunkIndex)
+            .map((chunk) => chunk.content)
+            .join("")
+        }))
+      };
+    } catch (error) {
+      if (error instanceof BoundedIngestionError) {
+        throw new ArchiveImportError(
+          error.code === "artifact.raw-chunk-too-large"
+            ? "archive-import.raw-chunk-too-large"
+            : "archive-import.line-too-large",
+          error.message
+        );
+      }
+
       throw new ArchiveImportError(
         "archive-import.invalid-archive",
         "Archive is unreadable or does not match the supported harness-neutral format."
       );
+    } finally {
+      lineReader.close();
     }
   }
 
@@ -341,12 +441,12 @@ export class ArchiveImporter {
 }
 
 function buildImportTargets(
-  document: ArchiveDocument,
+  archive: ArchiveSections,
   archivePath: string
 ): ImportTarget[] {
   const cacheRecordsBySource = new Map<string, NormalizedCacheRecord[]>();
 
-  for (const cacheRecord of document.payload.cacheRecords as unknown as NormalizedCacheRecord[]) {
+  for (const cacheRecord of archive.cacheRecords) {
     const archivedSourceId = cacheRecord.sourceId;
     const entries = cacheRecordsBySource.get(archivedSourceId) ?? [];
 
@@ -354,7 +454,7 @@ function buildImportTargets(
     cacheRecordsBySource.set(archivedSourceId, entries);
   }
 
-  return document.payload.sources.flatMap((archivedSource) => {
+  return archive.sources.flatMap((archivedSource) => {
     const cacheRecords = cacheRecordsBySource.get(archivedSource.sourceId) ?? [];
 
     if (cacheRecords.length === 0) {
@@ -367,7 +467,7 @@ function buildImportTargets(
         importedSourceId: createImportedSourceId(archivePath, archivedSource),
         cacheRecords,
         sourceDiagnostics: filterSourceDiagnostics(
-          document.payload.sourceDiagnostics as Diagnostic[],
+          archive.sourceDiagnostics,
           archivedSource
         )
       }

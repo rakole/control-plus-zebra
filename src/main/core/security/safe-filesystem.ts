@@ -1,7 +1,13 @@
+import { createReadStream } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline";
 
 import type { RawArtifactId } from "../model/identifiers.js";
+import {
+  assertBoundedLine,
+  DEFAULT_BOUNDED_INGESTION_LIMITS
+} from "../ingestion/bounded-ingestion.js";
 import { isPathWithinDirectory, isSamePath } from "./path-allowlist.js";
 
 export interface SafeFilesystemEntry {
@@ -17,6 +23,10 @@ export interface SafeFilesystem {
   statPath(targetPath: string): Promise<SafeFilesystemEntry>;
   listDirectory(targetPath: string): Promise<SafeFilesystemEntry[]>;
   readTextFile(targetPath: string): Promise<string>;
+  readTextLines(
+    targetPath: string,
+    options?: { artifactId?: RawArtifactId; maxLineBytes?: number }
+  ): AsyncIterable<string>;
   readIndexedTextArtifact(artifactId: RawArtifactId, targetPath: string): Promise<string>;
 }
 
@@ -93,6 +103,30 @@ export function createSafeFilesystem(options: SafeFilesystemOptions): SafeFilesy
     async readTextFile(targetPath) {
       await assertPathAllowed(targetPath, options);
       return readFile(targetPath, "utf8");
+    },
+
+    async *readTextLines(targetPath, lineOptions = {}) {
+      await assertPathAllowed(targetPath, options, lineOptions.artifactId);
+      const lineReader = createInterface({
+        crlfDelay: Infinity,
+        input: createReadStream(targetPath, { encoding: "utf8" })
+      });
+      const maxLineBytes =
+        lineOptions.maxLineBytes ?? DEFAULT_BOUNDED_INGESTION_LIMITS.maxTextLineBytes;
+
+      try {
+        for await (const line of lineReader) {
+          assertBoundedLine({
+            code: "artifact.line-too-large",
+            line,
+            limitBytes: maxLineBytes,
+            subject: `Line in ${path.basename(targetPath)}`
+          });
+          yield line;
+        }
+      } finally {
+        lineReader.close();
+      }
     },
 
     async readIndexedTextArtifact(artifactId, targetPath) {

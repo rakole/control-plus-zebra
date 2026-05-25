@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: active
 stopped_at: Phase 7 completed
-last_updated: "2026-05-24T08:40:59Z"
-last_activity: 2026-05-24 - Completed 07-04 archive import with persistent read-only sources and closed Phase 7
+last_updated: "2026-05-25T08:42:00Z"
+last_activity: 2026-05-25 - Completed quick task v2-bounded-import for bounded archive import/export and paged timeline loading
 progress:
   total_phases: 8
   completed_phases: 7
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 Phase: 8 of 8 (Hardening, Packaging, and Readiness)
 Plan: Phase 7 complete; Phase 8 not started
 Status: active
-Last activity: 2026-05-24 - Completed 07-04 archive import with persistent read-only sources and closed Phase 7
+Last activity: 2026-05-25 - Completed quick task v2-bounded-import for bounded archive import/export and paged timeline loading
 
 Progress: [█████████-] 88%
 
@@ -136,6 +136,12 @@ Recent decisions affecting current work:
 - Phase 7 execution: Archive import now validates manifest-backed bundles in main, rehydrates cache into persistent read-only `archive-reader` sources, and keeps imported sessions routable without original local roots.
 - Phase 7 execution: Data Sources now labels imported archives explicitly, exposes archive metadata, and keeps validate, scan, watch, git, and GitHub actions unavailable after import.
 
+### Quick Tasks Completed
+
+| Date | Task | Summary | Verification |
+|------|------|---------|--------------|
+| 2026-05-25 | v2-bounded-import | Replaced monolithic archive import/export with v2 sectioned NDJSON, bounded ingestion limits, chunked raw artifacts, sectioned cache records, Gemini JSONL streaming, and paged session/timeline IPC. | `npm run typecheck`; `npm run lint`; `npm run test` |
+
 ### Pending Todos
 
 - Start Phase 8 hardening, packaging, and readiness planning and execution.
@@ -158,6 +164,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-24T08:40:59Z
-Stopped at: Phase 7 complete
+Last session: 2026-05-25T08:42:00Z
+Stopped at: Quick task v2-bounded-import complete; Phase 8 not started
 Resume file: .planning/ROADMAP.md

@@ -8,6 +8,7 @@ import { createTriageViewModelService } from "../../../src/main/app/triage-view-
 import { createSessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter.js";
 import { ArchiveImporter } from "../../../src/main/core/archive/archive-importer.js";
+import type { ArchiveLine } from "../../../src/main/core/archive/archive-manifest.js";
 import {
   createFileMutationEvidenceId,
   createOutputArtifactId,
@@ -29,6 +30,45 @@ describe("ArchiveImporter", () => {
 
   afterEach(async () => {
     await cleanupTempDirs(tempDirs);
+  });
+
+  it("does not parse archive payloads through the old whole-document JSON path", async () => {
+    const importerSource = await readFile(
+      path.resolve("src/main/core/archive/archive-importer.ts"),
+      "utf8"
+    );
+
+    expect(importerSource).not.toContain("readTextFile(archivePath)");
+    expect(importerSource).not.toContain("archiveDocumentSchema");
+    expect(importerSource).not.toContain("JSON.parse(source)");
+  });
+
+  it("rejects oversized archive lines with a bounded import error instead of parsing the document", async () => {
+    const importRuntime = await createTempRuntime(tempDirs);
+    const archivePath = path.join(importRuntime.appDataDir, "too-large.awb-archive.json");
+    const importer = new ArchiveImporter({
+      appDataDir: importRuntime.appDataDir,
+      cacheStore: importRuntime.cacheStore,
+      rawArtifactIndex: importRuntime.rawArtifactIndex,
+      sourceRegistry: importRuntime.sourceRegistry
+    });
+
+    await writeFile(
+      archivePath,
+      `${JSON.stringify({
+        kind: "raw-artifact-chunk",
+        chunk: {
+          artifactId: "oversized",
+          chunkIndex: 0,
+          content: "x".repeat(5 * 1024 * 1024)
+        }
+      })}\n`,
+      "utf8"
+    );
+
+    await expect(importer.importArchive({ archivePath })).rejects.toMatchObject({
+      code: "archive-import.line-too-large"
+    });
   });
 
   it("imports archives as persistent read-only sources and hydrates archived sessions without the original root", async () => {
@@ -80,7 +120,7 @@ describe("ArchiveImporter", () => {
     });
     expect(importedSource?.archive).toMatchObject({
       archivePath,
-      manifestVersion: 1,
+      manifestVersion: 2,
       scopeKind: "project",
       scopeId: projectId
     });
@@ -117,21 +157,8 @@ describe("ArchiveImporter", () => {
       scope: { kind: "project", projectId }
     });
 
-    const archive = JSON.parse(await readFile(archivePath, "utf8")) as {
-      payload: {
-        cacheRecords: Array<{
-          normalized: {
-            sessions: Array<{
-              adapterId: string;
-              id: string;
-              nativeId?: string;
-              sourceId: string;
-            }>;
-          };
-        }>;
-      };
-    };
-    const archivedSession = archive.payload.cacheRecords
+    const archive = await readArchiveV2(archivePath);
+    const archivedSession = archive.cacheRecords
       .flatMap((record) => record.normalized.sessions)
       .find((session) => session.nativeId);
 
@@ -141,7 +168,7 @@ describe("ArchiveImporter", () => {
     }
 
     delete archivedSession.nativeId;
-    await writeFile(archivePath, `${JSON.stringify(archive, null, 2)}\n`, "utf8");
+    await writeArchiveV2(archivePath, archive.lines);
 
     const importRuntime = await createTempRuntime(tempDirs);
     const importer = new ArchiveImporter({
@@ -193,23 +220,19 @@ describe("ArchiveImporter", () => {
       scope: { kind: "project", projectId }
     });
 
-    const archive = JSON.parse(await readFile(archivePath, "utf8")) as {
-      payload: {
-        cacheRecords: Array<{
-          normalized: {
-            projects: MutableArchivedEntity[];
-            sessions: MutableArchivedEntity[];
-            events: MutableArchivedEntity[];
-            messages: MutableArchivedEntity[];
-            toolCalls: MutableArchivedEntity[];
-            shellCommands: MutableArchivedEntity[];
-            outputArtifacts: MutableArchivedEntity[];
-            fileMutations: MutableArchivedEntity[];
-          };
-        }>;
-      };
-    };
-    const normalized = archive.payload.cacheRecords[0]?.normalized;
+    const archive = await readArchiveV2(archivePath);
+    const normalized = archive.cacheRecords[0]?.normalized as
+      | {
+          projects: MutableArchivedEntity[];
+          sessions: MutableArchivedEntity[];
+          events: MutableArchivedEntity[];
+          messages: MutableArchivedEntity[];
+          toolCalls: MutableArchivedEntity[];
+          shellCommands: MutableArchivedEntity[];
+          outputArtifacts: MutableArchivedEntity[];
+          fileMutations: MutableArchivedEntity[];
+        }
+      | undefined;
 
     expect(normalized).toBeDefined();
     if (!normalized) {
@@ -324,7 +347,7 @@ describe("ArchiveImporter", () => {
     fileMutation.sessionId = session.id;
     fileMutation.toolCallId = toolCall.id;
 
-    await writeFile(archivePath, `${JSON.stringify(archive, null, 2)}\n`, "utf8");
+    await writeArchiveV2(archivePath, archive.lines);
 
     const importRuntime = await createTempRuntime(tempDirs);
     const importer = new ArchiveImporter({
@@ -593,4 +616,27 @@ function buildExpectedImportedId(
         nativeId
       });
   }
+}
+
+async function readArchiveV2(archivePath: string): Promise<{
+  cacheRecords: Array<Extract<ArchiveLine, { kind: "cache-record" }>["record"]>;
+  lines: ArchiveLine[];
+}> {
+  const lines = (await readFile(archivePath, "utf8"))
+    .split(/\r?\n/u)
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line) as ArchiveLine);
+
+  return {
+    lines,
+    cacheRecords: lines.flatMap((line) => line.kind === "cache-record" ? [line.record] : [])
+  };
+}
+
+async function writeArchiveV2(archivePath: string, lines: ArchiveLine[]): Promise<void> {
+  await writeFile(
+    archivePath,
+    `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`,
+    "utf8"
+  );
 }

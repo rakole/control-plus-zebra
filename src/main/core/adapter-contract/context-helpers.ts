@@ -58,6 +58,22 @@ export async function adapterReadTextFile(
   return safeFilesystem.readTextFile(targetPath);
 }
 
+export function adapterReadTextLines(
+  context: AdapterContext,
+  targetPath: string,
+  options: { artifactId?: string; maxLineBytes?: number } = {}
+): AsyncIterable<string> {
+  if (context.readTextLines) {
+    return context.readTextLines(targetPath, options);
+  }
+
+  if (context.safeFilesystem) {
+    return context.safeFilesystem.readTextLines(targetPath, options);
+  }
+
+  return toFallbackFilesystem(context, targetPath).readTextLines(targetPath, options);
+}
+
 export async function adapterStatFile(
   context: AdapterContext,
   targetPath: string

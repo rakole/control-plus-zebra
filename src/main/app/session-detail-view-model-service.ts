@@ -2,8 +2,10 @@ import path from "node:path";
 
 import {
   getSessionByIdRequestSchema,
+  getSessionTimelineRequestSchema,
   sessionDetailViewModelSchema,
   type GetSessionByIdRequest,
+  type GetSessionTimelineRequest,
   type SessionDetailViewModel
 } from "../ipc/view-models.js";
 import type { OutputArtifact } from "../core/model/entities.js";
@@ -22,6 +24,10 @@ export interface SessionDetailViewModelService {
   getSessionDetail(
     request: GetSessionByIdRequest
   ): Promise<SessionDetailViewModel | null>;
+  getSessionTimeline?(request: GetSessionTimelineRequest): Promise<{
+    pageInfo: { hasMore: boolean; nextCursor?: string; totalCount: number };
+    timeline: SessionDetailViewModel["timeline"] | null;
+  }>;
 }
 
 export interface SessionDetailViewModelServiceOptions extends WorkbenchRuntimeOptions {
@@ -43,183 +49,201 @@ export function createSessionDetailViewModelService(
         return null;
       }
 
-      const sessionEvents = (data.eventsBySessionId.get(session.id) ?? [])
-        .slice()
-        .sort(compareEventsForTimeline);
-      const sessionMessages = data.messagesBySessionId.get(session.id) ?? [];
-      const sessionToolCalls = data.toolCallsBySessionId.get(session.id) ?? [];
-      const sessionShellCommands = data.shellCommandsBySessionId.get(session.id) ?? [];
-      const sessionOutputArtifacts = data.outputArtifactsBySessionId.get(session.id) ?? [];
-      const sessionFileMutations = data.fileMutationsBySessionId.get(session.id) ?? [];
-      const messagesByEventId = buildEntityByEventId(sessionMessages, (message) => message.eventIds ?? []);
-      const toolCallsByEventId = buildFirstEntityBySourceEventId(sessionToolCalls);
-      const shellCommandsByEventId = buildFirstEntityBySourceEventId(sessionShellCommands);
-      const outputArtifactsByEventId = buildEntitiesBySourceEventId(sessionOutputArtifacts);
-      const fileMutationsByEventId = buildFirstEntityBySourceEventId(sessionFileMutations);
-
       const detail = {
         session: buildSessionPreviewViewModel(data, session),
-        timeline: sessionEvents.flatMap<SessionDetailViewModel["timeline"][number]>((event) => {
-            const message = messagesByEventId.get(event.id);
-            const toolCall = toolCallsByEventId.get(event.id);
-            const shellCommand = shellCommandsByEventId.get(event.id);
-            const derivedCommand = shellCommand
-              ? getDerivedSession(data, session.id)?.shellCommands.find(
-                  (candidate) => candidate.shellCommandId === shellCommand.id
-                )
-              : undefined;
-            const outputArtifacts = getOutputArtifactsForEvent(
-              sessionOutputArtifacts,
-              outputArtifactsByEventId,
-              event
-            );
-            const fileMutation = fileMutationsByEventId.get(event.id);
-
-            switch (event.kind) {
-              case "message":
-                return [{
-                  id: event.id,
-                  kind: "message" as const,
-                  timestamp: event.timestamp,
-                  title: `${humanizeMessageRole(message?.role)} message`,
-                  summary: truncate(message?.text ?? event.text ?? event.title ?? "", 220),
-                  metadata: [
-                    { label: "Role", value: humanizeMessageRole(message?.role) },
-                    { label: "Order Key", value: event.orderKey ?? "Unknown" }
-                  ]
-                }];
-              case "lifecycle":
-                return [{
-                  id: event.id,
-                  kind: "lifecycle" as const,
-                  timestamp: event.timestamp,
-                  title: event.title ?? "Lifecycle event",
-                  summary: event.text ?? "Chronological lifecycle evidence",
-                  metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
-                }];
-              case "tool-call":
-                return [{
-                  id: event.id,
-                  kind: "tool-call" as const,
-                  timestamp: event.timestamp,
-                  title: toolCall?.name ?? event.title ?? "Tool call",
-                  summary: toolCall?.resultPreview ?? toolCall?.argsPreview ?? event.text,
-                  metadata: [
-                    {
-                      label: "Status",
-                      value: humanizeToolCallStatus(toolCall)
-                    },
-                    {
-                      label: "Artifacts",
-                      value: String(toolCall?.outputArtifactIds?.length ?? 0)
-                    }
-                  ]
-                }];
-              case "shell-command":
-                return [{
-                  id: event.id,
-                  kind: "shell-command" as const,
-                  timestamp: event.timestamp,
-                  title: shellCommand?.command ?? event.title ?? "Shell command",
-                  summary: shellCommand?.outputInline ?? event.text,
-                  metadata: [
-                    {
-                      label: "Intent",
-                      value: humanizeIntent(derivedCommand?.intent)
-                    },
-                    {
-                      label: "Result",
-                      value: humanizeCommandResult(derivedCommand?.result)
-                    },
-                    {
-                      label: "Exit Code",
-                      value:
-                        shellCommand?.rawExitCode !== undefined
-                          ? String(shellCommand.rawExitCode)
-                          : "Unknown"
-                    }
-                  ]
-                }];
-              case "tool-result":
-                if (outputArtifacts.length === 0) {
-                  return [{
-                    id: event.id,
-                    kind: "output-artifact" as const,
-                    timestamp: event.timestamp,
-                    title: "Output artifact",
-                    summary: event.text ?? "Output artifact",
-                    metadata: [
-                      {
-                        label: "Kind",
-                        value: "unknown"
-                      },
-                      {
-                        label: "Reference",
-                        value: event.text ?? event.title ?? "Unknown"
-                      }
-                    ]
-                  }];
-                }
-
-                return outputArtifacts.map((artifact) => ({
-                  id: artifact.id,
-                  kind: "output-artifact" as const,
-                  timestamp: event.timestamp,
-                  title: "Output artifact",
-                  summary: summarizeArtifact(artifact) ?? event.text ?? "Output artifact",
-                  metadata: [
-                    {
-                      label: "Kind",
-                      value: summarizeArtifactKind(artifact)
-                    },
-                    {
-                      label: "Reference",
-                      value: summarizeArtifact(artifact) ?? "Unknown"
-                    }
-                  ]
-                }));
-              case "file-event":
-                return [{
-                  id: event.id,
-                  kind: "file-mutation" as const,
-                  timestamp: event.timestamp,
-                  title: summarizeFileMutation(fileMutation),
-                  summary: fileMutation?.path ?? event.text,
-                  metadata: [
-                    {
-                      label: "Mutation",
-                      value: humanizeMutationKind(fileMutation?.mutationKind)
-                    }
-                  ]
-                }];
-              case "metadata":
-                return [{
-                  id: event.id,
-                  kind: "metadata" as const,
-                  timestamp: event.timestamp,
-                  title: "Session metadata",
-                  summary:
-                    event.text ??
-                    event.title ??
-                    "Session metadata is available as a safe marker.",
-                  metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
-                }];
-              default:
-                return [{
-                  id: event.id,
-                  kind: "unknown" as const,
-                  timestamp: event.timestamp,
-                  title: event.title ?? "Unknown evidence marker",
-                  summary: event.text ?? "Timeline evidence is available as a safe marker.",
-                  metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
-                }];
-            }
-          })
+        timeline: buildTimelineEvents(data, session)
       };
 
       return sessionDetailViewModelSchema.parse(detail);
+    },
+
+    async getSessionTimeline(request) {
+      const parsed = getSessionTimelineRequestSchema.parse(request);
+      const data = await loadTriageData(runtime);
+      const session = data.sessionsById.get(parsed.sessionId);
+
+      if (!session) {
+        return {
+          timeline: null,
+          pageInfo: {
+            hasMore: false,
+            totalCount: 0
+          }
+        };
+      }
+
+      const offset = Number.parseInt(parsed.cursor ?? "0", 10);
+      const limit = parsed.limit ?? 100;
+      const sortedEvents = getSortedSessionEvents(data, session);
+      const pageEvents = sortedEvents.slice(offset, offset + limit);
+      const nextOffset = offset + pageEvents.length;
+
+      return {
+        timeline: buildTimelineEvents(data, session, pageEvents),
+        pageInfo: {
+          hasMore: nextOffset < sortedEvents.length,
+          ...(nextOffset < sortedEvents.length ? { nextCursor: String(nextOffset) } : {}),
+          totalCount: sortedEvents.length
+        }
+      };
     }
   };
+}
+
+function getSortedSessionEvents(
+  data: Awaited<ReturnType<typeof loadTriageData>>,
+  session: { id: string }
+) {
+  return (data.eventsBySessionId.get(session.id) ?? [])
+    .slice()
+    .sort(compareEventsForTimeline);
+}
+
+function buildTimelineEvents(
+  data: Awaited<ReturnType<typeof loadTriageData>>,
+  session: { id: string },
+  events: ReturnType<typeof getSortedSessionEvents> = getSortedSessionEvents(data, session)
+): SessionDetailViewModel["timeline"] {
+  const sessionMessages = data.messagesBySessionId.get(session.id) ?? [];
+  const sessionToolCalls = data.toolCallsBySessionId.get(session.id) ?? [];
+  const sessionShellCommands = data.shellCommandsBySessionId.get(session.id) ?? [];
+  const sessionOutputArtifacts = data.outputArtifactsBySessionId.get(session.id) ?? [];
+  const sessionFileMutations = data.fileMutationsBySessionId.get(session.id) ?? [];
+  const messagesByEventId = buildEntityByEventId(sessionMessages, (message) => message.eventIds ?? []);
+  const toolCallsByEventId = buildFirstEntityBySourceEventId(sessionToolCalls);
+  const shellCommandsByEventId = buildFirstEntityBySourceEventId(sessionShellCommands);
+  const outputArtifactsByEventId = buildEntitiesBySourceEventId(sessionOutputArtifacts);
+  const fileMutationsByEventId = buildFirstEntityBySourceEventId(sessionFileMutations);
+
+  return events.flatMap<SessionDetailViewModel["timeline"][number]>((event) => {
+    const message = messagesByEventId.get(event.id);
+    const toolCall = toolCallsByEventId.get(event.id);
+    const shellCommand = shellCommandsByEventId.get(event.id);
+    const derivedCommand = shellCommand
+      ? getDerivedSession(data, session.id)?.shellCommands.find(
+          (candidate) => candidate.shellCommandId === shellCommand.id
+        )
+      : undefined;
+    const outputArtifacts = getOutputArtifactsForEvent(
+      sessionOutputArtifacts,
+      outputArtifactsByEventId,
+      event
+    );
+    const fileMutation = fileMutationsByEventId.get(event.id);
+
+    switch (event.kind) {
+      case "message":
+        return [{
+          id: event.id,
+          kind: "message" as const,
+          timestamp: event.timestamp,
+          title: `${humanizeMessageRole(message?.role)} message`,
+          summary: truncate(message?.text ?? event.text ?? event.title ?? "", 220),
+          metadata: [
+            { label: "Role", value: humanizeMessageRole(message?.role) },
+            { label: "Order Key", value: event.orderKey ?? "Unknown" }
+          ]
+        }];
+      case "lifecycle":
+        return [{
+          id: event.id,
+          kind: "lifecycle" as const,
+          timestamp: event.timestamp,
+          title: event.title ?? "Lifecycle event",
+          summary: event.text ?? "Chronological lifecycle evidence",
+          metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
+        }];
+      case "tool-call":
+        return [{
+          id: event.id,
+          kind: "tool-call" as const,
+          timestamp: event.timestamp,
+          title: toolCall?.name ?? event.title ?? "Tool call",
+          summary: toolCall?.resultPreview ?? toolCall?.argsPreview ?? event.text,
+          metadata: [
+            { label: "Status", value: humanizeToolCallStatus(toolCall) },
+            { label: "Artifacts", value: String(toolCall?.outputArtifactIds?.length ?? 0) }
+          ]
+        }];
+      case "shell-command":
+        return [{
+          id: event.id,
+          kind: "shell-command" as const,
+          timestamp: event.timestamp,
+          title: shellCommand?.command ?? event.title ?? "Shell command",
+          summary: shellCommand?.outputInline ?? event.text,
+          metadata: [
+            { label: "Intent", value: humanizeIntent(derivedCommand?.intent) },
+            { label: "Result", value: humanizeCommandResult(derivedCommand?.result) },
+            {
+              label: "Exit Code",
+              value:
+                shellCommand?.rawExitCode !== undefined
+                  ? String(shellCommand.rawExitCode)
+                  : "Unknown"
+            }
+          ]
+        }];
+      case "tool-result":
+        if (outputArtifacts.length === 0) {
+          return [{
+            id: event.id,
+            kind: "output-artifact" as const,
+            timestamp: event.timestamp,
+            title: "Output artifact",
+            summary: event.text ?? "Output artifact",
+            metadata: [
+              { label: "Kind", value: "unknown" },
+              { label: "Reference", value: event.text ?? event.title ?? "Unknown" }
+            ]
+          }];
+        }
+
+        return outputArtifacts.map((artifact) => ({
+          id: artifact.id,
+          kind: "output-artifact" as const,
+          timestamp: event.timestamp,
+          title: "Output artifact",
+          summary: summarizeArtifact(artifact) ?? event.text ?? "Output artifact",
+          metadata: [
+            { label: "Kind", value: summarizeArtifactKind(artifact) },
+            { label: "Reference", value: summarizeArtifact(artifact) ?? "Unknown" }
+          ]
+        }));
+      case "file-event":
+        return [{
+          id: event.id,
+          kind: "file-mutation" as const,
+          timestamp: event.timestamp,
+          title: summarizeFileMutation(fileMutation),
+          summary: fileMutation?.path ?? event.text,
+          metadata: [
+            { label: "Mutation", value: humanizeMutationKind(fileMutation?.mutationKind) }
+          ]
+        }];
+      case "metadata":
+        return [{
+          id: event.id,
+          kind: "metadata" as const,
+          timestamp: event.timestamp,
+          title: "Session metadata",
+          summary:
+            event.text ??
+            event.title ??
+            "Session metadata is available as a safe marker.",
+          metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
+        }];
+      default:
+        return [{
+          id: event.id,
+          kind: "unknown" as const,
+          timestamp: event.timestamp,
+          title: event.title ?? "Unknown evidence marker",
+          summary: event.text ?? "Timeline evidence is available as a safe marker.",
+          metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
+        }];
+    }
+  });
 }
 
 function humanizeCommandResult(result?: string): string {

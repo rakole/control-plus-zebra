@@ -158,6 +158,23 @@ export const sanitizedErrorViewModelSchema = z
   .strict();
 export type SanitizedErrorViewModel = z.infer<typeof sanitizedErrorViewModelSchema>;
 
+export const pagedRequestSchema = z
+  .object({
+    cursor: z.string().regex(/^\d+$/u).optional(),
+    limit: z.number().int().min(1).max(200).optional()
+  })
+  .strict();
+export type PagedRequest = z.infer<typeof pagedRequestSchema>;
+
+export const pageInfoViewModelSchema = z
+  .object({
+    nextCursor: z.string().regex(/^\d+$/u).optional(),
+    hasMore: z.boolean(),
+    totalCount: z.number().int().nonnegative().optional()
+  })
+  .strict();
+export type PageInfoViewModel = z.infer<typeof pageInfoViewModelSchema>;
+
 export const harnessFilterOptionViewModelSchema = z
   .object({
     adapterId: z.string().min(1),
@@ -507,7 +524,9 @@ export type ListProjectsResponse = z.infer<typeof listProjectsResponseSchema>;
 
 export const listSessionsRequestSchema = z
   .object({
-    adapterId: z.string().min(1).optional()
+    adapterId: z.string().min(1).optional(),
+    cursor: pagedRequestSchema.shape.cursor,
+    limit: pagedRequestSchema.shape.limit
   })
   .strict();
 export type ListSessionsRequest = z.infer<typeof listSessionsRequestSchema>;
@@ -516,7 +535,8 @@ export const listSessionsResponseSchema = z.discriminatedUnion("ok", [
   z
     .object({
       ok: z.literal(true),
-      sessions: z.array(sessionSummaryViewModelSchema)
+      sessions: z.array(sessionSummaryViewModelSchema),
+      pageInfo: pageInfoViewModelSchema.optional()
     })
     .strict(),
   z
@@ -1034,14 +1054,20 @@ export type GetSessionRequest = z.infer<typeof getSessionRequestSchema>;
 export const getSessionResponseSchema = getSessionByIdResponseSchema;
 export type GetSessionResponse = z.infer<typeof getSessionResponseSchema>;
 
-export const getSessionTimelineRequestSchema = getSessionByIdRequestSchema;
+export const getSessionTimelineRequestSchema = getSessionByIdRequestSchema
+  .extend({
+    cursor: pagedRequestSchema.shape.cursor,
+    limit: pagedRequestSchema.shape.limit
+  })
+  .strict();
 export type GetSessionTimelineRequest = z.infer<typeof getSessionTimelineRequestSchema>;
 
 export const sessionTimelineResponseSchema = z.discriminatedUnion("ok", [
   z
     .object({
       ok: z.literal(true),
-      timeline: z.array(timelineEventViewModelSchema).nullable()
+      timeline: z.array(timelineEventViewModelSchema).nullable(),
+      pageInfo: pageInfoViewModelSchema.optional()
     })
     .strict(),
   z

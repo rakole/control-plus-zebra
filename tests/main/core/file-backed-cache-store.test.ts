@@ -17,7 +17,7 @@ import {
 import { exerciseAdapter } from "../../contract/run-adapter-contract.js";
 
 const fixturePath = path.resolve("src/main/adapters/fake-test/fixtures/phase1-session.fixture.json");
-const CACHE_FILE_VERSION = 3;
+const CACHE_FILE_VERSION = 4;
 
 describe("FileBackedCacheStore", () => {
   let baseRecord: NormalizedCacheRecord;
@@ -243,6 +243,47 @@ describe("FileBackedCacheStore", () => {
         }
       ]
     });
+  });
+
+  it("replaces one source without rewriting unrelated section files", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-cache-store-sections-"));
+    const filePath = path.join(tempDir, "normalized-cache.json");
+    const store = new FileBackedCacheStore(filePath);
+    const otherRecord = structuredClone(baseRecord);
+
+    otherRecord.cacheKey = "cache-proof-other";
+    otherRecord.sourceId = "source_other";
+    otherRecord.normalized.sourceId = "source_other";
+    otherRecord.normalized.capabilities.source = {
+      ...otherRecord.normalized.capabilities.source,
+      sourceId: "source_other"
+    };
+
+    await store.save([baseRecord, otherRecord]);
+
+    const initialIndex = JSON.parse(await readFile(filePath, "utf8")) as {
+      records: Array<{ sourceId: string; recordPath: string }>;
+    };
+    const otherSectionPath = path.join(
+      tempDir,
+      initialIndex.records.find((record) => record.sourceId === otherRecord.sourceId)
+        ?.recordPath ?? ""
+    );
+    const otherSectionBefore = await readFile(otherSectionPath, "utf8");
+    const updatedBaseRecord = {
+      ...baseRecord,
+      updatedAt: "2026-05-23T00:01:00.000Z"
+    };
+
+    await store.replaceSourceRecords([baseRecord.sourceId], [updatedBaseRecord]);
+
+    const otherSectionAfter = await readFile(otherSectionPath, "utf8");
+    const loadedSources = (await store.load()).map((record) => record.sourceId);
+
+    expect(otherSectionAfter).toBe(otherSectionBefore);
+    expect(loadedSources).toEqual(
+      expect.arrayContaining([baseRecord.sourceId, otherRecord.sourceId])
+    );
   });
 
   it("migrates legacy derived cache records to first-class sections", async () => {

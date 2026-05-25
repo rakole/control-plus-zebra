@@ -1,4 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { once } from "node:events";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import type {
@@ -12,6 +14,7 @@ import type {
 } from "../cache/file-backed-cache-store.js";
 import type { Diagnostic } from "../diagnostics/diagnostic.js";
 import { mergeNormalizedResults } from "../ingestion/index.js";
+import { DEFAULT_BOUNDED_INGESTION_LIMITS } from "../ingestion/bounded-ingestion.js";
 import type { RawArtifactIndex, RawArtifactIndexEntry } from "../ingestion/raw-artifact-index.js";
 import type { OutputArtifact, Project, Session } from "../model/entities.js";
 import { createDiagnosticId } from "../model/identifiers.js";
@@ -24,8 +27,6 @@ import {
 import {
   ARCHIVE_FORMAT,
   ARCHIVE_MANIFEST_VERSION,
-  archiveDocumentSchema,
-  type ArchiveDocument,
   type ArchiveManifest,
   type ArchivedRawArtifact,
   type ArchivedSourceRecord
@@ -186,23 +187,15 @@ export class ArchiveExporter {
         rawArtifacts: rawArtifacts.length
       }
     };
-    const archiveCacheRecords = resolution.cacheRecords.map(stripLegacyDerivedCacheRecord);
-    const archiveDocument: ArchiveDocument = archiveDocumentSchema.parse({
-      manifest,
-      payload: {
-        sources: resolution.sources,
-        cacheRecords: archiveCacheRecords,
-        sourceDiagnostics: resolution.sourceDiagnostics,
-        ...(rawArtifacts.length > 0 ? { rawArtifacts } : {})
-      }
-    });
-
     await mkdir(path.dirname(input.destinationPath), { recursive: true });
-    await writeFile(
-      input.destinationPath,
-      `${JSON.stringify(archiveDocument, null, 2)}\n`,
-      "utf8"
-    );
+    await writeArchiveV2({
+      cacheRecords: resolution.cacheRecords.map(stripLegacyDerivedCacheRecord),
+      destinationPath: input.destinationPath,
+      manifest,
+      rawArtifacts,
+      sourceDiagnostics: resolution.sourceDiagnostics,
+      sources: resolution.sources
+    });
 
     return {
       archivePath: input.destinationPath,
@@ -744,4 +737,82 @@ function uniqueDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {
   }
 
   return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+async function writeArchiveV2(input: {
+  cacheRecords: NormalizedCacheRecord[];
+  destinationPath: string;
+  manifest: ArchiveManifest;
+  rawArtifacts: ArchivedRawArtifact[];
+  sourceDiagnostics: Diagnostic[];
+  sources: ArchivedSourceRecord[];
+}): Promise<void> {
+  const stream = createWriteStream(input.destinationPath, { encoding: "utf8" });
+
+  try {
+    await writeNdjsonLine(stream, {
+      kind: "manifest",
+      manifest: input.manifest
+    });
+
+    for (const source of input.sources) {
+      await writeNdjsonLine(stream, {
+        kind: "source",
+        source
+      });
+    }
+
+    for (const record of input.cacheRecords) {
+      await writeNdjsonLine(stream, {
+        kind: "cache-record",
+        record
+      });
+    }
+
+    for (const diagnostic of input.sourceDiagnostics) {
+      await writeNdjsonLine(stream, {
+        kind: "source-diagnostic",
+        diagnostic
+      });
+    }
+
+    for (const artifact of input.rawArtifacts) {
+      const { content, ...metadata } = artifact;
+
+      await writeNdjsonLine(stream, {
+        kind: "raw-artifact",
+        artifact: metadata
+      });
+
+      for (
+        let offset = 0, chunkIndex = 0;
+        offset < content.length;
+        offset += DEFAULT_BOUNDED_INGESTION_LIMITS.maxRawArtifactChunkBytes, chunkIndex += 1
+      ) {
+        await writeNdjsonLine(stream, {
+          kind: "raw-artifact-chunk",
+          chunk: {
+            artifactId: artifact.artifactId,
+            chunkIndex,
+            content: content.slice(
+              offset,
+              offset + DEFAULT_BOUNDED_INGESTION_LIMITS.maxRawArtifactChunkBytes
+            )
+          }
+        });
+      }
+    }
+  } finally {
+    stream.end();
+    await once(stream, "finish");
+  }
+}
+
+async function writeNdjsonLine(
+  stream: NodeJS.WritableStream,
+  value: unknown
+): Promise<void> {
+  if (!stream.write(`${JSON.stringify(value)}\n`, "utf8")) {
+    await once(stream, "drain");
+  }
 }

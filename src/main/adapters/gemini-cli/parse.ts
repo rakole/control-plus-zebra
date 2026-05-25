@@ -1,7 +1,11 @@
 import path from "node:path";
 
 import type { AdapterContext, RawArtifactRef } from "../../core/adapter-contract/types.js";
-import { adapterReadTextFile } from "../../core/adapter-contract/context-helpers.js";
+import {
+  adapterReadTextFile,
+  adapterReadTextLines
+} from "../../core/adapter-contract/context-helpers.js";
+import { DEFAULT_BOUNDED_INGESTION_LIMITS } from "../../core/ingestion/bounded-ingestion.js";
 import type { RawHarnessEvent } from "../../core/adapter-contract/index.js";
 import { createSafeFilesystem } from "../../core/security/safe-filesystem.js";
 import {
@@ -27,6 +31,20 @@ export async function* parseGeminiCliArtifact(
   context: AdapterContext
 ): AsyncIterable<GeminiRawEvent> {
   let artifactText: string;
+
+  if (artifact.artifactType === GEMINI_CHAT_ARTIFACT_TYPE && !isJsonChatArtifact(artifact)) {
+    yield* parseJsonlChatArtifactStream(artifact, context);
+    return;
+  }
+
+  if (
+    artifact.artifactType === GEMINI_TOOL_OUTPUT_ARTIFACT_TYPE &&
+    (artifact.byteLength ?? artifact.sizeBytes ?? 0) >
+      DEFAULT_BOUNDED_INGESTION_LIMITS.maxRawArtifactChunkBytes
+  ) {
+    yield buildToolOutputPreviewEvent(artifact);
+    return;
+  }
 
   try {
     if (!artifact.path) {
@@ -176,14 +194,45 @@ function* parseLogsArtifact(
   }
 }
 
-function* parseChatArtifact(
+async function* parseChatArtifact(
   artifact: RawArtifactRef,
   artifactText: string
-): Iterable<GeminiRawEvent> {
-  const rows = parseChatRows(artifact, artifactText);
+): AsyncIterable<GeminiRawEvent> {
+  yield* parseChatRowsAsEvents(artifact, parseChatRows(artifact, artifactText));
+}
+
+async function* parseJsonlChatArtifactStream(
+  artifact: RawArtifactRef,
+  context: AdapterContext
+): AsyncIterable<GeminiRawEvent> {
+  try {
+    yield* parseChatRowsAsEvents(
+      artifact,
+      parseJsonlChatRowsStream(
+        adapterReadTextLines(context, artifact.path ?? artifact.id, {
+          maxLineBytes: DEFAULT_BOUNDED_INGESTION_LIMITS.maxTextLineBytes
+        })
+      )
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown read error";
+
+    yield buildParseDiagnosticEvent(
+      artifact,
+      "read",
+      `Unable to stream Gemini chat artifact: ${message}`,
+      deriveSessionIdFromChatPath(artifact.path ?? artifact.nativeId ?? "")
+    );
+  }
+}
+
+async function* parseChatRowsAsEvents(
+  artifact: RawArtifactRef,
+  rows: AsyncIterable<ParsedChatRow> | Iterable<ParsedChatRow>
+): AsyncIterable<GeminiRawEvent> {
   let sessionIdFromHeader = deriveSessionIdFromChatPath(artifact.path ?? artifact.nativeId ?? "");
 
-  for (const row of rows) {
+  for await (const row of rows) {
     if (!row.ok) {
       yield buildParseDiagnosticEvent(
         artifact,
@@ -352,6 +401,39 @@ function parseJsonlChatRows(artifactText: string): ParsedChatRow[] {
   return rows;
 }
 
+async function* parseJsonlChatRowsStream(
+  lines: AsyncIterable<string>
+): AsyncIterable<ParsedChatRow> {
+  let index = 0;
+
+  for await (const line of lines) {
+    index += 1;
+    const lineNumber = index;
+    const trimmed = line.trim();
+
+    if (trimmed.length === 0) {
+      continue;
+    }
+
+    try {
+      yield {
+        ok: true,
+        eventKey: String(lineNumber),
+        label: String(lineNumber),
+        lineNumber,
+        parsed: JSON.parse(trimmed)
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid JSON";
+      yield {
+        ok: false,
+        diagnosticSuffix: "chat-json-line",
+        message: `Gemini chat row ${lineNumber} failed JSON parsing: ${message}`
+      };
+    }
+  }
+}
+
 function parseJsonChatRows(artifactText: string): ParsedChatRow[] {
   let parsed: unknown;
 
@@ -481,6 +563,42 @@ function* parseToolOutputArtifact(
       format,
       textPreview,
       mediaType,
+      origin: buildOrigin(artifact.nativeId)
+    }
+  };
+}
+
+function buildToolOutputPreviewEvent(artifact: RawArtifactRef): GeminiRawEvent {
+  const relativePath = artifact.nativeId ?? artifact.nativeRef ?? artifact.id;
+  const sessionId =
+    deriveSessionIdFromToolOutputPath(artifact.path ?? artifact.id) ?? "unknown-session";
+  const { toolCallId, toolName } = deriveToolOutputIdentity(
+    path.basename(artifact.path ?? artifact.id)
+  );
+
+  return {
+    id: `${artifact.id}:tool-output`,
+    adapterId: artifact.adapterId,
+    sourceId: artifact.sourceId,
+    artifactId: artifact.id,
+    kind: "gemini.tool-output-sidecar",
+    nativeType: "tool-output-sidecar",
+    nativeId: relativePath,
+    raw: {
+      byteLength: artifact.byteLength ?? artifact.sizeBytes,
+      previewOnly: true
+    },
+    source: buildPointer(artifact),
+    diagnostics: [],
+    payload: {
+      kind: "tool-output-sidecar",
+      sessionId,
+      ...(toolCallId ? { toolCallId } : {}),
+      ...(toolName ? { toolName } : {}),
+      relativePath,
+      format: "text",
+      textPreview: "Large tool-output artifact is available through bounded lazy loading.",
+      mediaType: artifact.mediaType ?? "text/plain",
       origin: buildOrigin(artifact.nativeId)
     }
   };

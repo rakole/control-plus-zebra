@@ -3,6 +3,7 @@ import {
   getRunAudit,
   getSession,
   getSessionDetail,
+  getSessionTimeline,
   listSessions
 } from "../../bridge/agent-workbench.js";
 
@@ -23,6 +24,7 @@ export type SessionDetailView = NonNullable<
   Extract<GetSessionDetailResponse, { ok: true }>["detail"]
 >;
 export type SessionTimelineEvent = SessionDetailView["timeline"][number];
+export type GetSessionTimelineResponse = Awaited<ReturnType<typeof getSessionTimeline>>;
 
 export type GetRunAuditResponse = Awaited<ReturnType<typeof getRunAudit>>;
 export type RunAuditView = NonNullable<

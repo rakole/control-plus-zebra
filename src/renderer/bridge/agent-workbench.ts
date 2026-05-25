@@ -44,6 +44,12 @@ export function getSession(
   return getAgentWorkbenchBridge().getSession(request);
 }
 
+export function getSessionTimeline(
+  request: Parameters<Window["agentWorkbench"]["getSessionTimeline"]>[0]
+) {
+  return getAgentWorkbenchBridge().getSessionTimeline(request);
+}
+
 export async function getSessionDetail(
   request: Parameters<Window["agentWorkbench"]["getSession"]>[0]
 ) {
@@ -66,7 +72,8 @@ export async function getSessionDetail(
       sessionResponse.session && timelineResponse.timeline
         ? {
             session: sessionResponse.session,
-            timeline: timelineResponse.timeline
+            timeline: timelineResponse.timeline,
+            timelinePageInfo: timelineResponse.pageInfo
           }
         : null
   };

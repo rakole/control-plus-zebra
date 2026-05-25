@@ -7,11 +7,14 @@ import type {
   SourceRootConfig,
   SourceRootValidation
 } from "../../core/adapter-contract/types.js";
-import { adapterReadTextFile, adapterStatFile } from "../../core/adapter-contract/context-helpers.js";
+import {
+  adapterReadTextLines,
+  adapterStatFile
+} from "../../core/adapter-contract/context-helpers.js";
 import { buildDiagnostic } from "../../core/diagnostics/diagnostic.js";
 import { HIGH_CONFIDENCE } from "../../core/model/confidence.js";
 import { createRawArtifactId, createSourceId } from "../../core/model/identifiers.js";
-import { archiveDocumentSchema } from "../../core/archive/archive-manifest.js";
+import { archiveLineSchema } from "../../core/archive/archive-manifest.js";
 import { archiveReaderCapabilities, archiveReaderDescriptor } from "./descriptor.js";
 
 export async function validateArchiveReaderSourceRoot(
@@ -37,14 +40,26 @@ export async function validateArchiveReaderSourceRoot(
       );
     }
 
-    const source = await adapterReadTextFile(
+    let firstLine: string | undefined;
+
+    for await (const line of adapterReadTextLines(
       {
         ...context,
         allowedRoots: context.allowedRoots ?? [resolvedPath]
       },
       resolvedPath
-    );
-    archiveDocumentSchema.parse(JSON.parse(source));
+    )) {
+      if (line.trim().length > 0) {
+        firstLine = line;
+        break;
+      }
+    }
+
+    const parsed = archiveLineSchema.parse(JSON.parse(firstLine ?? ""));
+
+    if (parsed.kind !== "manifest") {
+      throw new Error("Archive first section must be a manifest.");
+    }
   } catch {
     return invalidArchiveResult(
       resolvedPath,

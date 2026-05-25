@@ -8,6 +8,7 @@ import {
   ArchiveExportError,
   ArchiveExporter
 } from "../../../src/main/core/archive/archive-exporter.js";
+import type { ArchiveLine } from "../../../src/main/core/archive/archive-manifest.js";
 import {
   cleanupTempDirs,
   createScannedRuntime
@@ -44,27 +45,20 @@ describe("ArchiveExporter", () => {
       privacyWarningAcknowledged: true,
       scope: { kind: "project", projectId }
     });
-    const archive = JSON.parse(await readFile(destinationPath, "utf8")) as {
-      manifest: {
-        counts: { cacheRecords: number };
-        includes: { rawArtifacts: boolean };
-        scope: { kind: string };
-      };
-      payload: { rawArtifacts?: unknown[]; cacheRecords: unknown[]; sources: unknown[] };
-    };
+    const archive = await readArchiveV2(destinationPath);
 
     expect(result.manifest.format).toBe("agent-workbench-archive");
     expect(result.manifest.includes.rawArtifacts).toBe(false);
-    expect(archive.manifest.scope.kind).toBe("project");
-    expect(archive.manifest.counts.cacheRecords).toBeGreaterThan(0);
-    expect(archive.payload.sources.length).toBeGreaterThan(0);
-    expect(archive.payload.cacheRecords.length).toBeGreaterThan(0);
+    expect(archive.manifest?.scope.kind).toBe("project");
+    expect(archive.manifest?.counts.cacheRecords).toBeGreaterThan(0);
+    expect(archive.sources.length).toBeGreaterThan(0);
+    expect(archive.cacheRecords.length).toBeGreaterThan(0);
     expect(
-      archive.payload.cacheRecords.every(
+      archive.cacheRecords.every(
         (record) => typeof record === "object" && record !== null && !("derived" in record)
       )
     ).toBe(true);
-    expect(archive.payload.rawArtifacts).toBeUndefined();
+    expect(archive.rawArtifacts).toEqual([]);
   });
 
   it("includes only indexed raw artifacts when raw export is explicitly enabled", async () => {
@@ -104,32 +98,17 @@ describe("ArchiveExporter", () => {
       privacyWarningAcknowledged: true,
       scope: { kind: "session", sessionId: geminiSessionId }
     });
-    const archive = JSON.parse(await readFile(destinationPath, "utf8")) as {
-      manifest: {
-        counts: { rawArtifacts: number };
-        includes: { privacyWarningAcknowledged: boolean; rawArtifacts: boolean };
-      };
-      payload: {
-        rawArtifacts?: Array<{
-          artifactKind: string;
-          nativeRef?: string;
-          originalPath?: string;
-          parseStrategy: string;
-          content: string;
-        }>;
-        sources: Array<{ rootPath: string; sourceId: string }>;
-      };
-    };
-    const rawArtifacts = archive.payload.rawArtifacts ?? [];
+    const archive = await readArchiveV2(destinationPath);
+    const rawArtifacts = archive.rawArtifacts;
     const sessionScopedArtifacts = rawArtifacts.filter(
       (artifact) =>
         artifact.artifactKind === "session-log" || artifact.artifactKind === "output-artifact"
     );
 
     expect(result.rawArtifactCount).toBeGreaterThan(0);
-    expect(archive.manifest.includes.rawArtifacts).toBe(true);
-    expect(archive.manifest.includes.privacyWarningAcknowledged).toBe(true);
-    expect(archive.manifest.counts.rawArtifacts).toBe(result.rawArtifactCount);
+    expect(archive.manifest?.includes.rawArtifacts).toBe(true);
+    expect(archive.manifest?.includes.privacyWarningAcknowledged).toBe(true);
+    expect(archive.manifest?.counts.rawArtifacts).toBe(result.rawArtifactCount);
     expect(rawArtifacts.length).toBe(result.rawArtifactCount);
     expect(rawArtifacts.every((artifact) => artifact.content.length > 0)).toBe(true);
     expect(rawArtifacts.every((artifact) => artifact.parseStrategy.length > 0)).toBe(true);
@@ -147,7 +126,7 @@ describe("ArchiveExporter", () => {
     expect(
       rawArtifacts.some((artifact) => artifact.originalPath?.endsWith("not-indexed-secret.txt"))
     ).toBe(false);
-    expect(archive.payload.sources).toEqual([
+    expect(archive.sources).toEqual([
       expect.objectContaining({
         sourceId: geminiRecord?.sourceId,
         rootPath: path.join(runtime.appDataDir, "gemini-root")
@@ -246,12 +225,10 @@ describe("ArchiveExporter", () => {
       scope: { kind: "project", projectId }
     });
 
-    const archive = JSON.parse(await readFile(destinationPath, "utf8")) as {
-      payload: { rawArtifacts?: Array<{ nativeRef?: string; originalPath?: string }> };
-    };
+    const archive = await readArchiveV2(destinationPath);
 
     expect(
-      (archive.payload.rawArtifacts ?? []).some(
+      archive.rawArtifacts.some(
         (artifact) =>
           artifact.originalPath === unrelatedPath ||
           artifact.nativeRef === "chats/session-unrelated.jsonl"
@@ -259,3 +236,41 @@ describe("ArchiveExporter", () => {
     ).toBe(false);
   });
 });
+
+async function readArchiveV2(archivePath: string) {
+  const lines = (await readFile(archivePath, "utf8"))
+    .split(/\r?\n/u)
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line) as ArchiveLine);
+  const chunksByArtifactId = new Map<string, Array<{ chunkIndex: number; content: string }>>();
+
+  for (const line of lines) {
+    if (line.kind === "raw-artifact-chunk") {
+      const chunks = chunksByArtifactId.get(line.chunk.artifactId) ?? [];
+      chunks.push({
+        chunkIndex: line.chunk.chunkIndex,
+        content: line.chunk.content
+      });
+      chunksByArtifactId.set(line.chunk.artifactId, chunks);
+    }
+  }
+
+  return {
+    manifest: lines.find((line): line is Extract<ArchiveLine, { kind: "manifest" }> => line.kind === "manifest")?.manifest,
+    sources: lines.flatMap((line) => line.kind === "source" ? [line.source] : []),
+    cacheRecords: lines.flatMap((line) => line.kind === "cache-record" ? [line.record] : []),
+    rawArtifacts: lines.flatMap((line) =>
+      line.kind === "raw-artifact"
+        ? [
+            {
+              ...line.artifact,
+              content: (chunksByArtifactId.get(line.artifact.artifactId) ?? [])
+                .sort((left, right) => left.chunkIndex - right.chunkIndex)
+                .map((chunk) => chunk.content)
+                .join("")
+            }
+          ]
+        : []
+    )
+  };
+}

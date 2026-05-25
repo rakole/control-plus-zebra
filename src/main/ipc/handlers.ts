@@ -380,13 +380,19 @@ export function registerIpcHandlers(
     }
 
     try {
-      const sessions = (await services.sessionService.listSessions()).filter(
-        (session) => !request.data.adapterId || session.adapterId === request.data.adapterId
-      );
+      const page = services.sessionService.listSessionsPage
+        ? await services.sessionService.listSessionsPage(request.data)
+        : paginateItems(
+            (await services.sessionService.listSessions()).filter(
+              (session) => !request.data.adapterId || session.adapterId === request.data.adapterId
+            ),
+            request.data
+          );
 
       return listSessionsResponseSchema.parse({
         ok: true,
-        sessions
+        sessions: page.sessions,
+        pageInfo: page.pageInfo
       }) satisfies ListSessionsResponse;
     } catch {
       return buildSessionLoadFailedError() satisfies ListSessionsResponse;
@@ -420,11 +426,17 @@ export function registerIpcHandlers(
     }
 
     try {
-      const detail = await services.sessionDetailService.getSessionDetail(request.data);
+      const page = services.sessionDetailService.getSessionTimeline
+        ? await services.sessionDetailService.getSessionTimeline(request.data)
+        : paginateNullableItems(
+            (await services.sessionDetailService.getSessionDetail(request.data))?.timeline ?? null,
+            request.data
+          );
 
       return sessionTimelineResponseSchema.parse({
         ok: true,
-        timeline: detail?.timeline ?? null
+        timeline: page.timeline,
+        pageInfo: page.pageInfo
       }) satisfies SessionTimelineResponse;
     } catch {
       return buildSessionLoadFailedError() satisfies SessionTimelineResponse;
@@ -800,5 +812,55 @@ function buildArchiveExportFailedError(): IpcErrorResponse {
       message:
         "Archive export could not complete. Check the archive destination, current source data, and privacy options, then try the export again."
     }
+  };
+}
+
+function paginateItems<T>(
+  items: T[],
+  request: { cursor?: string | undefined; limit?: number | undefined }
+): {
+  pageInfo: { hasMore: boolean; nextCursor?: string; totalCount: number };
+  sessions: T[];
+} {
+  const offset = Number.parseInt(request.cursor ?? "0", 10);
+  const limit = request.limit ?? 50;
+  const page = items.slice(offset, offset + limit);
+  const nextOffset = offset + page.length;
+
+  return {
+    sessions: page,
+    pageInfo: {
+      hasMore: nextOffset < items.length,
+      ...(nextOffset < items.length ? { nextCursor: String(nextOffset) } : {}),
+      totalCount: items.length
+    }
+  };
+}
+
+function paginateNullableItems<T>(
+  items: T[] | null,
+  request: { cursor?: string | undefined; limit?: number | undefined }
+): {
+  pageInfo: { hasMore: boolean; nextCursor?: string; totalCount: number };
+  timeline: T[] | null;
+} {
+  if (!items) {
+    return {
+      timeline: null,
+      pageInfo: {
+        hasMore: false,
+        totalCount: 0
+      }
+    };
+  }
+
+  const page = paginateItems(items, {
+    ...(request.cursor ? { cursor: request.cursor } : {}),
+    limit: request.limit ?? 100
+  });
+
+  return {
+    timeline: page.sessions,
+    pageInfo: page.pageInfo
   };
 }

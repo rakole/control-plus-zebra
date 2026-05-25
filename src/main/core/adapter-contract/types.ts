@@ -51,6 +51,11 @@ export type SafeCreateReadStream = (
   artifactId?: RawArtifactId
 ) => NodeJS.ReadableStream;
 
+export type SafeReadTextLines = (
+  targetPath: string,
+  options?: { artifactId?: RawArtifactId; maxLineBytes?: number }
+) => AsyncIterable<string>;
+
 export interface SourceRootHint {
   path: string;
   label: string;
@@ -80,6 +85,7 @@ export interface AdapterContext {
     emit(diagnostic: Diagnostic): void;
   };
   readFile?: SafeReadFile;
+  readTextLines?: SafeReadTextLines;
   statFile?: SafeStatFile;
   createReadStream?: SafeCreateReadStream;
   projectDir?: string;

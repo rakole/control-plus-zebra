@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -22,7 +23,8 @@ import {
 } from "../ingestion/raw-artifact-index.js";
 import { normalizedResultSchema } from "../ingestion/normalization-validator.js";
 
-const CACHE_FILE_VERSION = 3;
+const CACHE_FILE_VERSION = 4;
+const MONOLITHIC_CACHE_FILE_VERSION = 3;
 const SECTION_VERSION = 1;
 const DERIVED_CACHE_VERSION = 1;
 const LEGACY_CACHE_FILE_VERSION_1 = 1;
@@ -463,8 +465,27 @@ export const normalizedCacheRecordSchema = hydratedNormalizedCacheRecordSchema;
 
 const currentCacheFileSchema = z
   .object({
-    version: z.literal(CACHE_FILE_VERSION),
+    version: z.literal(MONOLITHIC_CACHE_FILE_VERSION),
     records: z.array(hydratedNormalizedCacheRecordSchema)
+  })
+  .strict();
+
+const sectionedCacheIndexRecordSchema = z
+  .object({
+    cacheKey: z.string().min(1),
+    adapterId: z.string().min(1),
+    sourceId: z.string().min(1),
+    artifactFingerprint: z.string().min(1),
+    createdAt: z.string().min(1),
+    updatedAt: z.string().min(1),
+    recordPath: z.string().min(1)
+  })
+  .strict();
+
+const sectionedCacheFileSchema = z
+  .object({
+    version: z.literal(CACHE_FILE_VERSION),
+    records: z.array(sectionedCacheIndexRecordSchema)
   })
   .strict();
 
@@ -601,6 +622,9 @@ type CacheSections = Pick<
   | "capabilitySnapshots"
 >;
 
+type SectionedCacheFile = z.infer<typeof sectionedCacheFileSchema>;
+type SectionedCacheIndexRecord = z.infer<typeof sectionedCacheIndexRecordSchema>;
+
 export class FileBackedCacheStore {
   readonly #filePath: string;
 
@@ -611,7 +635,18 @@ export class FileBackedCacheStore {
   async load(): Promise<NormalizedCacheRecord[]> {
     try {
       const source = await readFile(this.#filePath, "utf8");
-      const parsed = parseCacheFile(JSON.parse(source));
+      const payload = JSON.parse(source);
+      const sectioned = sectionedCacheFileSchema.safeParse(payload);
+
+      if (sectioned.success) {
+        const records = await Promise.all(
+          sectioned.data.records.map((entry) => this.#loadSectionRecord(entry))
+        );
+
+        return records.map(attachLegacyDerivedCompatibility);
+      }
+
+      const parsed = parseCacheFile(payload);
 
       return parsed.records.map(attachLegacyDerivedCompatibility);
     } catch (error) {
@@ -624,16 +659,60 @@ export class FileBackedCacheStore {
   }
 
   async listSourceRecords(sourceId: SourceId): Promise<NormalizedCacheRecord[]> {
+    const index = await this.#loadSectionedIndex();
+
+    if (index) {
+      const records = await Promise.all(
+        index.records
+          .filter((record) => record.sourceId === sourceId)
+          .map((entry) => this.#loadSectionRecord(entry))
+      );
+
+      return records.map(attachLegacyDerivedCompatibility);
+    }
+
     return (await this.load()).filter((record) => record.sourceId === sourceId);
   }
 
   async getLatestSourceRecord(sourceId: SourceId): Promise<NormalizedCacheRecord | undefined> {
+    const index = await this.#loadSectionedIndex();
+
+    if (index) {
+      const latest = [...index.records]
+        .filter((record) => record.sourceId === sourceId)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+
+      return latest
+        ? attachLegacyDerivedCompatibility(await this.#loadSectionRecord(latest))
+        : undefined;
+    }
+
     const records = await this.listSourceRecords(sourceId);
 
     return [...records].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
   }
 
   async listLatestRecords(): Promise<NormalizedCacheRecord[]> {
+    const index = await this.#loadSectionedIndex();
+
+    if (index) {
+      const latestBySource = new Map<SourceId, SectionedCacheIndexRecord>();
+
+      for (const record of index.records) {
+        const current = latestBySource.get(record.sourceId);
+
+        if (!current || current.updatedAt < record.updatedAt) {
+          latestBySource.set(record.sourceId, record);
+        }
+      }
+
+      const records = await Promise.all(
+        [...latestBySource.values()].map((entry) => this.#loadSectionRecord(entry))
+      );
+
+      return records.map(attachLegacyDerivedCompatibility);
+    }
+
     const records = await this.load();
     const latestBySource = new Map<SourceId, NormalizedCacheRecord>();
 
@@ -649,7 +728,7 @@ export class FileBackedCacheStore {
   }
 
   async writeRecord(record: NormalizedCacheRecord): Promise<void> {
-    const currentRecords = await this.load();
+    const currentRecords = await this.listAllRecordsForReplacement();
     const nextRecords: NormalizedCacheRecord[] = currentRecords.filter(
       (current) =>
         !(current.sourceId === record.sourceId && current.cacheKey === record.cacheKey)
@@ -657,6 +736,32 @@ export class FileBackedCacheStore {
 
     nextRecords.push(record);
     await this.save(nextRecords);
+  }
+
+  async replaceSourceRecords(
+    sourceIds: Iterable<SourceId>,
+    records: NormalizedCacheRecord[]
+  ): Promise<void> {
+    const sourceIdSet = new Set(sourceIds);
+    const index = await this.#loadSectionedIndex();
+
+    if (!index) {
+      const currentRecords = await this.load();
+      await this.save([
+        ...currentRecords.filter((record) => !sourceIdSet.has(record.sourceId)),
+        ...records
+      ]);
+      return;
+    }
+
+    await mkdir(path.dirname(this.#filePath), { recursive: true });
+    await mkdir(this.#sectionRootPath(), { recursive: true });
+    const nextIndexRecords = [
+      ...index.records.filter((record) => !sourceIdSet.has(record.sourceId)),
+      ...(await Promise.all(records.map((record) => this.#writeSectionRecord(record))))
+    ];
+
+    await this.#writeSectionedIndex(nextIndexRecords);
   }
 
   async save(records: NormalizedCacheRecord[]): Promise<void> {
@@ -669,17 +774,104 @@ export class FileBackedCacheStore {
     }
 
     await mkdir(path.dirname(this.#filePath), { recursive: true });
-    const payload = currentCacheFileSchema.parse({
+    await mkdir(this.#sectionRootPath(), { recursive: true });
+
+    const indexRecords: SectionedCacheIndexRecord[] = [];
+
+    for (const record of records) {
+      indexRecords.push(await this.#writeSectionRecord(record));
+    }
+
+    await this.#writeSectionedIndex(indexRecords);
+  }
+
+  async #writeSectionRecord(record: NormalizedCacheRecord): Promise<SectionedCacheIndexRecord> {
+    const hydrated = toHydratedRecord(record);
+    const recordPath = this.#sectionRelativePath(hydrated);
+    const absoluteRecordPath = path.join(path.dirname(this.#filePath), recordPath);
+
+    await mkdir(path.dirname(absoluteRecordPath), { recursive: true });
+    await writeFile(
+      absoluteRecordPath,
+      `${JSON.stringify(hydratedNormalizedCacheRecordSchema.parse(hydrated))}\n`,
+      "utf8"
+    );
+
+    return {
+      cacheKey: hydrated.cacheKey,
+      adapterId: hydrated.adapterId,
+      sourceId: hydrated.sourceId,
+      artifactFingerprint: hydrated.artifactFingerprint,
+      createdAt: hydrated.createdAt,
+      updatedAt: hydrated.updatedAt,
+      recordPath
+    };
+  }
+
+  async #writeSectionedIndex(indexRecords: SectionedCacheIndexRecord[]): Promise<void> {
+    const payload = sectionedCacheFileSchema.parse({
       version: CACHE_FILE_VERSION,
-      records: records.map(toHydratedRecord)
+      records: indexRecords
     });
 
     await writeFile(this.#filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   }
+
+  private async listAllRecordsForReplacement(): Promise<NormalizedCacheRecord[]> {
+    return this.load();
+  }
+
+  async #loadSectionedIndex(): Promise<SectionedCacheFile | undefined> {
+    try {
+      const source = await readFile(this.#filePath, "utf8");
+      const parsed = sectionedCacheFileSchema.safeParse(JSON.parse(source));
+
+      return parsed.success ? parsed.data : undefined;
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return {
+          version: CACHE_FILE_VERSION,
+          records: []
+        };
+      }
+
+      throw error;
+    }
+  }
+
+  async #loadSectionRecord(
+    entry: SectionedCacheIndexRecord
+  ): Promise<HydratedNormalizedCacheRecord> {
+    const source = await readFile(
+      path.join(path.dirname(this.#filePath), entry.recordPath),
+      "utf8"
+    );
+
+    return hydratedNormalizedCacheRecordSchema.parse(
+      JSON.parse(source)
+    ) as unknown as HydratedNormalizedCacheRecord;
+  }
+
+  #sectionRootPath(): string {
+    return path.join(
+      path.dirname(this.#filePath),
+      `${path.basename(this.#filePath, path.extname(this.#filePath))}.sections`
+    );
+  }
+
+  #sectionRelativePath(record: HydratedNormalizedCacheRecord): string {
+    const sectionRootName = path.basename(this.#sectionRootPath());
+    const fingerprint = createHash("sha256")
+      .update(`${record.sourceId}\0${record.cacheKey}`)
+      .digest("hex")
+      .slice(0, 32);
+
+    return path.join(sectionRootName, `${fingerprint}.json`);
+  }
 }
 
 function parseCacheFile(payload: unknown): {
-  version: 3;
+  version: 3 | 4;
   records: HydratedNormalizedCacheRecord[];
 } {
   const current = currentCacheFileSchema.safeParse(payload);

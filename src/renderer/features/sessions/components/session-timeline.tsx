@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import {
+  getSessionTimeline,
   getOutputArtifactPreview,
   loadOutputArtifact
 } from "../../../bridge/agent-workbench.js";
@@ -16,11 +17,39 @@ interface SessionTimelineProps {
 
 export function SessionTimeline({ detail }: SessionTimelineProps) {
   const [artifactStates, setArtifactStates] = useState<Record<string, ArtifactState>>({});
+  const [timeline, setTimeline] = useState(detail.timeline);
+  const [pageInfo, setPageInfo] = useState(detail.timelinePageInfo);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const sessionId = detail.session.sessionId;
 
   useEffect(() => {
     setArtifactStates({});
-  }, [sessionId]);
+    setTimeline(detail.timeline);
+    setPageInfo(detail.timelinePageInfo);
+  }, [detail.timeline, detail.timelinePageInfo, sessionId]);
+
+  const loadMoreTimeline = async () => {
+    if (!pageInfo?.hasMore || !pageInfo.nextCursor) {
+      return;
+    }
+
+    setIsLoadingMore(true);
+    try {
+      const response = await getSessionTimeline({
+        sessionId,
+        cursor: pageInfo.nextCursor,
+        limit: 100
+      });
+
+      if (response.ok && response.timeline) {
+        const nextTimeline = response.timeline;
+        setTimeline((current) => [...current, ...nextTimeline]);
+        setPageInfo(response.pageInfo);
+      }
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const loadArtifact = async (
     event: SessionTimelineEvent,
@@ -91,10 +120,28 @@ export function SessionTimeline({ detail }: SessionTimelineProps) {
     <SectionCard
       title="Session Timeline"
       description="Chronological evidence for the selected local run."
-      actions={<Badge variant="outline">{detail.timeline.length} events</Badge>}
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">
+            {timeline.length}
+            {pageInfo?.totalCount !== undefined ? ` / ${pageInfo.totalCount}` : ""} events
+          </Badge>
+          {pageInfo?.hasMore ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void loadMoreTimeline()}
+              disabled={isLoadingMore}
+            >
+              {isLoadingMore ? "Loading" : "Load More"}
+            </Button>
+          ) : null}
+        </div>
+      }
     >
       <Timeline
-        items={detail.timeline.map((event) => ({
+        items={timeline.map((event) => ({
           id: event.id,
           eyebrow: event.kind,
           title: event.title,

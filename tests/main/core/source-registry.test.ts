@@ -207,7 +207,7 @@ describe("SourceRegistry", () => {
         archivePath: "/tmp/control-plus-zebra.awb-archive.json",
         exportedAt: "2026-05-24T08:00:00.000Z",
         importedAt: "2026-05-24T08:05:00.000Z",
-        manifestVersion: 1,
+        manifestVersion: 2,
         scopeKind: "project",
         scopeId: "project-1",
         scopeLabel: "Control Plus Zebra",

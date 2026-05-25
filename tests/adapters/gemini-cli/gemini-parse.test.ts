@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { geminiCliAdapter } from "../../../src/main/adapters/gemini-cli/index.js";
@@ -141,5 +145,117 @@ describe("gemini-cli parsing", () => {
         }
       ])
     );
+  });
+
+  it("streams large JSONL chat artifacts row-by-row and continues after malformed rows", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-large-gemini-chat-"));
+
+    try {
+      const sourceRoot = path.join(tempDir, "large-project");
+      const chatsDir = path.join(sourceRoot, "chats");
+      const chatPath = path.join(
+        chatsDir,
+        "session-2026-05-25T00-00-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl"
+      );
+
+      await mkdir(chatsDir, { recursive: true });
+      await writeFile(
+        chatPath,
+        [
+          JSON.stringify({
+            sessionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            projectHash: "large-project",
+            startTime: "2026-05-25T00:00:00.000Z",
+            kind: "main"
+          }),
+          ...Array.from({ length: 5_000 }, (_, index) =>
+            index === 2_500
+              ? "{malformed"
+              : JSON.stringify({
+                  id: `message-${index}`,
+                  timestamp: "2026-05-25T00:00:01.000Z",
+                  type: index % 2 === 0 ? "user" : "gemini",
+                  content: [{ text: `row ${index}` }]
+                })
+          )
+        ].join("\n"),
+        "utf8"
+      );
+
+      const rawEvents = await collectAsync(
+        geminiCliAdapter.parseArtifact(
+          {
+            id: "large-chat-artifact",
+            adapterId: "gemini-cli",
+            sourceId: "large-source",
+            path: chatPath,
+            nativeId: "chats/session-large.jsonl",
+            artifactKind: "session-log",
+            artifactType: "gemini-chat",
+            mediaType: "application/x-ndjson",
+            parseStrategy: "stream-jsonl"
+          },
+          createGeminiAdapterContext(sourceRoot)
+        )
+      );
+
+      expect(rawEvents.filter((event) => event.payload.kind === "transcript-record")).toHaveLength(
+        4_999
+      );
+      expect(
+        rawEvents.some(
+          (event) =>
+            event.payload.kind === "parse-diagnostic" &&
+            event.payload.diagnostic.code === "gemini-cli.parse.chat-json-line"
+        )
+      ).toBe(true);
+      expect(
+        rawEvents.some(
+          (event) =>
+            event.payload.kind === "transcript-record" &&
+            event.payload.record.id === "message-4999"
+        )
+      ).toBe(true);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps oversized tool-output sidecars lazy during parse", async () => {
+    const alphaSource = await requireGeminiSource(geminiFixtureRoot, "alpha-project");
+    const rawEvents = await collectAsync(
+      geminiCliAdapter.parseArtifact(
+        {
+          id: "large-tool-output-artifact",
+          adapterId: "gemini-cli",
+          sourceId: alphaSource.id,
+          path: path.join(
+            alphaSource.rootPath,
+            "tool-outputs",
+            "session-11111111-1111-4111-8111-111111111111",
+            "run_shell_command_large_0.txt"
+          ),
+          nativeId:
+            "tool-outputs/session-11111111-1111-4111-8111-111111111111/run_shell_command_large_0.txt",
+          artifactKind: "output-artifact",
+          artifactType: "gemini-tool-output",
+          mediaType: "text/plain",
+          parseStrategy: "text",
+          byteLength: 2 * 1024 * 1024
+        },
+        createGeminiAdapterContext(alphaSource.rootPath)
+      )
+    );
+
+    expect(rawEvents).toHaveLength(1);
+    const event = rawEvents[0];
+
+    expect(event?.payload.kind).toBe("tool-output-sidecar");
+    if (!event || event.payload.kind !== "tool-output-sidecar") {
+      throw new Error("Expected a lazy tool-output sidecar event.");
+    }
+
+    expect(event.payload.textPreview).toContain("bounded lazy loading");
+    expect(rawEvents[0]?.payload.kind).not.toBe("parse-diagnostic");
   });
 });

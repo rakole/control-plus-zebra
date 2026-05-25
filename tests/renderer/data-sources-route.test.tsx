@@ -104,7 +104,7 @@ const secondSource = buildSource({
     archivePath: "/Volumes/agent-archives/import/archive.awb-archive.json",
     exportedAt: "2026-05-24T08:00:00.000Z",
     importedAt: "2026-05-24T08:05:00.000Z",
-    manifestVersion: 1,
+    manifestVersion: 2,
     scopeKind: "project",
     scopeId: "project-1",
     scopeLabel: "Archive Inbox",
@@ -388,7 +388,7 @@ describe("Data Sources route", () => {
         archivePath: "/tmp/imported.awb-archive.json",
         exportedAt: "2026-05-24T08:00:00.000Z",
         importedAt: "2026-05-24T08:05:00.000Z",
-        manifestVersion: 1,
+        manifestVersion: 2,
         scopeKind: "project",
         scopeId: "project-1",
         scopeLabel: "Control Plus Zebra",
@@ -411,7 +411,7 @@ describe("Data Sources route", () => {
       archiveImport: {
         status: "imported",
         archivePath: "/tmp/imported.awb-archive.json",
-        manifestVersion: 1,
+        manifestVersion: 2,
         sourceId: "source-archive-new"
       }
     });

@@ -211,7 +211,7 @@ describe("data sources view model service", () => {
         archivePath: "/tmp/imported-fixture.awb-archive.json",
         exportedAt: importedAt,
         importedAt,
-        manifestVersion: 1,
+        manifestVersion: 2,
         scopeKind: "project",
         scopeId: "project_control-plus-zebra",
         scopeLabel: "control-plus-zebra",

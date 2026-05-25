@@ -535,7 +535,7 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
       archive: {
         status: "exported",
         archivePath: "/tmp/control-plus-zebra.awb-archive.json",
-        manifestVersion: 1,
+        manifestVersion: 2,
         rawArtifactsIncluded: false,
         rawArtifactCount: 0
       }
