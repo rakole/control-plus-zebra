@@ -173,7 +173,7 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
         IPC_CHANNELS.listSessions,
         IPC_CHANNELS.getSession,
         IPC_CHANNELS.getSessionTimeline,
-        IPC_CHANNELS.getRunAudit,
+        IPC_CHANNELS.getAuditRunAudit,
         IPC_CHANNELS.listDiagnostics,
         IPC_CHANNELS.listSources,
         IPC_CHANNELS.addSource,

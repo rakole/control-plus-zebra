@@ -37,6 +37,7 @@ import {
   type TriageViewModelService
 } from "../app/triage-view-model-service.js";
 import { createWorkbenchRuntime } from "../app/workbench-runtime.js";
+import { PaginationValidationError } from "../core/store/index.js";
 import { createThemeService, type ThemeService } from "../theme/theme-service.js";
 import { IPC_CHANNELS } from "./channels.js";
 import {
@@ -394,7 +395,11 @@ export function registerIpcHandlers(
         sessions: page.sessions,
         pageInfo: page.pageInfo
       }) satisfies ListSessionsResponse;
-    } catch {
+    } catch (error) {
+      if (error instanceof PaginationValidationError) {
+        return buildInvalidRequestError() satisfies ListSessionsResponse;
+      }
+
       return buildSessionLoadFailedError() satisfies ListSessionsResponse;
     }
   });
@@ -438,7 +443,11 @@ export function registerIpcHandlers(
         timeline: page.timeline,
         pageInfo: page.pageInfo
       }) satisfies SessionTimelineResponse;
-    } catch {
+    } catch (error) {
+      if (error instanceof PaginationValidationError) {
+        return buildInvalidRequestError() satisfies SessionTimelineResponse;
+      }
+
       return buildSessionLoadFailedError() satisfies SessionTimelineResponse;
     }
   });
@@ -531,23 +540,6 @@ export function registerIpcHandlers(
       }) satisfies OutputArtifactLoadResponse;
     } catch {
       return buildSessionLoadFailedError() satisfies OutputArtifactLoadResponse;
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.getRunAudit, async (_event, payload) => {
-    const request = getSessionByIdRequestSchema.safeParse(payload);
-
-    if (!request.success) {
-      return buildInvalidRequestError() satisfies GetRunAuditResponse;
-    }
-
-    try {
-      return getRunAuditResponseSchema.parse({
-        ok: true,
-        runAudit: await services.runAuditService.getRunAudit(request.data)
-      }) satisfies GetRunAuditResponse;
-    } catch {
-      return buildSessionLoadFailedError() satisfies GetRunAuditResponse;
     }
   });
 

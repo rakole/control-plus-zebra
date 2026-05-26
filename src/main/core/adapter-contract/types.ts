@@ -162,6 +162,18 @@ export interface AdapterNormalizationInput<TRawEvent extends RawHarnessEvent = R
   rawEvents: TRawEvent[];
 }
 
+export interface AdapterStreamingNormalizationInput<
+  TRawEvent extends RawHarnessEvent = RawHarnessEvent
+> extends AdapterNormalizationInput<TRawEvent> {}
+
+export interface AdapterBatchStreamingNormalizationInput<
+  TRawEvent extends RawHarnessEvent = RawHarnessEvent
+> {
+  source: DiscoveredHarnessSource;
+  artifacts: RawArtifactRef[];
+  rawEvents: AsyncIterable<TRawEvent>;
+}
+
 export interface OutputArtifactRef {
   id: string;
   adapterId: AdapterId;
@@ -176,8 +188,10 @@ export interface OutputArtifactRef {
   artifactKind?: string;
 }
 
+export type LoadableOutputArtifact = OutputArtifactRef | OutputArtifact;
+
 export interface LoadedOutputArtifact {
-  artifact: OutputArtifactRef;
+  artifact: LoadableOutputArtifact;
   text?: string;
   mediaType?: string;
 }

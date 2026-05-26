@@ -1,4 +1,5 @@
 import type { Diagnostic } from "../core/diagnostics/diagnostic.js";
+import type { Session } from "../core/model/entities.js";
 import type { SourceRecord } from "../core/registry/source-registry.js";
 import {
   diagnosticsViewModelSchema,
@@ -9,14 +10,10 @@ import {
   type ListDiagnosticsRequest
 } from "../ipc/view-models.js";
 import {
-  buildSessionPreviewViewModel,
-  filterSessions,
-  getDiagnosticsForSession,
   getProjectDisplayName,
-  getProjectForSession,
-  loadTriageData,
   sanitizeText
 } from "./triage-view-model-service.js";
+import { listProjectRollupsBySourceId } from "./store-session-query.js";
 import {
   createWorkbenchRuntime,
   type WorkbenchRuntime,
@@ -39,31 +36,65 @@ export function createDiagnosticsViewModelService(
   return {
     async listDiagnostics(request) {
       const parsed = listDiagnosticsRequestSchema.parse(request ?? {});
-      const data = await loadTriageData(runtime);
       const sources = await runtime.sourceRegistry.listSources();
-      const sessions = filterSessions(data, parsed.adapterId);
-      const sessionDiagnosticIds = new Set(
-        sessions.flatMap((session) =>
-          getDiagnosticsForSession(data, session).map((diagnostic) => diagnostic.id)
-        )
+      const descriptors = new Map(
+        runtime
+          .adapterRegistry
+          .listDescriptors()
+          .map((descriptor) => [descriptor.id, descriptor] as const)
       );
+      const storeDiagnosticsBySource = await Promise.all(
+        sources.map(async (source) => ({
+          source,
+          diagnostics: await runtime.entityStore.listDiagnostics({
+            sourceId: source.sourceId,
+            ...(parsed.severity ? { severity: parsed.severity } : {})
+          }),
+          projectRollups: await listProjectRollupsBySourceId(runtime, source.sourceId),
+          sessions: await listAllSourceSessions(runtime, source.sourceId, parsed.adapterId)
+        }))
+      );
+      const sessionDiagnosticsBySessionId = new Map<string, Diagnostic[]>();
+      const sessionDiagnosticIds = new Set<string>();
+
+      for (const sourceContext of storeDiagnosticsBySource) {
+        for (const session of sourceContext.sessions) {
+          const diagnostics = sourceContext.diagnostics.filter((diagnostic) =>
+            isDiagnosticRelatedToSession(diagnostic, session)
+          );
+
+          sessionDiagnosticsBySessionId.set(session.id, diagnostics);
+
+          for (const diagnostic of diagnostics) {
+            sessionDiagnosticIds.add(diagnostic.id);
+          }
+        }
+      }
+
       const rows = [
-        ...sources.flatMap((source) => collectSourceRows(data, source, sessionDiagnosticIds)),
-        ...sessions.flatMap((session) => {
-          const preview = buildSessionPreviewViewModel(data, session);
-          const project = getProjectForSession(data, session);
-          return getDiagnosticsForSession(data, session).map((diagnostic) =>
+        ...sources.flatMap((source) =>
+          collectSourceRows(descriptors, source, sessionDiagnosticIds)
+        ),
+        ...storeDiagnosticsBySource.flatMap((sourceContext) =>
+          sourceContext.sessions.flatMap((session) => {
+            const sessionDiagnostics = sessionDiagnosticsBySessionId.get(session.id) ?? [];
+            const project = session.projectId
+              ? sourceContext.projectRollups.get(session.projectId)?.project
+              : undefined;
+
+            return sessionDiagnostics.map((diagnostic) =>
             toDiagnosticRow(
-              data,
+              descriptors,
               session.adapterId,
               mapDiagnosticArea(diagnostic),
               diagnostic,
               session.id,
-              preview.title,
+              getSessionDisplayTitle(session),
               getProjectDisplayName(project)
             )
           );
-        })
+          })
+        )
       ]
         .filter((row) => !parsed.adapterId || row.adapterId === parsed.adapterId)
         .filter((row) => !parsed.severity || row.severity === parsed.severity);
@@ -94,7 +125,7 @@ export function createDiagnosticsViewModelService(
       return diagnosticsViewModelSchema.parse({
         harnessFilters: [...new Set(rows.map((row) => row.adapterId))].map((adapterId) => ({
           adapterId,
-          label: data.descriptors.get(adapterId)?.displayName ?? adapterId,
+          label: descriptors.get(adapterId)?.displayName ?? adapterId,
           sessionCount: rows.filter((row) => row.adapterId === adapterId).length
         })),
         severityFilters: ["info", "warning", "error"],
@@ -114,25 +145,51 @@ export function createDiagnosticsViewModelService(
 }
 
 function collectSourceRows(
-  data: Awaited<ReturnType<typeof loadTriageData>>,
+  descriptors: Map<string, { displayName: string }>,
   source: SourceRecord,
   sessionDiagnosticIds: Set<string>
 ): DiagnosticRowViewModel[] {
   const rows = [
     ...source.validation.diagnostics.map((diagnostic) =>
-      toDiagnosticRow(data, source.adapterId, "source", diagnostic)
+      toDiagnosticRow(descriptors, source.adapterId, "source", diagnostic)
     ),
     ...source.scan.diagnostics
       .filter((diagnostic) => !sessionDiagnosticIds.has(diagnostic.id))
       .map((diagnostic) =>
-        toDiagnosticRow(data, source.adapterId, mapDiagnosticArea(diagnostic), diagnostic)
+        toDiagnosticRow(descriptors, source.adapterId, mapDiagnosticArea(diagnostic), diagnostic)
       ),
     ...source.cache.diagnostics
       .filter((diagnostic) => !sessionDiagnosticIds.has(diagnostic.id))
-      .map((diagnostic) => toDiagnosticRow(data, source.adapterId, "cache", diagnostic))
+      .map((diagnostic) => toDiagnosticRow(descriptors, source.adapterId, "cache", diagnostic))
   ];
 
   return dedupeRows(rows);
+}
+
+async function listAllSourceSessions(
+  runtime: WorkbenchRuntime,
+  sourceId: string,
+  adapterId?: string
+): Promise<Session[]> {
+  const sessions: Session[] = [];
+  let cursor: string | undefined;
+
+  for (;;) {
+    const page = await runtime.entityStore.listSessionsPage({
+      sourceId,
+      ...(adapterId ? { adapterId } : {}),
+      ...(cursor ? { cursor } : {}),
+      limit: 100
+    });
+
+    sessions.push(...page.items.map((item) => item.session));
+
+    if (!page.pageInfo.nextCursor) {
+      return sessions;
+    }
+
+    cursor = page.pageInfo.nextCursor;
+  }
 }
 
 function dedupeRows(rows: DiagnosticRowViewModel[]): DiagnosticRowViewModel[] {
@@ -204,7 +261,7 @@ function mapDiagnosticArea(diagnostic: Diagnostic): DiagnosticsSourceArea {
 }
 
 function toDiagnosticRow(
-  data: Awaited<ReturnType<typeof loadTriageData>>,
+  descriptors: Map<string, { displayName: string }>,
   adapterId: string,
   sourceArea: DiagnosticsSourceArea,
   diagnostic: Diagnostic,
@@ -217,12 +274,42 @@ function toDiagnosticRow(
     severity: resolveDiagnosticSeverity(diagnostic),
     sourceArea,
     adapterId,
-    adapterDisplayName: data.descriptors.get(adapterId)?.displayName ?? adapterId,
+    adapterDisplayName: descriptors.get(adapterId)?.displayName ?? adapterId,
     ...(sessionId ? { sessionId } : {}),
     ...(sessionTitle ? { sessionTitle } : {}),
     ...(projectDisplayName ? { projectDisplayName } : {}),
     message: sanitizeText(diagnostic.message)
   };
+}
+
+function getSessionDisplayTitle(session: Session): string {
+  return session.title ?? session.nativeSessionId ?? session.id;
+}
+
+function isDiagnosticRelatedToSession(diagnostic: Diagnostic, session: Session): boolean {
+  const relatedEntityIds = new Set([
+    session.id,
+    ...(session.eventIds ?? []),
+    ...(session.messageIds ?? []),
+    ...(session.toolCallIds ?? []),
+    ...(session.fileMutationIds ?? []),
+    ...(session.outputArtifactIds ?? []),
+    ...(session.shellCommandIds ?? []),
+    ...(session.diagnosticIds ?? [])
+  ]);
+
+  if (relatedEntityIds.has(diagnostic.id)) {
+    return true;
+  }
+
+  if (diagnostic.relatedEntityIds?.some((entityId) => relatedEntityIds.has(entityId))) {
+    return true;
+  }
+
+  return (
+    typeof diagnostic.metadata?.sessionId === "string" &&
+    diagnostic.metadata.sessionId === session.nativeSessionId
+  );
 }
 
 function resolveDiagnosticSeverity(

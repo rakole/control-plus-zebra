@@ -11,6 +11,7 @@ import type { SessionViewModelService } from "../../../src/main/app/session-view
 import type { SessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
 import type { ThemeService } from "../../../src/main/theme/theme-service.js";
 import type { TriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
+import { PaginationValidationError } from "../../../src/main/core/store/index.js";
 import {
   createArchiveResponseSchema,
   dashboardStatsResponseSchema,
@@ -60,7 +61,6 @@ describe("ipc handlers", () => {
       IPC_CHANNELS.getShellCommands,
       IPC_CHANNELS.getOutputArtifactPreview,
       IPC_CHANNELS.loadOutputArtifact,
-      IPC_CHANNELS.getRunAudit,
       IPC_CHANNELS.getAuditRunAudit,
       IPC_CHANNELS.getGitSnapshot,
       IPC_CHANNELS.getGitHubSnapshot,
@@ -85,6 +85,42 @@ describe("ipc handlers", () => {
       }
     });
     expect(JSON.stringify(result)).not.toMatch(/stack|\/Users|adapter|rawEvents/u);
+  });
+
+  it("returns sanitized invalid-request errors for invalid pagination cursors", async () => {
+    const collector = createIpcCollector();
+    const services = createFakeServices();
+
+    services.sessionService.listSessionsPage = async () => {
+      throw new PaginationValidationError("invalid-cursor");
+    };
+    services.sessionDetailService.getSessionTimeline = async () => {
+      throw new PaginationValidationError("invalid-cursor");
+    };
+    registerIpcHandlers(collector, services);
+
+    const list = await collector.invoke(IPC_CHANNELS.listSessions, {
+      cursor: "bad-cursor"
+    });
+    const timeline = await collector.invoke(IPC_CHANNELS.getSessionTimeline, {
+      sessionId: "session_1",
+      cursor: "bad-cursor"
+    });
+
+    expect(list).toEqual({
+      ok: false,
+      error: {
+        code: "invalid-request",
+        message: "Request payload is not valid for this operation."
+      }
+    });
+    expect(timeline).toEqual({
+      ok: false,
+      error: {
+        code: "invalid-request",
+        message: "Request payload is not valid for this operation."
+      }
+    });
   });
 
   it("returns schema-valid DTOs for shell, list, and get handlers", async () => {
@@ -113,7 +149,7 @@ describe("ipc handlers", () => {
       sessionId: "session_1",
       outputArtifactId: "output-artifact_1"
     });
-    const runAudit = await collector.invoke(IPC_CHANNELS.getRunAudit, {
+    const runAudit = await collector.invoke(IPC_CHANNELS.getAuditRunAudit, {
       sessionId: "session_1"
     });
     const diagnostics = await collector.invoke(IPC_CHANNELS.listDiagnostics);
@@ -131,6 +167,14 @@ describe("ipc handlers", () => {
     expect(() => getRunAuditResponseSchema.parse(runAudit)).not.toThrow();
     expect(() => listDiagnosticsResponseSchema.parse(diagnostics)).not.toThrow();
     expect(() => sourcesResponseSchema.parse(sources)).not.toThrow();
+  });
+
+  it("does not register the retired sessions run-audit alias", () => {
+    const collector = createIpcCollector();
+
+    registerIpcHandlers(collector, createFakeServices());
+
+    expect(collector.handlers.has("sessions:getRunAudit")).toBe(false);
   });
 });
 
@@ -283,7 +327,7 @@ function createFakeServices(): {
           IPC_CHANNELS.listSessions,
           IPC_CHANNELS.getSession,
           IPC_CHANNELS.getSessionTimeline,
-          IPC_CHANNELS.getRunAudit,
+          IPC_CHANNELS.getAuditRunAudit,
           IPC_CHANNELS.listDiagnostics,
           IPC_CHANNELS.listSources,
           IPC_CHANNELS.addSource,

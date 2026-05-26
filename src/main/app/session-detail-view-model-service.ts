@@ -8,17 +8,18 @@ import {
   type GetSessionTimelineRequest,
   type SessionDetailViewModel
 } from "../ipc/view-models.js";
-import type { OutputArtifact } from "../core/model/entities.js";
-import {
-  buildSessionPreviewViewModel,
-  getDerivedSession,
-  loadTriageData
-} from "./triage-view-model-service.js";
+import type { WorkbenchTimelineRecord } from "../core/store/workbench-entity-store.js";
 import {
   createWorkbenchRuntime,
   type WorkbenchRuntime,
   type WorkbenchRuntimeOptions
 } from "./workbench-runtime.js";
+import { createSessionViewModelService } from "./session-view-model-service.js";
+import {
+  collectAllSessionTimelineRecords,
+  collectSessionTimelineRecords,
+  findStoreSessionLocation
+} from "./store-session-query.js";
 
 export interface SessionDetailViewModelService {
   getSessionDetail(
@@ -38,31 +39,37 @@ export function createSessionDetailViewModelService(
   options: SessionDetailViewModelServiceOptions = {}
 ): SessionDetailViewModelService {
   const runtime = options.runtime ?? createWorkbenchRuntime(options);
+  const sessionService = createSessionViewModelService({ runtime });
 
   return {
     async getSessionDetail(request) {
       const parsed = getSessionByIdRequestSchema.parse(request);
-      const data = await loadTriageData(runtime);
-      const session = data.sessionsById.get(parsed.sessionId);
+      const location = await findStoreSessionLocation(runtime, parsed.sessionId);
 
-      if (!session) {
+      if (!location) {
         return null;
       }
 
-      const detail = {
-        session: buildSessionPreviewViewModel(data, session),
-        timeline: buildTimelineEvents(data, session)
-      };
+      const [preview, timelineRecords] = await Promise.all([
+        sessionService.getSessionById({ sessionId: parsed.sessionId }),
+        collectAllSessionTimelineRecords(runtime, location.source.sourceId, parsed.sessionId)
+      ]);
 
-      return sessionDetailViewModelSchema.parse(detail);
+      if (!preview) {
+        return null;
+      }
+
+      return sessionDetailViewModelSchema.parse({
+        session: preview,
+        timeline: buildTimelineEventsFromStore(timelineRecords)
+      });
     },
 
     async getSessionTimeline(request) {
       const parsed = getSessionTimelineRequestSchema.parse(request);
-      const data = await loadTriageData(runtime);
-      const session = data.sessionsById.get(parsed.sessionId);
+      const location = await findStoreSessionLocation(runtime, parsed.sessionId);
 
-      if (!session) {
+      if (!location) {
         return {
           timeline: null,
           pageInfo: {
@@ -72,64 +79,35 @@ export function createSessionDetailViewModelService(
         };
       }
 
-      const offset = Number.parseInt(parsed.cursor ?? "0", 10);
-      const limit = parsed.limit ?? 100;
-      const sortedEvents = getSortedSessionEvents(data, session);
-      const pageEvents = sortedEvents.slice(offset, offset + limit);
-      const nextOffset = offset + pageEvents.length;
+      const page = await collectSessionTimelineRecords(runtime, {
+        sourceId: location.source.sourceId,
+        sessionId: parsed.sessionId,
+        ...(parsed.cursor ? { cursor: parsed.cursor } : {}),
+        ...(parsed.limit !== undefined ? { limit: parsed.limit } : {})
+      });
 
       return {
-        timeline: buildTimelineEvents(data, session, pageEvents),
+        timeline: buildTimelineEventsFromStore(page.items),
         pageInfo: {
-          hasMore: nextOffset < sortedEvents.length,
-          ...(nextOffset < sortedEvents.length ? { nextCursor: String(nextOffset) } : {}),
-          totalCount: sortedEvents.length
+          hasMore: page.pageInfo.hasMore,
+          ...(page.pageInfo.nextCursor ? { nextCursor: page.pageInfo.nextCursor } : {}),
+          totalCount: page.pageInfo.totalCount ?? page.items.length
         }
       };
     }
   };
 }
 
-function getSortedSessionEvents(
-  data: Awaited<ReturnType<typeof loadTriageData>>,
-  session: { id: string }
-) {
-  return (data.eventsBySessionId.get(session.id) ?? [])
-    .slice()
-    .sort(compareEventsForTimeline);
-}
-
-function buildTimelineEvents(
-  data: Awaited<ReturnType<typeof loadTriageData>>,
-  session: { id: string },
-  events: ReturnType<typeof getSortedSessionEvents> = getSortedSessionEvents(data, session)
+export function buildTimelineEventsFromStore(
+  records: WorkbenchTimelineRecord[]
 ): SessionDetailViewModel["timeline"] {
-  const sessionMessages = data.messagesBySessionId.get(session.id) ?? [];
-  const sessionToolCalls = data.toolCallsBySessionId.get(session.id) ?? [];
-  const sessionShellCommands = data.shellCommandsBySessionId.get(session.id) ?? [];
-  const sessionOutputArtifacts = data.outputArtifactsBySessionId.get(session.id) ?? [];
-  const sessionFileMutations = data.fileMutationsBySessionId.get(session.id) ?? [];
-  const messagesByEventId = buildEntityByEventId(sessionMessages, (message) => message.eventIds ?? []);
-  const toolCallsByEventId = buildFirstEntityBySourceEventId(sessionToolCalls);
-  const shellCommandsByEventId = buildFirstEntityBySourceEventId(sessionShellCommands);
-  const outputArtifactsByEventId = buildEntitiesBySourceEventId(sessionOutputArtifacts);
-  const fileMutationsByEventId = buildFirstEntityBySourceEventId(sessionFileMutations);
-
-  return events.flatMap<SessionDetailViewModel["timeline"][number]>((event) => {
-    const message = messagesByEventId.get(event.id);
-    const toolCall = toolCallsByEventId.get(event.id);
-    const shellCommand = shellCommandsByEventId.get(event.id);
-    const derivedCommand = shellCommand
-      ? getDerivedSession(data, session.id)?.shellCommands.find(
-          (candidate) => candidate.shellCommandId === shellCommand.id
-        )
-      : undefined;
-    const outputArtifacts = getOutputArtifactsForEvent(
-      sessionOutputArtifacts,
-      outputArtifactsByEventId,
-      event
-    );
-    const fileMutation = fileMutationsByEventId.get(event.id);
+  return records.flatMap<SessionDetailViewModel["timeline"][number]>((record) => {
+    const event = record.event;
+    const message = record.message;
+    const toolCall = record.toolCall;
+    const shellCommand = record.shellCommand;
+    const outputArtifacts = record.outputArtifacts ?? [];
+    const fileMutation = record.fileMutation;
 
     switch (event.kind) {
       case "message":
@@ -173,8 +151,8 @@ function buildTimelineEvents(
           title: shellCommand?.command ?? event.title ?? "Shell command",
           summary: shellCommand?.outputInline ?? event.text,
           metadata: [
-            { label: "Intent", value: humanizeIntent(derivedCommand?.intent) },
-            { label: "Result", value: humanizeCommandResult(derivedCommand?.result) },
+            { label: "Intent", value: "Unknown" },
+            { label: "Result", value: "Unknown" },
             {
               label: "Exit Code",
               value:
@@ -244,25 +222,6 @@ function buildTimelineEvents(
         }];
     }
   });
-}
-
-function humanizeCommandResult(result?: string): string {
-  switch (result) {
-    case "passed":
-      return "Passed";
-    case "failed":
-      return "Failed";
-    default:
-      return "Unknown";
-  }
-}
-
-function humanizeIntent(intent?: string): string {
-  if (!intent) {
-    return "Unknown";
-  }
-
-  return intent.replace(/^./u, (letter) => letter.toUpperCase());
 }
 
 function humanizeMessageRole(role?: string): string {
@@ -344,154 +303,4 @@ function truncate(value: string, limit: number): string {
   }
 
   return `${collapsed.slice(0, limit - 1)}...`;
-}
-
-function compareEventsForTimeline(
-  left: { orderKey?: string; timestamp?: string },
-  right: { orderKey?: string; timestamp?: string }
-): number {
-  const leftOrder = left.orderKey ?? "";
-  const rightOrder = right.orderKey ?? "";
-
-  if (leftOrder !== rightOrder) {
-    return leftOrder.localeCompare(rightOrder);
-  }
-
-  return (left.timestamp ?? "").localeCompare(right.timestamp ?? "");
-}
-
-function buildEntityByEventId<TItem extends { id: string }>(
-  items: readonly TItem[],
-  selectEventIds: (item: TItem) => readonly string[]
-): Map<string, TItem> {
-  const map = new Map<string, TItem>();
-
-  for (const item of items) {
-    for (const eventId of selectEventIds(item)) {
-      if (!map.has(eventId)) {
-        map.set(eventId, item);
-      }
-    }
-  }
-
-  return map;
-}
-
-function buildFirstEntityBySourceEventId<
-  TItem extends {
-    source?:
-      | { eventId?: string | undefined; rawEvent?: { eventId?: string | undefined } | undefined }
-      | undefined;
-  }
->(
-  items: readonly TItem[]
-): Map<string, TItem> {
-  const map = new Map<string, TItem>();
-
-  for (const item of items) {
-    const eventId = item.source?.eventId ?? item.source?.rawEvent?.eventId;
-
-    if (eventId && !map.has(eventId)) {
-      map.set(eventId, item);
-    }
-  }
-
-  return map;
-}
-
-function buildEntitiesBySourceEventId<
-  TItem extends {
-    source?:
-      | { eventId?: string | undefined; rawEvent?: { eventId?: string | undefined } | undefined }
-      | undefined;
-  }
->(
-  items: readonly TItem[]
-): Map<string, TItem[]> {
-  const map = new Map<string, TItem[]>();
-
-  for (const item of items) {
-    const eventId = item.source?.eventId ?? item.source?.rawEvent?.eventId;
-
-    if (!eventId) {
-      continue;
-    }
-
-    const current = map.get(eventId) ?? [];
-
-    current.push(item);
-    map.set(eventId, current);
-  }
-
-  return map;
-}
-
-function getOutputArtifactsForEvent(
-  artifacts: readonly OutputArtifact[],
-  artifactsByEventId: Map<string, readonly OutputArtifact[]>,
-  event: {
-    id: string;
-    nativeId?: string;
-    title?: string;
-    text?: string;
-  }
-): readonly OutputArtifact[] {
-  const directMatches = artifactsByEventId.get(event.id) ?? [];
-
-  if (directMatches.length > 0) {
-    return directMatches;
-  }
-
-  const eventReferences = new Set(
-    [event.id, event.nativeId, event.title, event.text]
-      .flatMap((value) => normalizeArtifactReference(value))
-  );
-
-  if (eventReferences.size === 0) {
-    return [];
-  }
-
-  return artifacts.filter((artifact) =>
-    [artifact.nativeRef, artifact.nativeId, artifact.path]
-      .flatMap((value) => normalizeArtifactReference(value))
-      .some((reference) => eventReferences.has(reference))
-  );
-}
-
-function normalizeArtifactReference(value?: string): string[] {
-  if (!value) {
-    return [];
-  }
-
-  const trimmed = value.trim();
-
-  if (trimmed.length === 0) {
-    return [];
-  }
-
-  const normalizedValues = new Set<string>();
-  const prefixes = ["session-event:", "artifact:"];
-  const queue = [trimmed];
-
-  while (queue.length > 0) {
-    const current = queue.pop();
-
-    if (!current) {
-      continue;
-    }
-
-    const normalized = path.normalize(current).replace(/\\/gu, "/");
-
-    if (normalized.length > 0) {
-      normalizedValues.add(normalized);
-    }
-
-    for (const prefix of prefixes) {
-      if (current.startsWith(prefix)) {
-        queue.push(current.slice(prefix.length));
-      }
-    }
-  }
-
-  return [...normalizedValues];
 }

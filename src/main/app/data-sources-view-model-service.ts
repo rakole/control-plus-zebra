@@ -37,6 +37,7 @@ import {
   type WorkbenchRuntime,
   type WorkbenchRuntimeOptions
 } from "./workbench-runtime.js";
+import { syncLatestSourceCacheRecordToEntityStore } from "./workbench-entity-store-sync.js";
 import { toCapabilityGroups } from "./capability-view-models.js";
 
 const settingsChangedReason = "Source settings changed. Validate again before scanning.";
@@ -145,7 +146,8 @@ export function createDataSourcesViewModelService(
         throw new Error("Source validation must succeed before scanning.");
       }
 
-      await runtime.scanner.scanSource(parsed.sourceId);
+      await runtime.scanJobRunner.scanSource(parsed.sourceId);
+      await syncLatestSourceCacheRecordToEntityStore(runtime, parsed.sourceId);
       return buildViewModel(runtime);
     }
   };
@@ -269,11 +271,13 @@ async function markSourceDirtyAfterSettingsChange(
 ): Promise<void> {
   const nextScanStatus: SourceOperationalStatus =
     source.scan.status === "never-scanned" ? "never-scanned" : "stale";
+  const nextCacheStatus: SourceOperationalStatus =
+    source.cache.status === "cached" ? "stale" : source.cache.status;
   const nextCacheSummary: SourceCacheSummary = {
     ...source.cache,
-    status: source.cache.cacheKey ? "stale" : source.cache.status,
+    status: nextCacheStatus,
     diagnostics: source.cache.diagnostics,
-    ...(source.cache.cacheKey ? { reason: settingsChangedReason } : {})
+    ...(nextCacheStatus === "stale" ? { reason: settingsChangedReason } : {})
   };
 
   await runtime.sourceRegistry.saveValidationSummary(source.sourceId, {

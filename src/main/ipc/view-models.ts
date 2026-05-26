@@ -27,7 +27,6 @@ const operationChannelSchema = z.enum([
   "outputArtifacts:getPreview",
   "outputArtifacts:load",
   "audit:getRunAudit",
-  "sessions:getRunAudit",
   "git:getSnapshot",
   "github:getSnapshot",
   "diagnostics:list",

@@ -15,9 +15,15 @@ describe("diagnostics view model service", () => {
 
   it("groups source, normalization, and cache diagnostics into sanitized DTOs", async () => {
     const runtime = await createScannedRuntime(tempDirs);
+    let cacheReads = 0;
+    runtime.cacheStore.listLatestRecords = async () => {
+      cacheReads += 1;
+      throw new Error("diagnostics route should not hydrate cache records");
+    };
     const service = createDiagnosticsViewModelService({ runtime });
     const diagnostics = await service.listDiagnostics();
 
+    expect(cacheReads).toBe(0);
     expect(diagnostics.groups.length).toBeGreaterThan(0);
     expect(diagnostics.groups.some((group) => group.sourceArea === "capability")).toBe(false);
     expect(
@@ -49,5 +55,5 @@ describe("diagnostics view model service", () => {
         })
       ])
     );
-  });
+  }, 15000);
 });

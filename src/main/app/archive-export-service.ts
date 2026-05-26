@@ -35,6 +35,7 @@ export function createArchiveExportService(
   const now = options.now ?? (() => new Date());
   const exporter = new ArchiveExporter({
     cacheStore: runtime.cacheStore,
+    entityStore: runtime.entityStore,
     rawArtifactIndex: runtime.rawArtifactIndex,
     sourceRegistry: runtime.sourceRegistry,
     now
@@ -61,6 +62,7 @@ export function createArchiveExportService(
         });
       }
 
+      await runtime.ensureEntityStoreReady();
       const result = await exporter.createArchive({
         destinationPath,
         includeRawArtifacts: parsed.includeRawArtifacts,

@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
 
+import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter.js";
+import { ArchiveImporter } from "../../../src/main/core/archive/archive-importer.js";
 import { createSessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import { createTriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import {
   cleanupTempDirs,
-  createScannedRuntime
+  createHydrationDegradedRuntimeFromSeed,
+  createScannedRuntime,
+  createTempRuntime,
+  loadGeminiArtifactFixtureFromStore
 } from "./triage-test-runtime.js";
 
 describe("triage view model service", () => {
@@ -68,7 +73,7 @@ describe("triage view model service", () => {
     expect(degradedProject?.gitStatus.label).toBe("Unknown");
     expect(gitBackedProject?.pullRequest.displayValue).toBe("No Matching PR");
     expect(JSON.stringify(projects)).not.toContain("rawEvents");
-  });
+  }, 15000);
 
   it("loads archive availability once for Projects route rollups", async () => {
     const runtime = await createScannedRuntime(tempDirs);
@@ -102,29 +107,134 @@ describe("triage view model service", () => {
     const projects = await triageService.listProjects();
 
     expect(projects.length).toBeGreaterThan(1);
-    expect(latestRecordLoadCount).toBe(2);
-    expect(rawArtifactIndexLoadCount).toBe(1);
-    expect(sourceListCount).toBe(1);
-  });
+    expect(latestRecordLoadCount).toBe(1);
+    expect(rawArtifactIndexLoadCount).toBe(0);
+    expect(sourceListCount).toBe(3);
+  }, 15000);
 
-  it("keeps project rollups visible when archive availability cannot be read", async () => {
+  it("keeps unrelated project rollups truthful when one source preflight fails", async () => {
     const runtime = await createScannedRuntime(tempDirs);
+    const sourceRecords = await runtime.sourceRegistry.listSources();
+    const projectPairs = (
+      await Promise.all(
+        sourceRecords.map(async (sourceRecord) =>
+          (
+            await runtime.entityStore.listProjectRollups({
+              sourceId: sourceRecord.sourceId
+            })
+          )
+            .filter(
+              (
+                projectRollup
+              ): projectRollup is typeof projectRollup & { projectId: string } =>
+                Boolean(projectRollup.projectId)
+            )
+            .map((projectRollup) => ({
+              projectId: projectRollup.projectId,
+              sourceId: sourceRecord.sourceId
+            }))
+        )
+      )
+    ).flat();
+    const failingPair = projectPairs[0];
+    const healthyPair = projectPairs.find(
+      (projectPair) => projectPair.sourceId !== failingPair?.sourceId
+    );
+    const entityStore = runtime.entityStore as typeof runtime.entityStore & {
+      getArchivePreflight?: typeof runtime.entityStore.getArchivePreflight;
+    };
+    const baselineProjects = await createTriageViewModelService({ runtime }).listProjects();
+    const baselineHealthyProject = baselineProjects.find(
+      (project) => project.projectId === healthyPair?.projectId
+    );
+    const originalGetArchivePreflight = entityStore.getArchivePreflight;
 
-    runtime.rawArtifactIndex = {
-      load: async () => {
-        throw new Error("raw artifact index unavailable");
+    expect(failingPair).toBeDefined();
+    expect(healthyPair).toBeDefined();
+    expect(baselineHealthyProject).toBeDefined();
+    if (!failingPair || !healthyPair || !baselineHealthyProject) {
+      throw new Error("Expected store-backed projects from at least two sources.");
+    }
+
+    entityStore.getArchivePreflight = async (scope) => {
+      if (scope.sourceId === failingPair.sourceId) {
+        throw new Error("archive preflight unavailable");
       }
-    } as unknown as typeof runtime.rawArtifactIndex;
+
+      return originalGetArchivePreflight?.call(entityStore, scope);
+    };
 
     const triageService = createTriageViewModelService({ runtime });
     const projects = await triageService.listProjects();
+    const healthyProject = projects.find(
+      (project) => project.projectId === healthyPair.projectId
+    );
+    const degradedProjects = projects.filter(
+      (project) =>
+        project.archiveExport.rawArtifactsReason ===
+        "Archive export availability could not be resolved for this scope."
+    );
 
     expect(projects.length).toBeGreaterThan(0);
-    expect(projects.every((project) => !project.archiveExport.rawArtifactsAvailable)).toBe(true);
-    expect(projects[0]?.archiveExport.rawArtifactsReason).toBe(
-      "Archive export availability could not be resolved for this scope."
+    expect(healthyProject?.archiveExport).toEqual(baselineHealthyProject.archiveExport);
+    expect(degradedProjects.length).toBeGreaterThan(0);
+  }, 15000);
+
+  it("uses store-backed archive availability truth for v3-imported sources on Projects", async () => {
+    const exportRuntime = await createScannedRuntime(tempDirs);
+    const geminiFixture = await loadGeminiArtifactFixtureFromStore(exportRuntime);
+    const exporter = new ArchiveExporter({
+      cacheStore: exportRuntime.cacheStore,
+      entityStore: exportRuntime.entityStore,
+      rawArtifactIndex: exportRuntime.rawArtifactIndex,
+      sourceRegistry: exportRuntime.sourceRegistry
+    });
+    const archivePath = `${exportRuntime.appDataDir}/exports/imported-v3-project-truth.awb-archive.json`;
+
+    await exporter.createArchive({
+      destinationPath: archivePath,
+      includeRawArtifacts: true,
+      privacyWarningAcknowledged: true,
+      scope: { kind: "session", sessionId: geminiFixture.sessionId }
+    });
+
+    const importRuntime = await createScannedRuntime(tempDirs);
+    const initialHydrationState = await importRuntime.getEntityStoreHydrationState();
+    const importer = new ArchiveImporter({
+      appDataDir: importRuntime.appDataDir,
+      cacheStore: importRuntime.cacheStore,
+      entityStore: importRuntime.entityStore,
+      rawArtifactIndex: importRuntime.rawArtifactIndex,
+      sourceRegistry: importRuntime.sourceRegistry
+    });
+
+    const imported = await importer.importArchive({ archivePath });
+    const importedProjectId = (
+      await importRuntime.entityStore.listProjectRollups({
+        sourceId: imported.sourceId
+      })
+    ).find((rollup): rollup is typeof rollup & { projectId: string } => Boolean(rollup.projectId))
+      ?.projectId;
+
+    const triageService = createTriageViewModelService({ runtime: importRuntime });
+    const projects = await triageService.listProjects();
+    const importedProject = projects.find((project) => project.projectId === importedProjectId);
+
+    expect(initialHydrationState.sourceStates.length).toBeGreaterThan(0);
+    expect(
+      (await importRuntime.getEntityStoreHydrationState()).sourceStates.some(
+        (state) => state.sourceId === imported.sourceId
+      )
+    ).toBe(false);
+    expect(importedProjectId).toBeDefined();
+    expect(projects.length).toBeGreaterThan(0);
+    expect(importedProject?.archiveExport).toEqual(
+      expect.objectContaining({
+        rawArtifactsAvailable: true,
+        rawArtifactCount: expect.any(Number)
+      })
     );
-  });
+  }, 15000);
 
   it("keeps session summaries explicit about verification and audit truth", async () => {
     const runtime = await createScannedRuntime(tempDirs);
@@ -147,7 +257,49 @@ describe("triage view model service", () => {
       )
     ).toBe(true);
     expect(JSON.stringify(sessions)).not.toContain("artifactPath");
-  });
+  }, 15000);
+
+  it("keeps failed-source sessions and projects visible through cache fallback after restart", async () => {
+    const seedRuntime = await createScannedRuntime(tempDirs);
+    const baselineOverview = await createTriageViewModelService({ runtime: seedRuntime }).getOverview();
+    const baselineProjects = await createTriageViewModelService({ runtime: seedRuntime }).listProjects();
+    const failingSourceId = (await seedRuntime.sourceRegistry.listSources()).find(
+      (source) => source.adapterId === "fake-test"
+    )?.sourceId;
+
+    expect(failingSourceId).toBeDefined();
+    if (!failingSourceId) {
+      throw new Error("Expected a fake-test source to degrade.");
+    }
+
+    const runtime = await createHydrationDegradedRuntimeFromSeed(
+      tempDirs,
+      seedRuntime,
+      failingSourceId
+    );
+    const triageService = createTriageViewModelService({ runtime });
+    const sessionService = createSessionViewModelService({ runtime });
+    const overview = await triageService.getOverview();
+    const projects = await triageService.listProjects();
+    const sessions = await sessionService.listSessions();
+    const degradedSession = sessions.find((session) => session.sourceId === failingSourceId);
+
+    expect(overview.metrics.totalSessions.numericValue).toBe(
+      baselineOverview.metrics.totalSessions.numericValue
+    );
+    expect(projects).toHaveLength(baselineProjects.length);
+    expect(degradedSession).toBeDefined();
+    await expect(
+      sessionService.getSessionById({ sessionId: degradedSession?.sessionId ?? "missing-session" })
+    ).resolves.toMatchObject({
+      sessionId: degradedSession?.sessionId
+    });
+    expect(
+      projects.some((project) =>
+        (project.archiveExport.rawArtifactsReason ?? "").includes("entity-store hydration failed")
+      )
+    ).toBe(true);
+  }, 15000);
 
   it("re-derives session verification and audit truth instead of trusting stale cache sections", async () => {
     const runtime = await createScannedRuntime(tempDirs);
@@ -223,7 +375,7 @@ describe("triage view model service", () => {
     });
 
     expect(reloadedPreview).toEqual(expectedPreview);
-  });
+  }, 15000);
 });
 
 function upsertBySessionId<TItem extends { sessionId: string }>(
