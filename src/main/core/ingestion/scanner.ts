@@ -1090,17 +1090,40 @@ async function deriveNormalizedBatch(args: {
     };
   });
   const derivedSessionsById = new Map(derivedSessions.map((session) => [session.sessionId, session] as const));
+  const modelNamesBySessionId = new Map(
+    normalizedWithDerivedDiagnostics.sessions.map((session) => [
+      session.id,
+      collectSessionModelNames(normalizedWithDerivedDiagnostics.messages, session.id)
+    ] as const)
+  );
   const normalizedWithEnrichedSessions = {
     ...normalizedWithDerivedDiagnostics,
     sessions: normalizedWithDerivedDiagnostics.sessions.map((session) => {
       const derivedSession = derivedSessionsById.get(session.id);
+      const modelNames = modelNamesBySessionId.get(session.id) ?? [];
 
       if (!derivedSession) {
-        return session;
+        return modelNames.length > 0
+          ? {
+              ...session,
+              metadata: {
+                ...(session.metadata ?? {}),
+                modelNames
+              }
+            }
+          : session;
       }
 
       return {
         ...session,
+        ...(modelNames.length > 0
+          ? {
+              metadata: {
+                ...(session.metadata ?? {}),
+                modelNames
+              }
+            }
+          : {}),
         parsedShellCommands: derivedSession.shellCommands,
         ...(derivedSession.verification ? { verification: derivedSession.verification } : {}),
         ...(derivedSession.audit ? { runAudit: derivedSession.audit } : {})
@@ -1289,6 +1312,28 @@ function buildStreamingCompatibilityRecord(args: {
         : {})
     }
   };
+}
+
+function collectSessionModelNames(messages: AdapterNormalizationResult["messages"], sessionId: string): string[] {
+  const seen = new Set<string>();
+  const modelNames: string[] = [];
+
+  for (const message of messages) {
+    if (message.sessionId !== sessionId || typeof message.modelName !== "string") {
+      continue;
+    }
+
+    const modelName = message.modelName.replace(/\s+/gu, " ").trim();
+
+    if (modelName.length === 0 || seen.has(modelName)) {
+      continue;
+    }
+
+    seen.add(modelName);
+    modelNames.push(modelName);
+  }
+
+  return modelNames;
 }
 
 function rebaseNormalizedResultSourceId(

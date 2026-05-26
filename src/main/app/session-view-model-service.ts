@@ -9,7 +9,9 @@ import {
 } from "../ipc/index.js";
 import {
   buildSessionPreviewViewModel,
-  buildSessionSummaryViewModel
+  buildSessionSummaryViewModel,
+  filterSessions,
+  loadStoreTriageData
 } from "./triage-view-model-service.js";
 import {
   createWorkbenchRuntime,
@@ -56,10 +58,11 @@ export function createSessionViewModelService(
     },
 
     async listSessions() {
-      const page = await listGlobalSessionPage(runtime, { limit: Number.MAX_SAFE_INTEGER });
-      return Promise.all(
-        page.rows.map((row) => buildStoreSessionSummary(runtime, row.session, row.session.sourceId))
-      );
+      const data = await loadStoreTriageData(runtime, undefined, {
+        includeSessionDiagnostics: true
+      });
+
+      return filterSessions(data).map((session) => buildSessionSummaryViewModel(data, session));
     },
 
     async listSessionsPage(request = {}) {
@@ -68,10 +71,29 @@ export function createSessionViewModelService(
         ...(request.cursor ? { cursor: request.cursor } : {}),
         ...(request.limit !== undefined ? { limit: request.limit } : {})
       });
+      const degradedSourceIds = new Set(
+        (await runtime.getEntityStoreHydrationState()).sourceStates
+          .filter((state) => state.status === "cache-fallback")
+          .map((state) => state.sourceId)
+      );
+      const degradedRows = page.rows.filter((row) => degradedSourceIds.has(row.session.sourceId));
+      const fallbackData =
+        degradedRows.length > 0
+          ? await loadStoreTriageData(runtime, request.adapterId, {
+              includeSessionDiagnostics: true
+            })
+          : undefined;
 
       return {
         sessions: await Promise.all(
-          page.rows.map((row) => buildStoreSessionSummary(runtime, row.session, row.session.sourceId))
+          page.rows.map((row) => {
+            if (!fallbackData || !degradedSourceIds.has(row.session.sourceId)) {
+              return buildStoreSessionSummary(runtime, row.session, row.session.sourceId);
+            }
+
+            const fallbackSession = fallbackData.sessionsById.get(row.session.id) ?? row.session;
+            return Promise.resolve(buildSessionSummaryViewModel(fallbackData, fallbackSession));
+          })
         ),
         pageInfo: {
           hasMore: page.pageInfo.hasMore,
@@ -86,6 +108,21 @@ export function createSessionViewModelService(
 
       if (!location) {
         return null;
+      }
+
+      const degradedSourceIds = new Set(
+        (await runtime.getEntityStoreHydrationState()).sourceStates
+          .filter((state) => state.status === "cache-fallback")
+          .map((state) => state.sourceId)
+      );
+
+      if (degradedSourceIds.has(location.source.sourceId)) {
+        const data = await loadStoreTriageData(runtime, undefined, {
+          includeSessionDiagnostics: true
+        });
+        const session = data.sessionsById.get(request.sessionId) ?? location.session;
+
+        return buildSessionPreviewViewModel(data, session);
       }
 
       return buildStoreSessionPreview(runtime, location.session, location.source.sourceId);
@@ -163,6 +200,7 @@ async function buildStoreSessionData(
       projectSnapshot && session.projectId
         ? [[session.projectId, projectSnapshot] as const]
         : []
-    )
+    ),
+    sourceHydrationStatesBySourceId: new Map()
   };
 }

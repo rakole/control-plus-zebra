@@ -1,3 +1,5 @@
+import type { NormalizedCacheRecord } from "../core/cache/file-backed-cache-store.js";
+import type { Session } from "../core/model/entities.js";
 import type { SourceRecord } from "../core/registry/source-registry.js";
 import {
   PaginationValidationError,
@@ -12,10 +14,14 @@ import type {
   WorkbenchTimelinePageQuery,
   WorkbenchTimelineRecord
 } from "../core/store/workbench-entity-store.js";
-import type { WorkbenchRuntime } from "./workbench-runtime.js";
+import type {
+  WorkbenchRuntime,
+  WorkbenchSourceHydrationState
+} from "./workbench-runtime.js";
 
 interface GlobalSessionCursorState {
   adapterId?: string;
+  fallbackIndex?: number;
   nextCursorBySourceIdJson: string;
 }
 
@@ -24,28 +30,79 @@ export interface StoreSessionLocation {
   source: SourceRecord;
 }
 
+export interface StoreSourceCoverage {
+  cacheFallbackRecords: NormalizedCacheRecord[];
+  degradedSourceStatesBySourceId: Map<string, WorkbenchSourceHydrationState>;
+  sourceRecordsBySourceId: Map<string, SourceRecord>;
+  storeSources: SourceRecord[];
+}
+
 export async function listCurrentStoreSources(
   runtime: WorkbenchRuntime,
   adapterId?: string
 ): Promise<SourceRecord[]> {
-  const sources = await runtime.sourceRegistry.listSources();
-  const currentRuns = await Promise.all(
-    sources.map(async (source) => ({
-      source,
-      currentRun: await runtime.entityStore.getCurrentIngestRun({ sourceId: source.sourceId })
-    }))
+  return (await loadStoreSourceCoverage(runtime, adapterId)).storeSources;
+}
+
+export async function loadStoreSourceCoverage(
+  runtime: WorkbenchRuntime,
+  adapterId?: string
+): Promise<StoreSourceCoverage> {
+  const [hydrationState, sources] = await Promise.all([
+    runtime.getEntityStoreHydrationState(),
+    runtime.sourceRegistry.listSources()
+  ]);
+  const sourceRecordsBySourceId = new Map(
+    sources.map((source) => [source.sourceId, source] as const)
   );
+  const hydrationStatesBySourceId = new Map(
+    hydrationState.sourceStates.map((state) => [state.sourceId, state] as const)
+  );
+  const degradedSourceStatesBySourceId = new Map<string, WorkbenchSourceHydrationState>();
+  const storeSources: SourceRecord[] = [];
+  const degradedSources: SourceRecord[] = [];
 
-  return currentRuns
-    .filter(({ source, currentRun }) => {
-      if (!currentRun) {
-        return false;
-      }
+  for (const source of sources) {
+    if (adapterId && source.adapterId !== adapterId) {
+      continue;
+    }
 
-      return !adapterId || source.adapterId === adapterId;
-    })
-    .map(({ source }) => source)
-    .sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+    const hydration = hydrationStatesBySourceId.get(source.sourceId);
+
+    // Hydration metadata is a best-effort bootstrap snapshot. Sources created
+    // after that snapshot must still use the live entity-store path unless
+    // they were explicitly marked degraded for cache fallback.
+    if (!hydration || hydration.status === "store-ready") {
+      storeSources.push(source);
+      continue;
+    }
+
+    if (hydration.status !== "cache-fallback") {
+      continue;
+    }
+
+    degradedSourceStatesBySourceId.set(source.sourceId, hydration);
+    degradedSources.push(source);
+  }
+
+  storeSources.sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+  degradedSources.sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+
+  const cacheFallbackRecords =
+    degradedSources.length === 0
+      ? []
+      : (await runtime.cacheStore.listLatestRecords())
+          .filter((record) =>
+            degradedSources.some((source) => findLatestSourceCacheRecord([record], source))
+          )
+          .sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+
+  return {
+    cacheFallbackRecords,
+    degradedSourceStatesBySourceId,
+    sourceRecordsBySourceId,
+    storeSources
+  };
 }
 
 export async function listGlobalSessionPage(
@@ -55,20 +112,39 @@ export async function listGlobalSessionPage(
   pageInfo: { hasMore: boolean; nextCursor?: string; totalCount: number };
   rows: WorkbenchSessionRecord[];
 }> {
-  const sources = await listCurrentStoreSources(runtime, request.adapterId);
+  const coverage = await loadStoreSourceCoverage(
+    runtime,
+    request.adapterId
+  );
+  return listGlobalSessionPageFromCoverage(runtime, coverage, request);
+}
+
+async function listGlobalSessionPageFromCoverage(
+  runtime: WorkbenchRuntime,
+  coverage: StoreSourceCoverage,
+  request: { adapterId?: string; cursor?: string; limit?: number }
+): Promise<{
+  pageInfo: { hasMore: boolean; nextCursor?: string; totalCount: number };
+  rows: WorkbenchSessionRecord[];
+}> {
+  const { cacheFallbackRecords, storeSources } = coverage;
   const limit = request.limit ?? 50;
   const cursorState = decodeGlobalCursor(request.cursor, request.adapterId);
   const nextCursorBySourceId = { ...(cursorState?.nextCursorBySourceId ?? {}) };
+  let fallbackIndex = cursorState?.fallbackIndex ?? 0;
   const totalCountsBySourceId = new Map<string, number>();
+  const fallbackRows = buildFallbackSessionRows(cacheFallbackRecords);
   const rows: WorkbenchSessionRecord[] = [];
   const heap: Array<{
+    fallbackIndex?: number;
+    kind: "fallback" | "store";
     nextCursor?: string;
     row: WorkbenchSessionRecord;
     sourceId: string;
   }> = [];
 
   await Promise.all(
-    sources.map(async (source) => {
+    storeSources.map(async (source) => {
       const sourceCursor = nextCursorBySourceId[source.sourceId];
       const query = {
         sourceId: source.sourceId,
@@ -82,6 +158,7 @@ export async function listGlobalSessionPage(
 
       if (page.items[0]) {
         heap.push({
+          kind: "store",
           sourceId: source.sourceId,
           row: page.items[0],
           ...(page.pageInfo.nextCursor ? { nextCursor: page.pageInfo.nextCursor } : {})
@@ -90,14 +167,41 @@ export async function listGlobalSessionPage(
     })
   );
 
+  const initialFallbackRow = fallbackRows[fallbackIndex];
+
+  if (initialFallbackRow) {
+    heap.push({
+      fallbackIndex,
+      kind: "fallback",
+      sourceId: initialFallbackRow.session.sourceId,
+      row: initialFallbackRow
+    });
+  }
+
   sortSessionHeap(heap);
 
   while (rows.length < limit && heap[0]) {
     const next = heap.shift()!;
 
     rows.push(next.row);
-    nextCursorBySourceId[next.sourceId] = next.nextCursor;
+    if (next.kind === "fallback") {
+      fallbackIndex = (next.fallbackIndex ?? fallbackIndex) + 1;
 
+      const nextFallbackRow = fallbackRows[fallbackIndex];
+
+      if (nextFallbackRow) {
+        heap.push({
+          fallbackIndex,
+          kind: "fallback",
+          sourceId: nextFallbackRow.session.sourceId,
+          row: nextFallbackRow
+        });
+        sortSessionHeap(heap);
+      }
+      continue;
+    }
+
+    nextCursorBySourceId[next.sourceId] = next.nextCursor;
     const nextCursor = next.nextCursor;
 
     if (!nextCursor) {
@@ -113,6 +217,7 @@ export async function listGlobalSessionPage(
 
     if (page.items[0]) {
       heap.push({
+        kind: "store",
         sourceId: next.sourceId,
         row: page.items[0],
         ...(page.pageInfo.nextCursor ? { nextCursor: page.pageInfo.nextCursor } : {})
@@ -122,7 +227,9 @@ export async function listGlobalSessionPage(
   }
 
   const hasMore = heap.length > 0;
-  const totalCount = [...totalCountsBySourceId.values()].reduce((sum, value) => sum + value, 0);
+  const totalCount =
+    [...totalCountsBySourceId.values()].reduce((sum, value) => sum + value, 0) +
+    fallbackRows.length;
 
   return {
     rows,
@@ -132,6 +239,7 @@ export async function listGlobalSessionPage(
         ? {
             nextCursor: encodeOpaqueCursor<GlobalSessionCursorState>({
               ...(request.adapterId ? { adapterId: request.adapterId } : {}),
+              fallbackIndex,
               nextCursorBySourceIdJson: JSON.stringify(
                 Object.fromEntries(
                   Object.entries(nextCursorBySourceId).filter(([, value]) => Boolean(value))
@@ -147,13 +255,15 @@ export async function listGlobalSessionPage(
 
 export async function listAllStoreSessions(
   runtime: WorkbenchRuntime,
-  adapterId?: string
+  adapterId?: string,
+  coverage?: StoreSourceCoverage
 ): Promise<WorkbenchSessionRecord[]> {
   const rows: WorkbenchSessionRecord[] = [];
   let cursor: string | undefined;
+  const resolvedCoverage = coverage ?? (await loadStoreSourceCoverage(runtime, adapterId));
 
   for (;;) {
-    const page = await listGlobalSessionPage(runtime, {
+    const page = await listGlobalSessionPageFromCoverage(runtime, resolvedCoverage, {
       ...(adapterId ? { adapterId } : {}),
       ...(cursor ? { cursor } : {}),
       limit: 100
@@ -173,9 +283,9 @@ export async function findStoreSessionLocation(
   runtime: WorkbenchRuntime,
   sessionId: string
 ): Promise<StoreSessionLocation | undefined> {
-  const sources = await listCurrentStoreSources(runtime);
+  const coverage = await loadStoreSourceCoverage(runtime);
 
-  for (const source of sources) {
+  for (const source of coverage.storeSources) {
     const rollup = await runtime.entityStore.getSessionRollup({
       sourceId: source.sourceId,
       sessionId
@@ -185,6 +295,18 @@ export async function findStoreSessionLocation(
       return {
         source,
         session: rollup.session
+      };
+    }
+  }
+
+  for (const record of coverage.cacheFallbackRecords) {
+    const session = record.normalized.sessions.find((candidate) => candidate.id === sessionId);
+    const source = coverage.sourceRecordsBySourceId.get(record.sourceId);
+
+    if (session && source) {
+      return {
+        source,
+        session
       };
     }
   }
@@ -254,6 +376,13 @@ function decodeGlobalCursor(
     throw new PaginationValidationError("invalid-cursor");
   }
 
+  if (
+    state.fallbackIndex !== undefined &&
+    (!Number.isInteger(state.fallbackIndex) || state.fallbackIndex < 0)
+  ) {
+    throw new PaginationValidationError("invalid-cursor");
+  }
+
   return {
     ...state,
     nextCursorBySourceId: parseSourceCursorState(state.nextCursorBySourceIdJson)
@@ -284,6 +413,36 @@ function parseSourceCursorState(value: string): Record<string, string | undefine
   }
 
   return sourceCursorState;
+}
+
+function buildFallbackSessionRows(
+  records: NormalizedCacheRecord[]
+): WorkbenchSessionRecord[] {
+  const rows = records.flatMap((record) =>
+    record.normalized.sessions.map((session) => ({
+      session: {
+        ...session,
+        sourceId: record.sourceId
+      }
+    }))
+  );
+
+  rows.sort(compareSessionCursorKeys);
+
+  return rows;
+}
+
+function findLatestSourceCacheRecord(
+  records: NormalizedCacheRecord[],
+  source: SourceRecord
+): NormalizedCacheRecord | undefined {
+  return records.find((candidate) => {
+    if (source.cache.cacheKey && candidate.cacheKey === source.cache.cacheKey) {
+      return true;
+    }
+
+    return candidate.sourceId === source.sourceId;
+  });
 }
 
 function sortSessionHeap(

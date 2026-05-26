@@ -88,6 +88,89 @@ describe("session view model service", () => {
     await expect(service.getSessionById({ sessionId: "missing-session" })).resolves.toBeNull();
   });
 
+  it("restores cache-backed sessions after restart without manual sync", async () => {
+    const runtime = await createTempRuntime(tempDirs);
+    const source = await runtime.sourceRegistry.createSource({
+      adapterId: "fake-test",
+      displayName: "Fixture Source",
+      rootPath: fakeFixturePath
+    });
+    const validated = await runtime.scanner.validateSource(source.sourceId);
+
+    await runtime.scanner.scanSource(validated.source.sourceId);
+
+    const restartedRuntime = createWorkbenchRuntime({
+      appDataDir: runtime.appDataDir,
+      projectDir: process.cwd()
+    });
+    const restartedService = createSessionViewModelService({
+      runtime: restartedRuntime
+    });
+    const firstRestartSessions = await restartedService.listSessions();
+
+    expect(firstRestartSessions.length).toBeGreaterThan(0);
+
+    const secondRestartRuntime = createWorkbenchRuntime({
+      appDataDir: runtime.appDataDir,
+      projectDir: process.cwd()
+    });
+    const secondRestartService = createSessionViewModelService({
+      runtime: secondRestartRuntime
+    });
+    const secondRestartSessions = await secondRestartService.listSessions();
+
+    expect(secondRestartSessions).toHaveLength(firstRestartSessions.length);
+    expect(
+      secondRestartSessions.map((session) => session.sessionId).sort()
+    ).toEqual(
+      firstRestartSessions.map((session) => session.sessionId).sort()
+    );
+  });
+
+  it("keeps newly scanned sources visible after hydration state is cached", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const initialHydrationState = await runtime.getEntityStoreHydrationState();
+    const geminiRoot = path.join(runtime.appDataDir, "gemini-root-post-hydration");
+
+    await cp(geminiFixtureRoot, geminiRoot, { recursive: true });
+
+    const source = await runtime.sourceRegistry.createSource({
+      adapterId: "gemini-cli",
+      displayName: "Gemini Fixture Root",
+      rootPath: geminiRoot
+    });
+    const validated = await runtime.scanner.validateSource(source.sourceId);
+
+    await runtime.scanner.scanSource(validated.source.sourceId);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, validated.source.sourceId);
+
+    expect(initialHydrationState.sourceStates.length).toBeGreaterThan(0);
+    expect(
+      (await runtime.getEntityStoreHydrationState()).sourceStates.some(
+        (state) => state.sourceId === validated.source.sourceId
+      )
+    ).toBe(false);
+
+    const service = createSessionViewModelService({ runtime });
+    const sessions = await service.listSessions();
+    const geminiSession = sessions.find(
+      (session) => session.sourceId === validated.source.sourceId
+    );
+    const page = await service.listSessionsPage?.();
+
+    expect(geminiSession).toBeDefined();
+    expect(geminiSession?.adapterDisplayName).toBe("Gemini CLI");
+    expect(page).toBeDefined();
+    expect(
+      page?.sessions.some((session) => session.sourceId === validated.source.sourceId)
+    ).toBe(true);
+    await expect(
+      service.getSessionById({ sessionId: geminiSession?.sessionId ?? "missing-session" })
+    ).resolves.toMatchObject({
+      sessionId: geminiSession?.sessionId
+    });
+  });
+
   it("renders Gemini-backed sessions through the existing sanitized session service", async () => {
     const runtime = await createTempRuntime(tempDirs);
     const geminiRoot = path.join(runtime.appDataDir, "gemini-root");

@@ -7,7 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createOutputArtifactViewModelService } from "../../../src/main/app/output-artifact-view-model-service.js";
 import { createSessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
 import { createSessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
-import type { WorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
+import type {
+  WorkbenchEntityStoreHydrationState,
+  WorkbenchRuntime
+} from "../../../src/main/app/workbench-runtime.js";
 import type { RawArtifactIndexEntry } from "../../../src/main/core/ingestion/raw-artifact-index.js";
 import type {
   FileMutationEvidence,
@@ -41,7 +44,7 @@ describe("large source hydration removal sentinels", () => {
     );
   });
 
-  it("listSessionsPage serves the first page from store queries without cache hydration", async () => {
+  it("listSessionsPage falls back to store/current-run hydration when source states are omitted", async () => {
     const fixture = createLargeSourceFixture();
     let listLatestRecordsCalls = 0;
     const runtime = createRuntimeStub(fixture, {
@@ -60,6 +63,41 @@ describe("large source hydration removal sentinels", () => {
     expect(listLatestRecordsCalls).toBe(0);
     expect(page.sessions).toHaveLength(2);
     expect(page.pageInfo.totalCount).toBe(fixture.summary.sessionCount);
+  });
+
+  it("listSessionsPage keeps explicit degraded-source fallback behavior", async () => {
+    const fixture = createLargeSourceFixture({ sourceCount: 1 });
+    let listLatestRecordsCalls = 0;
+    const storeSessionPageSourceIds: string[] = [];
+    const runtime = createRuntimeStub(fixture, {
+      hydrationState: {
+        failedSourceIds: [fixture.target.sourceId],
+        sourceStates: [{
+          sourceId: fixture.target.sourceId,
+          status: "cache-fallback",
+          reason: "entity-store hydration failed for this source"
+        }]
+      },
+      onListLatestRecords() {
+        listLatestRecordsCalls += 1;
+      },
+      onSessionPageQuery({ sourceId }) {
+        storeSessionPageSourceIds.push(sourceId);
+      }
+    });
+    const service = createSessionViewModelService({ runtime });
+
+    if (!service.listSessionsPage) {
+      throw new Error("Expected listSessionsPage to be available.");
+    }
+
+    const page = await service.listSessionsPage({ limit: 2 });
+
+    expect(listLatestRecordsCalls).toBe(2);
+    expect(storeSessionPageSourceIds).toEqual([]);
+    expect(page.sessions).toHaveLength(2);
+    expect(page.pageInfo.totalCount).toBe(fixture.summary.sessionCount);
+    expect(page.sessions.every((session) => session.sourceId === fixture.target.sourceId)).toBe(true);
   });
 
   it("getSessionTimeline(limit) only queries the target session timeline from the store", async () => {
@@ -132,6 +170,88 @@ describe("large source hydration removal sentinels", () => {
     expect(sessionDetailCalls).toBe(0);
   });
 
+  it("output artifact preview uses targeted store timeline lookup instead of paging the full session timeline", async () => {
+    const fixture = createLargeSourceFixture();
+    const timelineQueries: Array<{ sourceId: string; sessionId: string }> = [];
+    const targetedLookups: Array<{
+      outputArtifactId: string;
+      sessionId: string;
+      sourceId: string;
+    }> = [];
+    const runtime = createRuntimeStub(fixture, {
+      onTimelineQuery(query) {
+        timelineQueries.push(query);
+      },
+      onTargetedOutputArtifactTimelineLookup(query) {
+        targetedLookups.push(query);
+      }
+    });
+    const service = createOutputArtifactViewModelService({ runtime });
+
+    const preview = await service.getPreview({
+      sessionId: fixture.target.sessionId,
+      outputArtifactId: fixture.target.outputArtifactId
+    });
+
+    expect(preview).toMatchObject({
+      status: "preview-ready",
+      outputArtifactId: fixture.target.outputArtifactId,
+      text: fixture.target.outputArtifactPreview
+    });
+    expect(timelineQueries).toEqual([]);
+    expect(targetedLookups).toEqual([{
+      sourceId: fixture.target.sourceId,
+      sessionId: fixture.target.sessionId,
+      outputArtifactId: fixture.target.outputArtifactId
+    }]);
+  });
+
+  it("output artifact preview returns missing when the artifact belongs to the source but not the requested session", async () => {
+    const fixture = createLargeSourceFixture();
+    const sourceRecord = fixture.records.find(
+      (record) => record.sourceId === fixture.target.sourceId
+    );
+    const otherSessionOnSameSource = sourceRecord?.normalized.sessions.find(
+      (session) => session.id !== fixture.target.sessionId
+    );
+
+    if (!otherSessionOnSameSource) {
+      throw new Error("Expected another session on the target source.");
+    }
+
+    const timelineQueries: Array<{ sourceId: string; sessionId: string }> = [];
+    const targetedLookups: Array<{
+      outputArtifactId: string;
+      sessionId: string;
+      sourceId: string;
+    }> = [];
+    const runtime = createRuntimeStub(fixture, {
+      onTimelineQuery(query) {
+        timelineQueries.push(query);
+      },
+      onTargetedOutputArtifactTimelineLookup(query) {
+        targetedLookups.push(query);
+      }
+    });
+    const service = createOutputArtifactViewModelService({ runtime });
+
+    const preview = await service.getPreview({
+      sessionId: otherSessionOnSameSource.id,
+      outputArtifactId: fixture.target.outputArtifactId
+    });
+
+    expect(preview).toMatchObject({
+      status: "missing",
+      outputArtifactId: fixture.target.outputArtifactId
+    });
+    expect(timelineQueries).toEqual([]);
+    expect(targetedLookups).toEqual([{
+      sourceId: fixture.target.sourceId,
+      sessionId: otherSessionOnSameSource.id,
+      outputArtifactId: fixture.target.outputArtifactId
+    }]);
+  });
+
   it("output artifact load reads the target file without cache hydration or raw index loading", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-large-artifact-load-"));
     const fixture = createLargeSourceFixture({
@@ -176,9 +296,16 @@ describe("large source hydration removal sentinels", () => {
 function createRuntimeStub(
   fixture: LargeSourceFixture,
   hooks: {
+    hydrationState?: WorkbenchEntityStoreHydrationState;
     onListLatestRecords?: () => void;
     onRawArtifactLoad?: () => void;
+    onSessionPageQuery?: (query: { sourceId: string }) => void;
     onTimelineQuery?: (query: { sourceId: string; sessionId: string }) => void;
+    onTargetedOutputArtifactTimelineLookup?: (query: {
+      outputArtifactId: string;
+      sessionId: string;
+      sourceId: string;
+    }) => void;
   } = {}
 ): WorkbenchRuntime {
   const sourcesById = new Map(fixture.sources.map((source) => [source.sourceId, source] as const));
@@ -315,6 +442,9 @@ function createRuntimeStub(
       },
 
       async listSessionsPage(query: WorkbenchSessionPageQuery) {
+        hooks.onSessionPageQuery?.({
+          sourceId: query.sourceId
+        });
         const sessions = (sessionsBySourceId.get(query.sourceId) ?? [])
           .filter((session) => !query.adapterId || session.adapterId === query.adapterId)
           .filter((session) => !query.projectId || session.projectId === query.projectId);
@@ -377,6 +507,27 @@ function createRuntimeStub(
         return outputArtifactsByKey.get(buildOutputArtifactKey(sourceId, outputArtifactId));
       },
 
+      async getOutputArtifactTimelineRecord(
+        {
+          sourceId,
+          sessionId,
+          outputArtifactId
+        }: {
+          outputArtifactId: string;
+          sessionId: string;
+          sourceId: string;
+        }
+      ) {
+        hooks.onTargetedOutputArtifactTimelineLookup?.({
+          sourceId,
+          sessionId,
+          outputArtifactId
+        });
+        return (timelineRecordsBySessionId.get(sessionId) ?? []).find((record) =>
+          (record.outputArtifacts ?? []).some((artifact) => artifact.id === outputArtifactId)
+        );
+      },
+
       async getRawArtifactMetadata(
         { sourceId, artifactId }: { sourceId: string; artifactId: string }
       ) {
@@ -398,6 +549,15 @@ function createRuntimeStub(
         );
       }
     } as unknown as WorkbenchRuntime["entityStore"],
+    async ensureEntityStoreReady() {
+      return undefined;
+    },
+    async getEntityStoreHydrationState() {
+      return hooks.hydrationState ?? {
+        failedSourceIds: [],
+        sourceStates: []
+      };
+    },
     projectDir: "/virtual/project",
     rawArtifactIndex: {
       async load() {

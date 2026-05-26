@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, utilityProcess } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
 
 import { createArchiveImportService } from "./app/archive-import-service.js";
 import { createArchiveExportService } from "./app/archive-export-service.js";
@@ -9,7 +9,6 @@ import { createRunAuditViewModelService } from "./app/run-audit-view-model-servi
 import { createSessionViewModelService } from "./app/session-view-model-service.js";
 import { createSessionDetailViewModelService } from "./app/session-detail-view-model-service.js";
 import { createTriageViewModelService } from "./app/triage-view-model-service.js";
-import { createElectronUtilityScanJobRunner } from "./app/electron-utility-scan-job-runner.js";
 import { createWorkbenchRuntime } from "./app/workbench-runtime.js";
 import { registerIpcHandlers } from "./ipc/index.js";
 import { createThemePreferenceStore } from "./theme/theme-preference-store.js";
@@ -21,12 +20,6 @@ async function bootstrap(): Promise<void> {
 
   const appDataDir = app.getPath("userData");
   const runtime = createWorkbenchRuntime({ appDataDir });
-  runtime.scanJobRunner = createElectronUtilityScanJobRunner({
-    appDataDir,
-    forkUtilityProcess: utilityProcess.fork,
-    projectDir: runtime.projectDir,
-    sourceRegistry: runtime.sourceRegistry
-  });
   const themePreferenceStore = createThemePreferenceStore(appDataDir);
   const themeService = createThemeService({
     nativeTheme,

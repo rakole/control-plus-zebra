@@ -16,6 +16,75 @@ export async function syncAllLatestCacheRecordsToEntityStore(
   }
 }
 
+export interface MissingCurrentRunSyncResult {
+  failedSourceIds: string[];
+  sourceStates: MissingCurrentRunSourceState[];
+}
+
+export interface MissingCurrentRunSourceState {
+  sourceId: string;
+  status: "cache-fallback" | "store-ready";
+  reason?: string;
+}
+
+export async function syncMissingCurrentRunsFromCacheToEntityStore(
+  runtime: WorkbenchRuntime
+): Promise<MissingCurrentRunSyncResult> {
+  const [records, sources] = await Promise.all([
+    runtime.cacheStore.listLatestRecords(),
+    runtime.sourceRegistry.listSources()
+  ]);
+  const failedSourceIds: string[] = [];
+  const sourceStates: MissingCurrentRunSourceState[] = [];
+
+  for (const source of sources) {
+    const currentRun = await runtime.entityStore.getCurrentIngestRun({
+      sourceId: source.sourceId
+    });
+
+    if (currentRun) {
+      sourceStates.push({
+        sourceId: source.sourceId,
+        status: "store-ready"
+      });
+      continue;
+    }
+
+    const record = records.find((candidate) => {
+      if (source.cache.cacheKey && candidate.cacheKey === source.cache.cacheKey) {
+        return true;
+      }
+
+      return candidate.sourceId === source.sourceId;
+    });
+
+    if (!record) {
+      continue;
+    }
+
+    try {
+      await syncCacheRecordToEntityStore(runtime, record, source.sourceId);
+      sourceStates.push({
+        sourceId: source.sourceId,
+        status: "store-ready"
+      });
+    } catch {
+      failedSourceIds.push(source.sourceId);
+      sourceStates.push({
+        sourceId: source.sourceId,
+        status: "cache-fallback",
+        reason:
+          "Latest cached session data remains available because entity-store hydration failed for this source."
+      });
+    }
+  }
+
+  return {
+    failedSourceIds,
+    sourceStates
+  };
+}
+
 export async function syncLatestSourceCacheRecordToEntityStore(
   runtime: WorkbenchRuntime,
   sourceId: string

@@ -124,6 +124,59 @@ describe("data sources view model service", () => {
     );
   });
 
+  it("marks streamed cached truth stale when source identity changes without relying on cache keys", async () => {
+    const runtime = await createTempRuntime(tempDirs);
+    const service = createDataSourcesViewModelService({ runtime });
+    const originalRootPath = fakeFixturePath;
+    const nextRootPath = `${fakeFixturePath}.renamed`;
+    const created = await runtime.sourceRegistry.createSource({
+      adapterId: "fake-test",
+      displayName: "Streamed Fixture Source",
+      rootPath: originalRootPath
+    });
+
+    await runtime.sourceRegistry.saveValidationSummary(created.sourceId, {
+      status: "valid",
+      diagnostics: [],
+      normalizedPath: originalRootPath
+    });
+    await runtime.sourceRegistry.saveScanSummary(created.sourceId, {
+      status: "scanned-with-diagnostics",
+      diagnostics: [],
+      artifactCount: 3,
+      sessionCount: 2
+    });
+    await runtime.sourceRegistry.saveCacheSummary(created.sourceId, {
+      status: "cached",
+      diagnostics: []
+    });
+    await runtime.sourceRegistry.saveWatchSummary(created.sourceId, {
+      status: "unsupported",
+      reason: "The fake adapter does not support live watching."
+    });
+
+    const updated = await service.updateDataSource({
+      sourceId: created.sourceId,
+      rootPath: nextRootPath
+    });
+    const updatedSource = updated.sources[0];
+
+    expect(updatedSource).toBeDefined();
+    if (!updatedSource) {
+      throw new Error("Expected the updated source to be returned.");
+    }
+
+    expect(updatedSource.sourceId).not.toBe(created.sourceId);
+    expect(updatedSource.rootPath).toBe(nextRootPath);
+    expect(updatedSource.validationStatus).toBe("Not Validated");
+    expect(updatedSource.scanStatus).toBe("Stale");
+    expect(updatedSource.scanReason).toBe("Source settings changed. Validate again before scanning.");
+    expect(updatedSource.cacheStatus).toBe("Stale");
+    expect(updatedSource.cacheReason).toBe("Source settings changed. Validate again before scanning.");
+    expect(updatedSource.watchSupport).toBe("Watch Unknown");
+    expect(updatedSource.watchReason).toBe("Validate the source to refresh watch support.");
+  });
+
   it("rejects malformed DTO states", () => {
     expect(() =>
       dataSourceViewModelSchema.parse({

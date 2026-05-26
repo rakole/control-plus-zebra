@@ -149,8 +149,14 @@ describe("SQLiteWorkbenchEntityStore", () => {
     expect(blob.previewText.length).toBeGreaterThan(0);
     expect(blob.previewText.length).toBeLessThan("preview text with more than twelve bytes".length);
     expect(blob.relativePath).toContain("blob-1");
-    expect(await readFile(path.join(path.join(tempDir, "artifact-blobs"), blob.relativePath), "utf8")).toBe(
+    expect(await blobStore.readTextBlob(blob.relativePath)).toBe(
       "preview text with more than twelve bytes"
+    );
+    expect(blobStore.resolveAbsolutePath(blob.relativePath)).toBe(
+      path.join(path.join(tempDir, "artifact-blobs"), blob.relativePath)
+    );
+    expect(() => blobStore.resolveAbsolutePath("../escape.txt")).toThrow(
+      "escapes the configured root directory"
     );
 
     await expect(
@@ -159,6 +165,150 @@ describe("SQLiteWorkbenchEntityStore", () => {
         text: "1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890"
       })
     ).rejects.toThrow("bounded ingestion limit");
+  });
+
+  it("returns archive preflight section counts without hydrating payload rows", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-sqlite-preflight-"));
+    tempDirs.push(tempDir);
+
+    const databasePath = path.join(tempDir, "workbench.sqlite");
+    const store = new SQLiteWorkbenchEntityStore({
+      artifactBlobRootDir: path.join(tempDir, "blobs"),
+      databasePath
+    });
+    const sourceId = "source-preflight";
+    const run = await store.beginIngestRun({
+      adapterId: "fake-test",
+      sourceId,
+      ingestRunId: "run-preflight",
+      startedAt: "2026-05-25T09:00:00.000Z"
+    });
+
+    await store.writeBatch({
+      ingestRunId: run.ingestRunId,
+      adapterId: "fake-test",
+      sourceId,
+      sessions: [{
+        id: "session-preflight",
+        adapterId: "fake-test",
+        sourceId,
+        startedAt: "2026-05-25T09:01:00.000Z",
+        lastUpdatedAt: "2026-05-25T09:01:00.000Z",
+        confidence: CONFIRMED_CONFIDENCE
+      }],
+      events: [{
+        id: "event-preflight",
+        adapterId: "fake-test",
+        sourceId,
+        sessionId: "session-preflight",
+        kind: "message",
+        orderKey: "0001",
+        timestamp: "2026-05-25T09:01:00.000Z",
+        confidence: CONFIRMED_CONFIDENCE
+      }],
+      rawArtifacts: [{
+        artifactId: "artifact-preflight",
+        sourceId,
+        status: "available",
+        sessionId: "session-preflight"
+      }],
+      sessionRollups: [{
+        sourceId,
+        sessionId: "session-preflight",
+        diagnosticCount: 0,
+        rawArtifactCount: 1
+      }]
+    });
+    await store.publishIngestRun({
+      ingestRunId: run.ingestRunId,
+      sourceId,
+      publishedAt: "2026-05-25T09:02:00.000Z"
+    });
+    store.close();
+
+    const db = new DatabaseSync(databasePath);
+    db.prepare("UPDATE sessions SET payload_json = ? WHERE session_id = ?").run("{not valid json", "session-preflight");
+    db.prepare("UPDATE timeline_events SET payload_json = ? WHERE event_id = ?").run("{not valid json", "event-preflight");
+    db.close();
+
+    const reopened = new SQLiteWorkbenchEntityStore({
+      artifactBlobRootDir: path.join(tempDir, "blobs"),
+      databasePath
+    });
+
+    await expect(reopened.getArchivePreflight({ sourceId })).resolves.toMatchObject({
+      adapterId: "fake-test",
+      ingestRunId: "run-preflight",
+      sourceId,
+      sourceRecordCount: 1,
+      totalEntityCount: 5,
+      sectionEntityCounts: expect.objectContaining({
+        sources: 1,
+        sessions: 1,
+        "timeline-events": 1,
+        "session-rollups": 1,
+        "raw-artifact-entries": 1
+      })
+    });
+
+    reopened.close();
+  });
+
+  it("persists blob metadata in sqlite and allows raw artifact metadata to reference it", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-sqlite-blob-ref-"));
+    tempDirs.push(tempDir);
+
+    const store = new SQLiteWorkbenchEntityStore({
+      artifactBlobRootDir: path.join(tempDir, "blobs"),
+      databasePath: path.join(tempDir, "workbench.sqlite")
+    });
+    const blob = await store.writeArtifactBlob({
+      blobId: "artifact-blob-ref",
+      extension: "jsonl",
+      text: "{\"event\":\"chunk\"}\n",
+      createdAt: "2026-05-25T09:00:00.000Z"
+    });
+    const sourceId = "source-blob-ref";
+    const run = await store.beginIngestRun({
+      adapterId: "fake-test",
+      sourceId,
+      ingestRunId: "run-blob-ref",
+      startedAt: "2026-05-25T09:01:00.000Z"
+    });
+
+    await store.writeBatch({
+      ingestRunId: run.ingestRunId,
+      adapterId: "fake-test",
+      sourceId,
+      rawArtifacts: [{
+        artifactId: "artifact-1",
+        sourceId,
+        status: "available",
+        blob
+      }]
+    });
+    await store.publishIngestRun({
+      ingestRunId: run.ingestRunId,
+      sourceId,
+      publishedAt: "2026-05-25T09:02:00.000Z"
+    });
+
+    await expect(store.getArtifactBlob("artifact-blob-ref")).resolves.toEqual(blob);
+    await expect(
+      store.getRawArtifactMetadata({
+        sourceId,
+        artifactId: "artifact-1"
+      })
+    ).resolves.toMatchObject({
+      artifactId: "artifact-1",
+      blob: expect.objectContaining({
+        blobId: "artifact-blob-ref",
+        relativePath: blob.relativePath,
+        createdAt: "2026-05-25T09:00:00.000Z"
+      })
+    });
+
+    store.close();
   });
 
   it("imports normalized cache records in bounded batches without touching startup paths", async () => {

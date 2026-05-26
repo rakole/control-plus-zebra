@@ -27,6 +27,11 @@ export interface SafeFilesystem {
     targetPath: string,
     options?: { artifactId?: RawArtifactId; maxLineBytes?: number }
   ): AsyncIterable<string>;
+  readIndexedTextArtifactChunks(
+    artifactId: RawArtifactId,
+    targetPath: string,
+    options?: { chunkBytes?: number }
+  ): AsyncIterable<string>;
   readIndexedTextArtifact(artifactId: RawArtifactId, targetPath: string): Promise<string>;
 }
 
@@ -126,6 +131,24 @@ export function createSafeFilesystem(options: SafeFilesystemOptions): SafeFilesy
         }
       } finally {
         lineReader.close();
+      }
+    },
+
+    async *readIndexedTextArtifactChunks(artifactId, targetPath, chunkOptions = {}) {
+      await assertPathAllowed(targetPath, options, artifactId);
+      const chunkStream = createReadStream(targetPath, {
+        encoding: "utf8",
+        highWaterMark:
+          chunkOptions.chunkBytes ??
+          DEFAULT_BOUNDED_INGESTION_LIMITS.maxRawArtifactChunkBytes
+      });
+
+      try {
+        for await (const chunk of chunkStream) {
+          yield typeof chunk === "string" ? chunk : chunk.toString("utf8");
+        }
+      } finally {
+        chunkStream.destroy();
       }
     },
 

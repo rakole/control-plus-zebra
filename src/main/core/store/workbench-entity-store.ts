@@ -1,3 +1,4 @@
+import type { ArchiveV3SectionEntityCounts } from "../archive/archive-manifest.js";
 import type { RunAuditResult } from "../audit/types.js";
 import type { Diagnostic, DiagnosticScope, DiagnosticSeverity } from "../diagnostics/diagnostic.js";
 import type { ProjectGitSnapshot } from "../git/git-snapshot-provider.js";
@@ -24,6 +25,7 @@ import type {
   SourceId
 } from "../model/identifiers.js";
 import type { VerificationResult } from "../verification/types.js";
+import type { StoredArtifactBlob, WriteTextBlobInput } from "./artifact-blob-store.js";
 
 export type IngestRunId = string;
 export type WorkbenchIngestRunStatus = "staging" | "published" | "failed" | "cancelled";
@@ -126,6 +128,23 @@ export interface WorkbenchTimelinePage {
   pageInfo: WorkbenchKeysetPageInfo;
 }
 
+export interface WorkbenchArchivePreflight {
+  adapterId: AdapterId;
+  ingestRunId: IngestRunId;
+  sectionEntityCounts: ArchiveV3SectionEntityCounts;
+  sourceId: SourceId;
+  sourceRecordCount: number;
+  totalEntityCount: number;
+}
+
+export interface WorkbenchArtifactBlobRecord extends StoredArtifactBlob {
+  createdAt: string;
+}
+
+export interface WriteWorkbenchArtifactBlobInput extends WriteTextBlobInput {
+  createdAt?: string;
+}
+
 export interface StoredSessionVerificationSnapshot {
   sessionId: SessionId;
   verification: VerificationResult;
@@ -148,6 +167,7 @@ export interface StoredProjectGitHubSnapshot {
 
 export interface WorkbenchRawArtifactMetadataRecord {
   artifactId: RawArtifactId;
+  blob?: WorkbenchArtifactBlobRecord;
   sourceId: SourceId;
   status: "available" | "missing";
   entry?: RawArtifactIndexEntry;
@@ -200,10 +220,22 @@ export interface WorkbenchDiagnosticQuery extends WorkbenchCurrentRunScope {
 
 export interface WorkbenchEntityStore {
   beginIngestRun(input: BeginWorkbenchIngestRunInput): Promise<WorkbenchIngestRun>;
+  clearCurrentIngestRun?(scope: WorkbenchCurrentRunScope): Promise<void>;
   cleanupStaleRuns(input: WorkbenchCleanupStaleRunsInput): Promise<WorkbenchCleanupStaleRunsResult>;
+  getArchivePreflight?(scope: WorkbenchCurrentRunScope): Promise<WorkbenchArchivePreflight | undefined>;
+  getArtifactBlob?(blobId: string): Promise<WorkbenchArtifactBlobRecord | undefined>;
   getCurrentIngestRun(scope: WorkbenchCurrentRunScope): Promise<WorkbenchIngestRun | undefined>;
   getIngestRun(ingestRunId: IngestRunId): Promise<WorkbenchIngestRun | undefined>;
   getOverviewRollup(scope: WorkbenchCurrentRunScope): Promise<WorkbenchOverviewRollup | undefined>;
+  getOutputArtifact?(
+    scope: WorkbenchCurrentRunScope & { outputArtifactId: OutputArtifactId }
+  ): Promise<OutputArtifact | undefined>;
+  getOutputArtifactTimelineRecord?(
+    scope: WorkbenchCurrentRunScope & {
+      outputArtifactId: OutputArtifactId;
+      sessionId: SessionId;
+    }
+  ): Promise<WorkbenchTimelineRecord | undefined>;
   getProjectGitHubSnapshot(
     scope: WorkbenchCurrentRunScope & { projectId: ProjectId }
   ): Promise<StoredProjectGitHubSnapshot | undefined>;
@@ -212,6 +244,9 @@ export interface WorkbenchEntityStore {
   ): Promise<StoredProjectGitSnapshot | undefined>;
   getRawArtifactMetadata(
     scope: WorkbenchCurrentRunScope & { artifactId: RawArtifactId }
+  ): Promise<WorkbenchRawArtifactMetadataRecord | undefined>;
+  getRawArtifactMetadataByOutputArtifactId?(
+    scope: WorkbenchCurrentRunScope & { outputArtifactId: OutputArtifactId }
   ): Promise<WorkbenchRawArtifactMetadataRecord | undefined>;
   listRawArtifactMetadata(scope: WorkbenchCurrentRunScope): Promise<WorkbenchRawArtifactMetadataRecord[]>;
   getSessionRollup(
@@ -228,4 +263,5 @@ export interface WorkbenchEntityStore {
   listProjectRollups(scope: WorkbenchCurrentRunScope): Promise<WorkbenchProjectRollup[]>;
   listSessionsPage(query: WorkbenchSessionPageQuery): Promise<WorkbenchSessionPage>;
   publishIngestRun(input: PublishWorkbenchIngestRunInput): Promise<WorkbenchIngestRun>;
+  writeArtifactBlob?(input: WriteWorkbenchArtifactBlobInput): Promise<WorkbenchArtifactBlobRecord>;
 }

@@ -175,20 +175,29 @@ async function resolveOutputArtifact(
     });
   }
 
-  const timelineRecords = await collectAllSessionTimelineRecords(
+  const degradedState = (await runtime.getEntityStoreHydrationState()).sourceStates.find(
+    (state) => state.sourceId === location.source.sourceId && state.status === "cache-fallback"
+  );
+
+  if (degradedState) {
+    return buildFailureResult("unavailable", request, null, {
+      reason:
+        degradedState.reason ??
+        "This source is temporarily degraded while entity-store hydration retries."
+    });
+  }
+
+  let matchingRecord = await resolveOutputArtifactTimelineRecord(
     runtime,
     location.source.sourceId,
-    request.sessionId
+    request.sessionId,
+    request.outputArtifactId
   );
   const artifact = await runtime.entityStore.getOutputArtifact({
     sourceId: location.source.sourceId,
     outputArtifactId: request.outputArtifactId
   });
-  const matchingRecord = timelineRecords.find((record) =>
-    (record.outputArtifacts ?? []).some(
-      (candidate) => candidate.id === request.outputArtifactId
-    )
-  );
+
   const timelineEntry =
     matchingRecord
       ? buildTimelineEventsFromStore([matchingRecord]).find(
@@ -203,6 +212,29 @@ async function resolveOutputArtifact(
     });
   }
 
+  const rawMetadata = await resolveRawArtifactMetadata(
+    runtime,
+    location.source.sourceId,
+    request.outputArtifactId,
+    artifact
+  );
+  const artifactBelongsToSession =
+    artifact.sessionId === request.sessionId ||
+    (location.session.outputArtifactIds ?? []).includes(request.outputArtifactId) ||
+    rawMetadata?.sessionId === request.sessionId;
+
+  if (!matchingRecord && !artifactBelongsToSession) {
+    return buildFailureResult("missing", request, null, {
+      reason: "The requested output artifact is not present for this session."
+    });
+  }
+
+  if (artifact.sessionId && artifact.sessionId !== request.sessionId) {
+    return buildFailureResult("missing", request, timelineEntry, {
+      reason: "The requested output artifact is not present for this session."
+    });
+  }
+
   if (location.session.capabilities?.tools.sidecarOutputs === false) {
     return buildFailureResult("unsupported", request, timelineEntry, {
       contentKind: artifact.contentKind,
@@ -211,22 +243,17 @@ async function resolveOutputArtifact(
     });
   }
 
-  const rawArtifactId =
-    (artifact.source as { rawArtifactId?: string; artifactId?: string } | undefined)?.rawArtifactId ??
-    (artifact.source as { rawArtifactId?: string; artifactId?: string } | undefined)?.artifactId ??
-    artifact.ref?.id;
   const sourceRecord =
     (await runtime.sourceRegistry.getSource(location.source.sourceId)) ?? location.source;
-  const rawMetadata =
-    rawArtifactId
-      ? await runtime.entityStore.getRawArtifactMetadata({
-          sourceId: location.source.sourceId,
-          artifactId: rawArtifactId
-        })
-      : await runtime.entityStore.getRawArtifactMetadataByOutputArtifactId({
-          sourceId: location.source.sourceId,
-          outputArtifactId: request.outputArtifactId
-        });
+
+  if (rawMetadata?.sessionId && rawMetadata.sessionId !== request.sessionId) {
+    return buildFailureResult("missing", request, timelineEntry, {
+      contentKind: artifact.contentKind,
+      mediaType: artifact.mediaType,
+      reason: "The requested output artifact is not present for this session."
+    });
+  }
+
   const entry = rawMetadata?.entry;
 
   return {
@@ -235,6 +262,70 @@ async function resolveOutputArtifact(
     ...(sourceRecord ? { source: sourceRecord } : {}),
     timelineEntry
   };
+}
+
+async function resolveOutputArtifactTimelineRecord(
+  runtime: WorkbenchRuntime,
+  sourceId: string,
+  sessionId: string,
+  outputArtifactId: string
+) {
+  if (runtime.entityStore.getOutputArtifactTimelineRecord) {
+    return runtime.entityStore.getOutputArtifactTimelineRecord({
+      sourceId,
+      sessionId,
+      outputArtifactId
+    });
+  }
+
+  return resolveOutputArtifactTimelineRecordFromSessionTimeline(
+    runtime,
+    sourceId,
+    sessionId,
+    outputArtifactId
+  );
+}
+
+async function resolveOutputArtifactTimelineRecordFromSessionTimeline(
+  runtime: WorkbenchRuntime,
+  sourceId: string,
+  sessionId: string,
+  outputArtifactId: string
+) {
+  const records = await collectAllSessionTimelineRecords(runtime, sourceId, sessionId);
+
+  return records.find((record) =>
+    (record.outputArtifacts ?? []).some((artifact) => artifact.id === outputArtifactId)
+  );
+}
+
+async function resolveRawArtifactMetadata(
+  runtime: WorkbenchRuntime,
+  sourceId: string,
+  outputArtifactId: string,
+  artifact: OutputArtifact
+) {
+  const metadataByOutputArtifactId =
+    await runtime.entityStore.getRawArtifactMetadataByOutputArtifactId?.({
+      sourceId,
+      outputArtifactId
+    });
+
+  if (metadataByOutputArtifactId) {
+    return metadataByOutputArtifactId;
+  }
+
+  const rawArtifactId =
+    (artifact.source as { rawArtifactId?: string; artifactId?: string } | undefined)?.rawArtifactId ??
+    (artifact.source as { rawArtifactId?: string; artifactId?: string } | undefined)?.artifactId ??
+    artifact.ref?.id;
+
+  return rawArtifactId
+    ? runtime.entityStore.getRawArtifactMetadata({
+        sourceId,
+        artifactId: rawArtifactId
+      })
+    : undefined;
 }
 
 async function prepareIndexedTextArtifact(

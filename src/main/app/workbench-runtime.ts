@@ -10,6 +10,7 @@ import { SQLiteWorkbenchEntityStore } from "../core/store/index.js";
 import { Scanner } from "../core/ingestion/scanner.js";
 import { WatchOrchestrator } from "../core/watcher/watch-orchestrator.js";
 import { createInProcessScanJobRunner, type ScanJobRunner } from "./scan-job-runner.js";
+import { syncMissingCurrentRunsFromCacheToEntityStore } from "./workbench-entity-store-sync.js";
 
 export interface WorkbenchRuntimeOptions {
   appDataDir?: string;
@@ -21,12 +22,25 @@ export interface WorkbenchRuntime {
   adapterRegistry: AdapterRegistry;
   cacheStore: FileBackedCacheStore;
   entityStore: SQLiteWorkbenchEntityStore;
+  ensureEntityStoreReady(): Promise<void>;
+  getEntityStoreHydrationState(): Promise<WorkbenchEntityStoreHydrationState>;
   projectDir: string;
   rawArtifactIndex: RawArtifactIndex;
   scanJobRunner: ScanJobRunner;
   scanner: Scanner;
   sourceRegistry: SourceRegistry;
   watchOrchestrator: WatchOrchestrator;
+}
+
+export interface WorkbenchSourceHydrationState {
+  sourceId: string;
+  status: "cache-fallback" | "store-ready";
+  reason?: string;
+}
+
+export interface WorkbenchEntityStoreHydrationState {
+  failedSourceIds: string[];
+  sourceStates: WorkbenchSourceHydrationState[];
 }
 
 export function createWorkbenchRuntime(
@@ -87,6 +101,8 @@ export function createWorkbenchRuntime(
     adapterRegistry,
     cacheStore,
     entityStore,
+    ensureEntityStoreReady: undefined as unknown as () => Promise<void>,
+    getEntityStoreHydrationState: undefined as unknown as () => Promise<WorkbenchEntityStoreHydrationState>,
     projectDir,
     rawArtifactIndex,
     scanJobRunner: undefined as unknown as ScanJobRunner,
@@ -98,6 +114,48 @@ export function createWorkbenchRuntime(
   runtime.scanJobRunner = createInProcessScanJobRunner({
     getScanner: () => runtime.scanner
   });
+  let entityStoreReady = false;
+  let entityStoreHydrationState: WorkbenchEntityStoreHydrationState = {
+    failedSourceIds: [],
+    sourceStates: []
+  };
+  let entityStoreReadyPromise:
+    | Promise<Awaited<ReturnType<typeof syncMissingCurrentRunsFromCacheToEntityStore>>>
+    | undefined;
+
+  runtime.ensureEntityStoreReady = async () => {
+    if (entityStoreReady) {
+      return;
+    }
+
+    const hydrationPromise =
+      entityStoreReadyPromise ??= syncMissingCurrentRunsFromCacheToEntityStore(runtime);
+
+    try {
+      const result = await hydrationPromise;
+
+      entityStoreHydrationState = {
+        failedSourceIds: [...result.failedSourceIds],
+        sourceStates: result.sourceStates.map((state) => ({ ...state }))
+      };
+
+      if (result.failedSourceIds.length === 0) {
+        entityStoreReady = true;
+      }
+    } finally {
+      if (entityStoreReadyPromise === hydrationPromise) {
+        entityStoreReadyPromise = undefined;
+      }
+    }
+  };
+  runtime.getEntityStoreHydrationState = async () => {
+    await runtime.ensureEntityStoreReady();
+
+    return {
+      failedSourceIds: [...entityStoreHydrationState.failedSourceIds],
+      sourceStates: entityStoreHydrationState.sourceStates.map((state) => ({ ...state }))
+    };
+  };
 
   return runtime;
 }

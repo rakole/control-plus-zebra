@@ -543,23 +543,6 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.getRunAudit, async (_event, payload) => {
-    const request = getSessionByIdRequestSchema.safeParse(payload);
-
-    if (!request.success) {
-      return buildInvalidRequestError() satisfies GetRunAuditResponse;
-    }
-
-    try {
-      return getRunAuditResponseSchema.parse({
-        ok: true,
-        runAudit: await services.runAuditService.getRunAudit(request.data)
-      }) satisfies GetRunAuditResponse;
-    } catch {
-      return buildSessionLoadFailedError() satisfies GetRunAuditResponse;
-    }
-  });
-
   ipcMain.handle(IPC_CHANNELS.getAuditRunAudit, async (_event, payload) => {
     const request = getSessionByIdRequestSchema.safeParse(payload);
 

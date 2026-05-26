@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 
+import { createEmptyArchiveV3SectionEntityCounts } from "../archive/archive-manifest.js";
 import type { Diagnostic } from "../diagnostics/diagnostic.js";
 import { DEFAULT_BOUNDED_INGESTION_LIMITS } from "../ingestion/bounded-ingestion.js";
 import type {
@@ -34,6 +35,8 @@ import type {
   WorkbenchCurrentRunScope,
   WorkbenchDiagnosticQuery,
   WorkbenchEntityStore,
+  WorkbenchArchivePreflight,
+  WorkbenchArtifactBlobRecord,
   WorkbenchIngestRun,
   WorkbenchKeysetPageInfo,
   WorkbenchOverviewRollup,
@@ -47,8 +50,10 @@ import type {
   WorkbenchTimelineCursorKey,
   WorkbenchTimelinePage,
   WorkbenchTimelinePageQuery,
-  WorkbenchTimelineRecord
+  WorkbenchTimelineRecord,
+  WriteWorkbenchArtifactBlobInput
 } from "./workbench-entity-store.js";
+import { ArtifactBlobStore } from "./artifact-blob-store.js";
 
 export interface SQLiteWorkbenchEntityStoreOptions {
   artifactBlobRootDir: string;
@@ -74,9 +79,18 @@ interface SQLiteJsonRow {
   payload_json: string;
 }
 
+interface SQLiteArtifactBlobRow {
+  blob_id: string;
+  byte_length: number;
+  created_at: string;
+  preview_text: string;
+  relative_path: string;
+}
+
 export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityWriter {
   static readonly SCHEMA_VERSION = 1;
 
+  readonly #artifactBlobStore: ArtifactBlobStore;
   readonly #db: DatabaseSync;
   readonly #defaultPageLimit: number;
   readonly #maxEntityBatchSize: number;
@@ -87,6 +101,9 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
     this.#defaultPageLimit = options.defaultPageLimit ?? 50;
     this.#maxEntityBatchSize = options.maxEntityBatchSize ?? DEFAULT_BOUNDED_INGESTION_LIMITS.maxEntityBatchSize;
     this.#maxPageLimit = options.maxPageLimit ?? 100;
+    this.#artifactBlobStore = new ArtifactBlobStore({
+      rootDir: options.artifactBlobRootDir
+    });
 
     mkdirSync(path.dirname(options.databasePath), { recursive: true });
     mkdirSync(options.artifactBlobRootDir, { recursive: true });
@@ -133,6 +150,15 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
     });
   }
 
+  async clearCurrentIngestRun(scope: WorkbenchCurrentRunScope): Promise<void> {
+    this.#prepare(
+      `UPDATE sources
+       SET current_ingest_run_id = NULL,
+           updated_at = ?
+       WHERE source_id = ?`
+    ).run(new Date().toISOString(), scope.sourceId);
+  }
+
   async cleanupStaleRuns(input: WorkbenchCleanupStaleRunsInput): Promise<WorkbenchCleanupStaleRunsResult> {
     const preservePublished = input.preservePublished ?? true;
     const rows = this.#prepare(
@@ -168,6 +194,61 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
       removedCount: removable.length,
       removedIngestRunIds: removable.map((row) => row.ingest_run_id)
     };
+  }
+
+  async getArchivePreflight(
+    scope: WorkbenchCurrentRunScope
+  ): Promise<WorkbenchArchivePreflight | undefined> {
+    const run = await this.getCurrentIngestRun(scope);
+
+    if (!run) {
+      return undefined;
+    }
+
+    const sectionEntityCounts = createEmptyArchiveV3SectionEntityCounts();
+    const countBySection = (tableName: string): number =>
+      this.#countRowsForRun(tableName, run.ingestRunId, scope.sourceId);
+
+    sectionEntityCounts.sources = 1;
+    sectionEntityCounts.projects = countBySection("projects");
+    sectionEntityCounts.sessions = countBySection("sessions");
+    sectionEntityCounts["timeline-events"] = countBySection("timeline_events");
+    sectionEntityCounts.messages = countBySection("messages");
+    sectionEntityCounts["tool-calls"] = countBySection("tool_calls");
+    sectionEntityCounts["shell-commands"] = countBySection("shell_commands");
+    sectionEntityCounts["output-artifacts"] = countBySection("output_artifacts");
+    sectionEntityCounts["file-mutations"] = countBySection("file_mutations");
+    sectionEntityCounts.diagnostics = countBySection("diagnostics");
+    sectionEntityCounts["verification-snapshots"] = countBySection("verification_snapshots");
+    sectionEntityCounts["run-audit-snapshots"] = countBySection("run_audit_snapshots");
+    sectionEntityCounts["git-snapshots"] = countBySection("git_snapshots");
+    sectionEntityCounts["github-snapshots"] = countBySection("github_snapshots");
+    sectionEntityCounts["overview-rollups"] = countBySection("overview_rollups");
+    sectionEntityCounts["project-rollups"] = countBySection("project_rollups");
+    sectionEntityCounts["session-rollups"] = countBySection("session_rollups");
+    sectionEntityCounts["raw-artifact-entries"] = countBySection("raw_artifact_entries");
+
+    return {
+      adapterId: run.adapterId,
+      ingestRunId: run.ingestRunId,
+      sectionEntityCounts,
+      sourceId: scope.sourceId,
+      sourceRecordCount: sectionEntityCounts.sources,
+      totalEntityCount: Object.values(sectionEntityCounts).reduce(
+        (total, count) => total + count,
+        0
+      )
+    };
+  }
+
+  async getArtifactBlob(blobId: string): Promise<WorkbenchArtifactBlobRecord | undefined> {
+    const row = this.#prepare(
+      `SELECT blob_id, relative_path, preview_text, byte_length, created_at
+       FROM artifact_blobs
+       WHERE blob_id = ?`
+    ).get(blobId) as SQLiteArtifactBlobRow | undefined;
+
+    return row ? mapArtifactBlobRow(row) : undefined;
   }
 
   async getCurrentIngestRun(scope: WorkbenchCurrentRunScope): Promise<WorkbenchIngestRun | undefined> {
@@ -282,6 +363,49 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
     ).get(ingestRunId, scope.sourceId, scope.outputArtifactId) as SQLiteJsonRow | undefined;
 
     return row ? parseJson<OutputArtifact>(row.payload_json) : undefined;
+  }
+
+  async getOutputArtifactTimelineRecord(
+    scope: WorkbenchCurrentRunScope & {
+      outputArtifactId: string;
+      sessionId: string;
+    }
+  ): Promise<WorkbenchTimelineRecord | undefined> {
+    const ingestRunId = this.#currentRunId(scope.sourceId);
+
+    if (!ingestRunId) {
+      return undefined;
+    }
+
+    const row = this.#prepare(
+      `SELECT timeline_events.payload_json
+       FROM output_artifacts
+       INNER JOIN timeline_events
+         ON output_artifacts.ingest_run_id = timeline_events.ingest_run_id
+        AND output_artifacts.source_id = timeline_events.source_id
+        AND output_artifacts.source_event_id = timeline_events.event_id
+       WHERE output_artifacts.ingest_run_id = ?
+         AND output_artifacts.source_id = ?
+         AND output_artifacts.output_artifact_id = ?
+         AND timeline_events.session_id = ?
+       LIMIT 1`
+    ).get(
+      ingestRunId,
+      scope.sourceId,
+      scope.outputArtifactId,
+      scope.sessionId
+    ) as SQLiteJsonRow | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    const event = parseJson<SessionEvent>(row.payload_json);
+
+    return {
+      event,
+      ...this.#getTimelineAttachments(ingestRunId, scope.sourceId, event.id)
+    };
   }
 
   async getSessionRollup(
@@ -606,6 +730,33 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
     });
   }
 
+  async writeArtifactBlob(
+    input: WriteWorkbenchArtifactBlobInput
+  ): Promise<WorkbenchArtifactBlobRecord> {
+    const createdAt = input.createdAt ?? new Date().toISOString();
+    const blob = await this.#artifactBlobStore.writeTextBlob(input);
+
+    this.#prepare(
+      `INSERT INTO artifact_blobs (
+         blob_id,
+         relative_path,
+         preview_text,
+         byte_length,
+         created_at
+       ) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(blob_id) DO UPDATE SET
+         relative_path = excluded.relative_path,
+         preview_text = excluded.preview_text,
+         byte_length = excluded.byte_length,
+         created_at = excluded.created_at`
+    ).run(blob.blobId, blob.relativePath, blob.previewText, blob.byteLength, createdAt);
+
+    return {
+      ...blob,
+      createdAt
+    };
+  }
+
   async writeBatch(batch: EntityWriteBatch): Promise<void> {
     this.#assertBatchBounded(batch);
     const run = this.#requireRunForScope(batch);
@@ -780,6 +931,17 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
       | undefined;
 
     return row?.current_ingest_run_id ?? undefined;
+  }
+
+  #countRowsForRun(tableName: string, ingestRunId: string, sourceId: string): number {
+    const row = this.#prepare(
+      `SELECT COUNT(*) AS count
+       FROM ${tableName}
+       WHERE ingest_run_id = ?
+         AND source_id = ?`
+    ).get(ingestRunId, sourceId) as { count: number };
+
+    return row.count;
   }
 
   #getCurrentPayloadRow(
@@ -1573,6 +1735,16 @@ function mapRunRow(row: SQLiteRunRow): WorkbenchIngestRun {
     ...(row.diagnostic_ids_json
       ? { diagnosticIds: parseJson<string[]>(row.diagnostic_ids_json) }
       : {})
+  };
+}
+
+function mapArtifactBlobRow(row: SQLiteArtifactBlobRow): WorkbenchArtifactBlobRecord {
+  return {
+    blobId: row.blob_id,
+    byteLength: row.byte_length,
+    createdAt: row.created_at,
+    previewText: row.preview_text,
+    relativePath: row.relative_path
   };
 }
 

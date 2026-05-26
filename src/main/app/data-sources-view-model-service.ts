@@ -271,11 +271,13 @@ async function markSourceDirtyAfterSettingsChange(
 ): Promise<void> {
   const nextScanStatus: SourceOperationalStatus =
     source.scan.status === "never-scanned" ? "never-scanned" : "stale";
+  const nextCacheStatus: SourceOperationalStatus =
+    source.cache.status === "cached" ? "stale" : source.cache.status;
   const nextCacheSummary: SourceCacheSummary = {
     ...source.cache,
-    status: source.cache.cacheKey ? "stale" : source.cache.status,
+    status: nextCacheStatus,
     diagnostics: source.cache.diagnostics,
-    ...(source.cache.cacheKey ? { reason: settingsChangedReason } : {})
+    ...(nextCacheStatus === "stale" ? { reason: settingsChangedReason } : {})
   };
 
   await runtime.sourceRegistry.saveValidationSummary(source.sourceId, {

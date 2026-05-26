@@ -46,11 +46,12 @@ import {
 import {
   createWorkbenchRuntime,
   type WorkbenchRuntime,
-  type WorkbenchRuntimeOptions
+  type WorkbenchRuntimeOptions,
+  type WorkbenchSourceHydrationState
 } from "./workbench-runtime.js";
 import {
   listAllStoreSessions,
-  listCurrentStoreSources,
+  loadStoreSourceCoverage,
   listProjectRollupsBySourceId
 } from "./store-session-query.js";
 
@@ -73,10 +74,13 @@ export interface LoadedTriageData {
   diagnosticsBySessionId: Map<string, Diagnostic[]>;
   derivedBySessionId: Map<string, DerivedSession>;
   projectSnapshotsByProjectId: Map<string, DerivedProject>;
+  sourceHydrationStatesBySourceId: Map<string, WorkbenchSourceHydrationState>;
 }
 
 interface ProjectRollupInput {
   archiveScope: ArchiveExportScope;
+  degradedArchiveReason?: string;
+  includesDegradedSources: boolean;
   key: string;
   latestSession: Session;
   project?: Project;
@@ -98,6 +102,7 @@ export function createTriageViewModelService(
   const runtime = options.runtime ?? createWorkbenchRuntime(options);
   const archiveExporter = new ArchiveExporter({
     cacheStore: runtime.cacheStore,
+    entityStore: runtime.entityStore,
     rawArtifactIndex: runtime.rawArtifactIndex,
     sourceRegistry: runtime.sourceRegistry
   });
@@ -171,6 +176,12 @@ export function createTriageViewModelService(
             return null;
           }
 
+          const degradedSourceStates = unique(
+            projectSessions
+              .map((session) => data.sourceHydrationStatesBySourceId.get(session.sourceId)?.reason)
+              .filter((reason): reason is string => typeof reason === "string" && reason.length > 0)
+          );
+
           return {
             archiveScope: project?.id
               ? {
@@ -181,6 +192,10 @@ export function createTriageViewModelService(
                   kind: "session",
                   sessionId: latestSession.id
                 },
+            ...(degradedSourceStates[0]
+              ? { degradedArchiveReason: degradedSourceStates[0] }
+              : {}),
+            includesDegradedSources: degradedSourceStates.length > 0,
             key,
             latestSession,
             ...(project ? { project } : {}),
@@ -190,11 +205,19 @@ export function createTriageViewModelService(
         .filter((rollup): rollup is ProjectRollupInput => rollup !== null);
       const archiveExportsByScope = await getArchiveExportsForRollups(
         archiveExporter,
-        projectRollups
+        projectRollups.filter((rollup) => !rollup.includesDegradedSources)
       );
 
       const projects = projectRollups.map(
-        ({ archiveScope, key, latestSession, project, projectSessions }) => {
+        ({
+          archiveScope,
+          degradedArchiveReason,
+          includesDegradedSources,
+          key,
+          latestSession,
+          project,
+          projectSessions
+        }) => {
           const observedHarnesses = unique(
             projectSessions.map(
               (session) => data.descriptors.get(session.adapterId)?.displayName ?? session.adapterId
@@ -204,15 +227,25 @@ export function createTriageViewModelService(
           const projectSnapshot = getProjectGitSnapshot(data, project);
           const githubSnapshot = getProjectGitHubSnapshot(data, project);
           const archiveExport =
-            archiveExportsByScope.get(getArchiveScopeKey(archiveScope)) ??
-            buildUnavailableArchiveExport(
-              {
-                archiveScope,
-                latestSession,
-                projectSessions
-              },
-              project
-            );
+            includesDegradedSources
+              ? buildUnavailableArchiveExport(
+                  {
+                    archiveScope,
+                    latestSession,
+                    projectSessions
+                  },
+                  project,
+                  degradedArchiveReason
+                )
+              : archiveExportsByScope.get(getArchiveScopeKey(archiveScope)) ??
+                buildUnavailableArchiveExport(
+                  {
+                    archiveScope,
+                    latestSession,
+                    projectSessions
+                  },
+                  project
+                );
 
           const projectDisplayName = getProjectDisplayName(project) ?? "Unknown Project";
 
@@ -264,8 +297,25 @@ async function getArchiveExportsForRollups(
   }
 
   try {
+    const projectSourceCoverageByProjectId = new Map(
+      rollups
+        .filter(
+          (
+            rollup
+          ): rollup is ProjectRollupInput & {
+            archiveScope: Extract<ArchiveExportScope, { kind: "project" }>;
+          } => rollup.archiveScope.kind === "project"
+        )
+        .map((rollup) => [
+          rollup.archiveScope.projectId,
+          unique(rollup.projectSessions.map((session) => session.sourceId)).sort((left, right) =>
+            left.localeCompare(right)
+          )
+        ] as const)
+    );
     const archiveExports = await archiveExporter.getScopeAvailabilities(
-      rollups.map((rollup) => rollup.archiveScope)
+      rollups.map((rollup) => rollup.archiveScope),
+      { projectSourceCoverageByProjectId }
     );
 
     for (const archiveExport of archiveExports) {
@@ -288,12 +338,13 @@ async function getArchiveExportsForRollups(
   return archiveExportsByScope;
 }
 
-function buildUnavailableArchiveExport(
+export function buildUnavailableArchiveExport(
   rollup: Pick<
     ProjectRollupInput,
     "archiveScope" | "latestSession" | "projectSessions"
   >,
-  project?: Project
+  project?: Project,
+  reason = "Archive export availability could not be resolved for this scope."
 ): ArchiveExportAvailability {
   return {
     scopeKind: rollup.archiveScope.kind,
@@ -309,8 +360,7 @@ function buildUnavailableArchiveExport(
     sourceCount: 0,
     rawArtifactsAvailable: false,
     rawArtifactCount: 0,
-    rawArtifactsReason:
-      "Archive export availability could not be resolved for this scope."
+    rawArtifactsReason: reason
   };
 }
 
@@ -324,6 +374,13 @@ export async function loadTriageData(
   runtime: WorkbenchRuntime
 ): Promise<LoadedTriageData> {
   const records = await runtime.cacheStore.listLatestRecords();
+  return buildLoadedTriageDataFromCacheRecords(runtime, records);
+}
+
+function buildLoadedTriageDataFromCacheRecords(
+  runtime: WorkbenchRuntime,
+  records: NormalizedCacheRecord[]
+): LoadedTriageData {
   const merged = mergeNormalizedResults(records.map((record) => record.normalized));
   const projects = merged?.projects ?? [];
   const sessions = merged?.sessions ?? [];
@@ -355,7 +412,8 @@ export async function loadTriageData(
     fileMutationsBySessionId: groupBy(fileMutations, (mutation) => mutation.sessionId),
     diagnosticsBySessionId: buildDiagnosticsBySession(records, sessions),
     derivedBySessionId: buildDerivedBySession(records),
-    projectSnapshotsByProjectId: buildDerivedByProject(records)
+    projectSnapshotsByProjectId: buildDerivedByProject(records),
+    sourceHydrationStatesBySourceId: new Map()
   };
 }
 
@@ -366,16 +424,25 @@ export async function loadStoreTriageData(
     includeSessionDiagnostics?: boolean;
   } = {}
 ): Promise<LoadedTriageData> {
-  const [descriptors, sources, sessionRows] = await Promise.all([
+  const coveragePromise = loadStoreSourceCoverage(runtime, adapterId);
+  const [descriptors, coverage] = await Promise.all([
     Promise.resolve(runtime.adapterRegistry.listDescriptors()),
-    listCurrentStoreSources(runtime, adapterId),
-    listAllStoreSessions(runtime, adapterId)
+    coveragePromise
   ]);
+  const sessionRows = await listAllStoreSessions(runtime, adapterId, coverage);
+  const fallbackData = buildLoadedTriageDataFromCacheRecords(
+    runtime,
+    coverage.cacheFallbackRecords
+  );
   const sessions = sessionRows.map((row) => row.session);
   const projectRollups = (
-    await Promise.all(sources.map((source) => listProjectRollupsBySourceId(runtime, source.sourceId)))
+    await Promise.all(
+      coverage.storeSources.map((source) =>
+        listProjectRollupsBySourceId(runtime, source.sourceId)
+      )
+    )
   ).flatMap((rollupsByProjectId) => [...rollupsByProjectId.values()]);
-  const diagnosticsBySessionId = new Map<string, Diagnostic[]>();
+  const diagnosticsBySessionId = new Map(fallbackData.diagnosticsBySessionId);
 
   if (options.includeSessionDiagnostics) {
     const diagnosticsBySession = await Promise.all(
@@ -393,7 +460,7 @@ export async function loadStoreTriageData(
     }
   }
 
-  return {
+  const storeData: LoadedTriageData = {
     descriptors: new Map(
       descriptors.map((descriptor) => [descriptor.id, descriptor] as const)
     ),
@@ -427,6 +494,49 @@ export async function loadStoreTriageData(
             ...(rollup.github ? { github: rollup.github } : {})
           }
         ] as const)
+    ),
+    sourceHydrationStatesBySourceId: coverage.degradedSourceStatesBySourceId
+  };
+
+  return mergeLoadedTriageData(storeData, fallbackData);
+}
+
+function mergeLoadedTriageData(
+  primary: LoadedTriageData,
+  fallback: LoadedTriageData
+): LoadedTriageData {
+  return {
+    descriptors: mergeMaps(primary.descriptors, fallback.descriptors),
+    records: [...primary.records, ...fallback.records],
+    projectsById: mergeMaps(primary.projectsById, fallback.projectsById),
+    sessionsById: mergeMaps(primary.sessionsById, fallback.sessionsById),
+    eventsBySessionId: mergeGroupedMaps(primary.eventsBySessionId, fallback.eventsBySessionId),
+    messagesBySessionId: mergeGroupedMaps(primary.messagesBySessionId, fallback.messagesBySessionId),
+    toolCallsBySessionId: mergeGroupedMaps(primary.toolCallsBySessionId, fallback.toolCallsBySessionId),
+    shellCommandsBySessionId: mergeGroupedMaps(
+      primary.shellCommandsBySessionId,
+      fallback.shellCommandsBySessionId
+    ),
+    outputArtifactsBySessionId: mergeGroupedMaps(
+      primary.outputArtifactsBySessionId,
+      fallback.outputArtifactsBySessionId
+    ),
+    fileMutationsBySessionId: mergeGroupedMaps(
+      primary.fileMutationsBySessionId,
+      fallback.fileMutationsBySessionId
+    ),
+    diagnosticsBySessionId: mergeGroupedMaps(
+      primary.diagnosticsBySessionId,
+      fallback.diagnosticsBySessionId
+    ),
+    derivedBySessionId: mergeMaps(primary.derivedBySessionId, fallback.derivedBySessionId),
+    projectSnapshotsByProjectId: mergeMaps(
+      primary.projectSnapshotsByProjectId,
+      fallback.projectSnapshotsByProjectId
+    ),
+    sourceHydrationStatesBySourceId: mergeMaps(
+      primary.sourceHydrationStatesBySourceId,
+      fallback.sourceHydrationStatesBySourceId
     )
   };
 }
@@ -894,6 +1004,20 @@ export function toFieldState(
     displayValue,
     ...(reason ? { reason } : {})
   };
+}
+
+function mergeMaps<TKey, TValue>(
+  primary: Map<TKey, TValue>,
+  fallback: Map<TKey, TValue>
+): Map<TKey, TValue> {
+  return new Map([...fallback, ...primary]);
+}
+
+function mergeGroupedMaps<TKey, TValue>(
+  primary: Map<TKey, TValue[]>,
+  fallback: Map<TKey, TValue[]>
+): Map<TKey, TValue[]> {
+  return mergeMaps(primary, fallback);
 }
 
 export function sanitizeText(value: string): string {

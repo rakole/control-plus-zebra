@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -63,6 +63,24 @@ export class ArtifactBlobStore {
       previewText: truncateUtf8ByBytes(input.text, this.#maxPreviewBytes),
       relativePath
     };
+  }
+
+  async readTextBlob(relativePath: string): Promise<string> {
+    return readFile(this.resolveAbsolutePath(relativePath), "utf8");
+  }
+
+  resolveAbsolutePath(relativePath: string): string {
+    const absolutePath = path.resolve(this.#rootDir, relativePath);
+    const normalizedRootDir = path.resolve(this.#rootDir);
+
+    if (
+      absolutePath !== normalizedRootDir &&
+      !absolutePath.startsWith(`${normalizedRootDir}${path.sep}`)
+    ) {
+      throw new Error("Artifact blob path escapes the configured root directory.");
+    }
+
+    return absolutePath;
   }
 }
 
