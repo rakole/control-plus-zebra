@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router";
 
 import { MetricCard } from "../../../components/app/metric-card.js";
@@ -10,11 +11,16 @@ type OverviewResponse = Awaited<ReturnType<Window["agentWorkbench"]["getDashboar
 type OverviewView = Extract<OverviewResponse, { ok: true }>["stats"];
 
 interface OverviewSummaryProps {
+  activityPanel: ReactNode;
   overview: OverviewView;
   selectedAdapterId?: string;
 }
 
-export function OverviewSummary({ overview, selectedAdapterId = "all" }: OverviewSummaryProps) {
+export function OverviewSummary({
+  activityPanel,
+  overview,
+  selectedAdapterId = "all"
+}: OverviewSummaryProps) {
   const adapterQuery =
     selectedAdapterId === "all"
       ? ""
@@ -54,39 +60,16 @@ export function OverviewSummary({ overview, selectedAdapterId = "all" }: Overvie
               }))}
             />
             <div className="flex flex-wrap justify-end gap-2">
-              <Button asChild variant="outline">
+              <Button asChild>
                 <Link to={`/projects${adapterQuery}`}>Open Projects</Link>
               </Button>
-              <Button asChild variant="outline">
+              <Button asChild>
                 <Link to={`/sessions${adapterQuery}`}>Open Sessions</Link>
               </Button>
             </div>
           </SectionCard>
         </section>
-
-        <section aria-label="Recent Activity">
-          <SectionCard
-            title={<h2>Recent Activity</h2>}
-            description="Track recent session volume and explicit attention counts over time."
-          >
-            <MetadataGrid
-              items={
-                overview.activity.length > 0
-                  ? overview.activity.flatMap((point) => [
-                      {
-                        label: point.day,
-                        value: formatCount(point.sessionCount, "session")
-                      },
-                      {
-                        label: `${point.day} Needs Attention`,
-                        value: `${point.needsAttentionCount} need attention`
-                      }
-                    ])
-                  : [{ label: "Activity", value: "No recent session activity" }]
-              }
-            />
-          </SectionCard>
-        </section>
+        {activityPanel}
       </div>
     </>
   );

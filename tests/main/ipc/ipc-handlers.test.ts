@@ -11,10 +11,14 @@ import type { SessionViewModelService } from "../../../src/main/app/session-view
 import type { SessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
 import type { ThemeService } from "../../../src/main/theme/theme-service.js";
 import type { TriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
-import { PaginationValidationError } from "../../../src/main/core/store/index.js";
+import {
+  PaginationValidationError,
+  encodeOpaqueCursor
+} from "../../../src/main/core/store/index.js";
 import {
   createArchiveResponseSchema,
   dashboardStatsResponseSchema,
+  getOverviewActivityHeatmapResponseSchema,
   getSessionResponseSchema,
   sessionTimelineResponseSchema,
   getRunAuditResponseSchema,
@@ -51,6 +55,7 @@ describe("ipc handlers", () => {
       IPC_CHANNELS.createArchive,
       IPC_CHANNELS.openArchive,
       IPC_CHANNELS.getDashboardStats,
+      IPC_CHANNELS.getOverviewActivityHeatmap,
       IPC_CHANNELS.listProjects,
       IPC_CHANNELS.getProject,
       IPC_CHANNELS.listSessions,
@@ -123,6 +128,69 @@ describe("ipc handlers", () => {
     });
   });
 
+  it("accepts opaque listSessions cursors without widening timeline pagination", async () => {
+    const collector = createIpcCollector();
+    const services = createFakeServices();
+    const requestCursor = encodeOpaqueCursor({
+      adapterId: "fake-test",
+      fallbackIndex: 0,
+      nextCursorBySourceIdJson: "{}"
+    });
+    const responseCursor = encodeOpaqueCursor({
+      adapterId: "fake-test",
+      fallbackIndex: 1,
+      nextCursorBySourceIdJson: "{}"
+    });
+    const requests: unknown[] = [];
+
+    services.sessionService.listSessionsPage = async (request = {}) => {
+      requests.push(request);
+      return {
+        sessions: await services.sessionService.listSessions(),
+        pageInfo: {
+          hasMore: true,
+          nextCursor: responseCursor,
+          totalCount: 1
+        }
+      };
+    };
+    registerIpcHandlers(collector, services);
+
+    const list = await collector.invoke(IPC_CHANNELS.listSessions, {
+      adapterId: "fake-test",
+      cursor: requestCursor,
+      limit: 25
+    });
+    const timeline = await collector.invoke(IPC_CHANNELS.getSessionTimeline, {
+      sessionId: "session_1",
+      cursor: requestCursor
+    });
+
+    expect(requests).toEqual([
+      {
+        adapterId: "fake-test",
+        cursor: requestCursor,
+        limit: 25
+      }
+    ]);
+    expect(() => listSessionsResponseSchema.parse(list)).not.toThrow();
+    expect(list).toMatchObject({
+      ok: true,
+      pageInfo: {
+        hasMore: true,
+        nextCursor: responseCursor,
+        totalCount: 1
+      }
+    });
+    expect(timeline).toEqual({
+      ok: false,
+      error: {
+        code: "invalid-request",
+        message: "Request payload is not valid for this operation."
+      }
+    });
+  });
+
   it("returns schema-valid DTOs for shell, list, and get handlers", async () => {
     const collector = createIpcCollector();
 
@@ -135,6 +203,7 @@ describe("ipc handlers", () => {
       privacyWarningAcknowledged: true
     });
     const overview = await collector.invoke(IPC_CHANNELS.getDashboardStats);
+    const heatmap = await collector.invoke(IPC_CHANNELS.getOverviewActivityHeatmap);
     const projects = await collector.invoke(IPC_CHANNELS.listProjects);
     const list = await collector.invoke(IPC_CHANNELS.listSessions);
     const get = await collector.invoke(IPC_CHANNELS.getSession, { sessionId: "session_1" });
@@ -158,6 +227,7 @@ describe("ipc handlers", () => {
     expect(() => shellStateViewModelSchema.parse(shell)).not.toThrow();
     expect(() => createArchiveResponseSchema.parse(archive)).not.toThrow();
     expect(() => dashboardStatsResponseSchema.parse(overview)).not.toThrow();
+    expect(() => getOverviewActivityHeatmapResponseSchema.parse(heatmap)).not.toThrow();
     expect(() => listProjectsResponseSchema.parse(projects)).not.toThrow();
     expect(() => listSessionsResponseSchema.parse(list)).not.toThrow();
     expect(() => getSessionResponseSchema.parse(get)).not.toThrow();
@@ -167,6 +237,35 @@ describe("ipc handlers", () => {
     expect(() => getRunAuditResponseSchema.parse(runAudit)).not.toThrow();
     expect(() => listDiagnosticsResponseSchema.parse(diagnostics)).not.toThrow();
     expect(() => sourcesResponseSchema.parse(sources)).not.toThrow();
+  });
+
+  it("routes the dedicated overview heatmap request through the triage service", async () => {
+    const collector = createIpcCollector();
+    const services = createFakeServices();
+    const requests: unknown[] = [];
+
+    services.triageService.getOverviewActivityHeatmap = async (request) => {
+      requests.push(request ?? {});
+      return {
+        buckets: Array.from({ length: 30 }, (_, index) => ({
+          day: `2026-05-${String(index + 1).padStart(2, "0")}`,
+          sessionCount: index === 29 ? 1 : 0,
+          needsAttentionCount: index === 29 ? 1 : 0
+        })),
+        coverageState: {
+          label: "Available",
+          tone: "info"
+        }
+      };
+    };
+    registerIpcHandlers(collector, services);
+
+    const response = await collector.invoke(IPC_CHANNELS.getOverviewActivityHeatmap, {
+      adapterId: "fake-test"
+    });
+
+    expect(requests).toEqual([{ adapterId: "fake-test" }]);
+    expect(() => getOverviewActivityHeatmapResponseSchema.parse(response)).not.toThrow();
   });
 
   it("does not register the retired sessions run-audit alias", () => {
@@ -323,6 +422,7 @@ function createFakeServices(): {
           IPC_CHANNELS.createArchive,
           IPC_CHANNELS.openArchive,
           IPC_CHANNELS.getDashboardStats,
+          IPC_CHANNELS.getOverviewActivityHeatmap,
           IPC_CHANNELS.listProjects,
           IPC_CHANNELS.listSessions,
           IPC_CHANNELS.getSession,
@@ -435,6 +535,19 @@ function createFakeServices(): {
           { adapterId: "fake-test", label: "Fake Test Harness", sessionCount: 1 }
         ],
         activity: [{ day: "2026-05-23", sessionCount: 1, needsAttentionCount: 1 }]
+      };
+    },
+    async getOverviewActivityHeatmap() {
+      return {
+        buckets: Array.from({ length: 30 }, (_, index) => ({
+          day: `2026-04-${String(index + 1).padStart(2, "0")}`,
+          sessionCount: index === 29 ? 1 : 0,
+          needsAttentionCount: index === 29 ? 1 : 0
+        })),
+        coverageState: {
+          label: "Available",
+          tone: "info"
+        }
       };
     },
     async listProjects() {

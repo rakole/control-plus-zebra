@@ -264,11 +264,18 @@ export function createRunAuditViewModelService(
                 label: "Recent Commands",
                 value:
                   preview.triageMetrics.commands.status === "value"
-                    ? commands
-                        .slice(0, 3)
-                        .map((command) => `${command.command} (${humanizeResult(command.result)})`)
-                        .join(", ") || "None"
+                    ? commands.length > 0
+                      ? "Recent command activity"
+                      : "None"
                     : preview.triageMetrics.commands.displayValue,
+                kind: "command-list",
+                commands:
+                  preview.triageMetrics.commands.status === "value"
+                    ? commands.map((command) => ({
+                        command: command.command,
+                        result: humanizeResult(command.result)
+                      }))
+                    : [],
                 tone: "neutral"
               }
             ]
@@ -594,11 +601,18 @@ async function buildCacheFallbackRunAuditViewModel(
             label: "Recent Commands",
             value:
               preview.triageMetrics.commands.status === "value"
-                ? commands
-                    .slice(0, 3)
-                    .map((command) => `${command.command} (${humanizeResult(command.result)})`)
-                    .join(", ") || "None"
+                ? commands.length > 0
+                  ? "Recent command activity"
+                  : "None"
                 : preview.triageMetrics.commands.displayValue,
+            kind: "command-list",
+            commands:
+              preview.triageMetrics.commands.status === "value"
+                ? commands.map((command) => ({
+                    command: command.command,
+                    result: humanizeResult(command.result)
+                  }))
+                : [],
             tone: "neutral"
           }
         ]

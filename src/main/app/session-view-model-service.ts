@@ -1,7 +1,6 @@
 import {
   ALLOWED_IPC_CHANNELS,
   type GetSessionByIdRequest,
-  type ListSessionsRequest,
   type SessionPreviewViewModel,
   type SessionSummaryViewModel,
   type ShellStateViewModel,
@@ -28,11 +27,17 @@ import type { Session } from "../core/model/entities.js";
 export interface SessionViewModelService {
   getShellState(): ShellStateViewModel;
   listSessions(): Promise<SessionSummaryViewModel[]>;
-  listSessionsPage?(request?: ListSessionsRequest): Promise<{
+  listSessionsPage?(request?: SessionListPageRequest): Promise<{
     pageInfo: { hasMore: boolean; nextCursor?: string; totalCount: number };
     sessions: SessionSummaryViewModel[];
   }>;
   getSessionById(request: GetSessionByIdRequest): Promise<SessionPreviewViewModel | null>;
+}
+
+export interface SessionListPageRequest {
+  adapterId?: string | undefined;
+  cursor?: string | undefined;
+  limit?: number | undefined;
 }
 
 export interface SessionViewModelServiceOptions extends WorkbenchRuntimeOptions {

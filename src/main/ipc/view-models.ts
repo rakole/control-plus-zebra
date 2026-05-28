@@ -16,6 +16,7 @@ const operationChannelSchema = z.enum([
   "export:createArchive",
   "import:openArchive",
   "dashboard:getStats",
+  "dashboard:getOverviewActivityHeatmap",
   "projects:list",
   "projects:get",
   "sessions:list",
@@ -174,6 +175,28 @@ export const pageInfoViewModelSchema = z
   .strict();
 export type PageInfoViewModel = z.infer<typeof pageInfoViewModelSchema>;
 
+export const listSessionsCursorSchema = z.string().min(1);
+export type ListSessionsCursor = z.infer<typeof listSessionsCursorSchema>;
+
+export const listSessionsPageSizeSchema = z.union([
+  z.literal(10),
+  z.literal(25),
+  z.literal(50),
+  z.literal(100)
+]);
+export type ListSessionsPageSize = z.infer<typeof listSessionsPageSizeSchema>;
+
+export const listSessionsPageInfoViewModelSchema = z
+  .object({
+    nextCursor: listSessionsCursorSchema.optional(),
+    hasMore: z.boolean(),
+    totalCount: z.number().int().nonnegative().optional()
+  })
+  .strict();
+export type ListSessionsPageInfoViewModel = z.infer<
+  typeof listSessionsPageInfoViewModelSchema
+>;
+
 export const harnessFilterOptionViewModelSchema = z
   .object({
     adapterId: z.string().min(1),
@@ -228,6 +251,16 @@ export const overviewViewModelSchema = z
   })
   .strict();
 export type OverviewViewModel = z.infer<typeof overviewViewModelSchema>;
+
+export const overviewActivityHeatmapViewModelSchema = z
+  .object({
+    buckets: z.array(overviewActivityPointViewModelSchema).length(30),
+    coverageState: truthStateViewModelSchema
+  })
+  .strict();
+export type OverviewActivityHeatmapViewModel = z.infer<
+  typeof overviewActivityHeatmapViewModelSchema
+>;
 
 export const archiveExportAvailabilitySchema = z
   .object({
@@ -384,7 +417,18 @@ export const runAuditItemViewModelSchema = z
     label: z.string().min(1),
     value: z.string().min(1),
     tone: truthStateToneSchema.optional(),
-    hint: z.string().min(1).optional()
+    hint: z.string().min(1).optional(),
+    kind: z.enum(["text", "command-list"]).optional(),
+    commands: z
+      .array(
+        z
+          .object({
+            command: z.string().min(1),
+            result: z.string().min(1)
+          })
+          .strict()
+      )
+      .optional()
   })
   .strict();
 export type RunAuditItemViewModel = z.infer<typeof runAuditItemViewModelSchema>;
@@ -498,6 +542,29 @@ export const getOverviewResponseSchema = z.discriminatedUnion("ok", [
 ]);
 export type GetOverviewResponse = z.infer<typeof getOverviewResponseSchema>;
 
+export const getOverviewActivityHeatmapRequestSchema = getOverviewRequestSchema;
+export type GetOverviewActivityHeatmapRequest = z.infer<
+  typeof getOverviewActivityHeatmapRequestSchema
+>;
+
+export const getOverviewActivityHeatmapResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      heatmap: overviewActivityHeatmapViewModelSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type GetOverviewActivityHeatmapResponse = z.infer<
+  typeof getOverviewActivityHeatmapResponseSchema
+>;
+
 export const listProjectsRequestSchema = z
   .object({
     adapterId: z.string().min(1).optional()
@@ -524,8 +591,8 @@ export type ListProjectsResponse = z.infer<typeof listProjectsResponseSchema>;
 export const listSessionsRequestSchema = z
   .object({
     adapterId: z.string().min(1).optional(),
-    cursor: pagedRequestSchema.shape.cursor,
-    limit: pagedRequestSchema.shape.limit
+    cursor: listSessionsCursorSchema.optional(),
+    limit: listSessionsPageSizeSchema.optional()
   })
   .strict();
 export type ListSessionsRequest = z.infer<typeof listSessionsRequestSchema>;
@@ -535,7 +602,7 @@ export const listSessionsResponseSchema = z.discriminatedUnion("ok", [
     .object({
       ok: z.literal(true),
       sessions: z.array(sessionSummaryViewModelSchema),
-      pageInfo: pageInfoViewModelSchema.optional()
+      pageInfo: listSessionsPageInfoViewModelSchema.optional()
     })
     .strict(),
   z

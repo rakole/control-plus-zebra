@@ -132,6 +132,142 @@ describe("SQLiteWorkbenchEntityStore", () => {
     reopened.close();
   });
 
+  it("lists overview activity buckets without hydrating sessions or timeline payload rows", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-sqlite-heatmap-"));
+    tempDirs.push(tempDir);
+
+    const databasePath = path.join(tempDir, "workbench.sqlite");
+    const store = new SQLiteWorkbenchEntityStore({
+      artifactBlobRootDir: path.join(tempDir, "blobs"),
+      databasePath
+    });
+    const sourceId = "source-heatmap";
+    const run = await store.beginIngestRun({
+      adapterId: "fake-test",
+      sourceId,
+      ingestRunId: "run-heatmap",
+      startedAt: "2026-05-25T09:00:00.000Z"
+    });
+
+    await store.writeBatch({
+      ingestRunId: run.ingestRunId,
+      adapterId: "fake-test",
+      sourceId,
+      sessions: [
+        {
+          id: "session-heatmap-clean",
+          adapterId: "fake-test",
+          sourceId,
+          startedAt: "2026-05-25T09:01:00.000Z",
+          lastUpdatedAt: "2026-05-25T09:01:00.000Z",
+          confidence: CONFIRMED_CONFIDENCE
+        },
+        {
+          id: "session-heatmap-needs-review",
+          adapterId: "fake-test",
+          sourceId,
+          startedAt: "2026-05-25T10:01:00.000Z",
+          lastUpdatedAt: "2026-05-25T10:01:00.000Z",
+          confidence: CONFIRMED_CONFIDENCE
+        }
+      ],
+      events: [
+        {
+          id: "event-heatmap-clean",
+          adapterId: "fake-test",
+          sourceId,
+          sessionId: "session-heatmap-clean",
+          kind: "message",
+          orderKey: "0001",
+          timestamp: "2026-05-25T09:01:00.000Z",
+          confidence: CONFIRMED_CONFIDENCE
+        },
+        {
+          id: "event-heatmap-needs-review",
+          adapterId: "fake-test",
+          sourceId,
+          sessionId: "session-heatmap-needs-review",
+          kind: "message",
+          orderKey: "0002",
+          timestamp: "2026-05-25T10:01:00.000Z",
+          confidence: CONFIRMED_CONFIDENCE
+        }
+      ],
+      sessionRollups: [
+        {
+          sourceId,
+          sessionId: "session-heatmap-clean",
+          latestActivityAt: "2026-05-25T09:01:00.000Z",
+          runAudit: {
+            status: "clean",
+            attentionReasons: [],
+            confidence: CONFIRMED_CONFIDENCE,
+            completionClaim: "unknown",
+            supportingCommandIds: [],
+            supportingMessageIds: [],
+            supportingToolCallIds: []
+          }
+        },
+        {
+          sourceId,
+          sessionId: "session-heatmap-needs-review",
+          latestActivityAt: "2026-05-25T10:01:00.000Z",
+          runAudit: {
+            status: "needs-review",
+            attentionReasons: [],
+            confidence: CONFIRMED_CONFIDENCE,
+            completionClaim: "unknown",
+            supportingCommandIds: [],
+            supportingMessageIds: [],
+            supportingToolCallIds: []
+          }
+        }
+      ]
+    });
+    await store.publishIngestRun({
+      ingestRunId: run.ingestRunId,
+      sourceId,
+      publishedAt: "2026-05-25T11:00:00.000Z"
+    });
+    store.close();
+
+    const db = new DatabaseSync(databasePath);
+    db.prepare("UPDATE sessions SET payload_json = ? WHERE session_id = ?").run(
+      "{not valid json",
+      "session-heatmap-clean"
+    );
+    db.prepare("UPDATE timeline_events SET payload_json = ? WHERE event_id = ?").run(
+      "{not valid json",
+      "event-heatmap-clean"
+    );
+    db.close();
+
+    const reopened = new SQLiteWorkbenchEntityStore({
+      artifactBlobRootDir: path.join(tempDir, "blobs"),
+      databasePath
+    });
+
+    await expect(
+      reopened.listOverviewActivityBuckets({
+        sourceId,
+        startDay: "2026-05-25",
+        endDay: "2026-05-25"
+      })
+    ).resolves.toEqual([
+      {
+        day: "2026-05-25",
+        sessionCount: 2,
+        needsAttentionCount: 1
+      }
+    ]);
+    await expect(reopened.listSessionsPage({ sourceId, limit: 10 })).rejects.toThrow();
+    await expect(
+      reopened.getSessionTimelinePage({ sourceId, sessionId: "session-heatmap-clean", limit: 10 })
+    ).rejects.toThrow();
+
+    reopened.close();
+  });
+
   it("stores blob previews with filesystem references and rejects oversized content", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-blob-store-"));
     tempDirs.push(tempDir);

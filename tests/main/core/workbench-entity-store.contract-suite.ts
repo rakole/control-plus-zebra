@@ -25,6 +25,8 @@ import type {
   WorkbenchDiagnosticQuery,
   WorkbenchEntityStore,
   WorkbenchIngestRun,
+  WorkbenchOverviewActivityBucket,
+  WorkbenchOverviewActivityQuery,
   WorkbenchOverviewRollup,
   WorkbenchProjectRollup,
   WorkbenchRawArtifactMetadataRecord,
@@ -616,6 +618,51 @@ export class FakeWorkbenchEntityStore implements WorkbenchEntityStore, EntityWri
 
   async getOverviewRollup(scope: WorkbenchCurrentRunScope): Promise<WorkbenchOverviewRollup | undefined> {
     return this.#getCurrentRunState(scope.sourceId)?.overviewRollup;
+  }
+
+  async listOverviewActivityBuckets(
+    query: WorkbenchOverviewActivityQuery
+  ): Promise<WorkbenchOverviewActivityBucket[]> {
+    const run = this.#getCurrentRunState(query.sourceId);
+
+    if (!run) {
+      return [];
+    }
+
+    const countsByDay = new Map<string, WorkbenchOverviewActivityBucket>();
+
+    for (const session of run.sessions) {
+      const stamp = session.lastUpdatedAt ?? session.startedAt;
+
+      if (!stamp) {
+        continue;
+      }
+
+      const day = stamp.slice(0, 10);
+
+      if (day < query.startDay || day > query.endDay) {
+        continue;
+      }
+
+      const runAudit =
+        run.runAuditSnapshots.get(session.id)?.audit ??
+        run.sessionRollups.get(session.id)?.runAudit ??
+        session.runAudit;
+      const current = countsByDay.get(day) ?? {
+        day,
+        needsAttentionCount: 0,
+        sessionCount: 0
+      };
+
+      current.sessionCount += 1;
+      if (!runAudit || runAudit.status !== "clean") {
+        current.needsAttentionCount += 1;
+      }
+
+      countsByDay.set(day, current);
+    }
+
+    return [...countsByDay.values()].sort((left, right) => left.day.localeCompare(right.day));
   }
 
   async getProjectGitHubSnapshot(

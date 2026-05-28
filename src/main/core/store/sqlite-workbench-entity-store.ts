@@ -39,6 +39,8 @@ import type {
   WorkbenchArtifactBlobRecord,
   WorkbenchIngestRun,
   WorkbenchKeysetPageInfo,
+  WorkbenchOverviewActivityBucket,
+  WorkbenchOverviewActivityQuery,
   WorkbenchOverviewRollup,
   WorkbenchProjectRollup,
   WorkbenchRawArtifactMetadataRecord,
@@ -76,6 +78,11 @@ interface SQLiteRunRow {
 }
 
 interface SQLiteJsonRow {
+  payload_json: string;
+}
+
+interface SQLiteOverviewActivityRow {
+  latest_activity_at: string;
   payload_json: string;
 }
 
@@ -265,6 +272,52 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
     ).get(ingestRunId) as SQLiteRunRow | undefined;
 
     return row ? mapRunRow(row) : undefined;
+  }
+
+  async listOverviewActivityBuckets(
+    query: WorkbenchOverviewActivityQuery
+  ): Promise<WorkbenchOverviewActivityBucket[]> {
+    const ingestRunId = this.#currentRunId(query.sourceId);
+
+    if (!ingestRunId) {
+      return [];
+    }
+
+    const rows = this.#prepare(
+      `SELECT latest_activity_at, payload_json
+       FROM session_rollups
+       WHERE ingest_run_id = ?
+         AND source_id = ?
+         AND latest_activity_at >= ?
+         AND latest_activity_at < ?
+       ORDER BY latest_activity_at ASC, session_id ASC`
+    ).all(
+      ingestRunId,
+      query.sourceId,
+      query.startDay,
+      isoDayAfter(query.endDay)
+    ) as unknown as SQLiteOverviewActivityRow[];
+    const countsByDay = new Map<string, WorkbenchOverviewActivityBucket>();
+
+    for (const row of rows) {
+      const day = row.latest_activity_at.slice(0, 10);
+      const rollup = parseJson<WorkbenchSessionRollup>(row.payload_json);
+      const runAudit = rollup.runAudit ?? rollup.session?.runAudit;
+      const current = countsByDay.get(day) ?? {
+        day,
+        needsAttentionCount: 0,
+        sessionCount: 0
+      };
+
+      current.sessionCount += 1;
+      if (!runAudit || runAudit.status !== "clean") {
+        current.needsAttentionCount += 1;
+      }
+
+      countsByDay.set(day, current);
+    }
+
+    return [...countsByDay.values()].sort((left, right) => left.day.localeCompare(right.day));
   }
 
   async getOverviewRollup(scope: WorkbenchCurrentRunScope): Promise<WorkbenchOverviewRollup | undefined> {
@@ -1761,6 +1814,13 @@ function mostRecentTimestamp(current: string, batch: EntityWriteBatch): string {
   ].filter((value) => value.length > 0);
 
   return timestamps.sort().at(-1) ?? current;
+}
+
+function isoDayAfter(day: string): string {
+  const date = new Date(`${day}T00:00:00.000Z`);
+
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
 }
 
 function parseJson<TValue>(json: string): TValue {

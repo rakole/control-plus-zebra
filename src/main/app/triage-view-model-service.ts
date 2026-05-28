@@ -23,16 +23,20 @@ import type {
 } from "../core/model/entities.js";
 import { deriveVerificationForSession } from "../core/verification/verification-classifier.js";
 import {
+  getOverviewActivityHeatmapRequestSchema,
   getOverviewRequestSchema,
   listProjectsRequestSchema,
+  overviewActivityHeatmapViewModelSchema,
   overviewViewModelSchema,
   projectSummaryViewModelSchema,
   sessionPreviewViewModelSchema,
   sessionSummaryViewModelSchema,
   type FieldValueViewModel,
+  type GetOverviewActivityHeatmapRequest,
   type GetOverviewRequest,
   type ListProjectsRequest,
   type MetricStateViewModel,
+  type OverviewActivityHeatmapViewModel,
   type OverviewViewModel,
   type ProjectSummaryViewModel,
   type SessionPreviewViewModel,
@@ -51,6 +55,7 @@ import {
 } from "./workbench-runtime.js";
 import {
   listAllStoreSessions,
+  listStoreOverviewActivityHeatmapBuckets,
   loadStoreSourceCoverage,
   listProjectRollupsBySourceId
 } from "./store-session-query.js";
@@ -89,16 +94,21 @@ interface ProjectRollupInput {
 
 export interface TriageViewModelService {
   getOverview(request?: GetOverviewRequest): Promise<OverviewViewModel>;
+  getOverviewActivityHeatmap(
+    request?: GetOverviewActivityHeatmapRequest
+  ): Promise<OverviewActivityHeatmapViewModel>;
   listProjects(request?: ListProjectsRequest): Promise<ProjectSummaryViewModel[]>;
 }
 
 export interface TriageViewModelServiceOptions extends WorkbenchRuntimeOptions {
+  now?: () => Date;
   runtime?: WorkbenchRuntime;
 }
 
 export function createTriageViewModelService(
   options: TriageViewModelServiceOptions = {}
 ): TriageViewModelService {
+  const now = options.now ?? (() => new Date());
   const runtime = options.runtime ?? createWorkbenchRuntime(options);
   const archiveExporter = new ArchiveExporter({
     cacheStore: runtime.cacheStore,
@@ -148,6 +158,27 @@ export function createTriageViewModelService(
         usageSummary: buildOverviewUsageSummary(data, sessions),
         harnessFilters: buildHarnessFilters(data, sessions),
         activity: buildActivitySeries(data, sessions)
+      });
+    },
+
+    async getOverviewActivityHeatmap(request) {
+      const parsed = getOverviewActivityHeatmapRequestSchema.parse(request ?? {});
+      const window = buildLast30DayWindow(now());
+      const coverage = await loadStoreSourceCoverage(runtime, parsed.adapterId);
+      const buckets = await listStoreOverviewActivityHeatmapBuckets(
+        runtime,
+        {
+          startDay: window.startDay,
+          endDay: window.endDay
+        },
+        coverage
+      );
+
+      return overviewActivityHeatmapViewModelSchema.parse({
+        buckets: buildFixedOverviewActivityBuckets(window.days, buckets),
+        coverageState: buildOverviewActivityCoverageState(
+          coverage.degradedSourceStatesBySourceId
+        )
       });
     },
 
@@ -1198,6 +1229,54 @@ function buildActivitySeries(
     .sort((left, right) => left.day.localeCompare(right.day));
 }
 
+function buildFixedOverviewActivityBuckets(
+  days: string[],
+  buckets: Array<{
+    day: string;
+    needsAttentionCount: number;
+    sessionCount: number;
+  }>
+): OverviewActivityHeatmapViewModel["buckets"] {
+  const bucketsByDay = new Map(buckets.map((bucket) => [bucket.day, bucket] as const));
+
+  return days.map((day) => {
+    const bucket = bucketsByDay.get(day);
+
+    return {
+      day,
+      sessionCount: bucket?.sessionCount ?? 0,
+      needsAttentionCount: bucket?.needsAttentionCount ?? 0
+    };
+  });
+}
+
+function buildOverviewActivityCoverageState(
+  degradedSourceStatesBySourceId: Map<string, WorkbenchSourceHydrationState>
+): TruthStateViewModel {
+  if (degradedSourceStatesBySourceId.size === 0) {
+    return { label: "Available", tone: "info" };
+  }
+
+  const degradedReasons = unique(
+    [...degradedSourceStatesBySourceId.values()]
+      .map((state) => state.reason)
+      .filter((reason): reason is string => typeof reason === "string" && reason.length > 0)
+  );
+  const sourceLabel =
+    degradedSourceStatesBySourceId.size === 1
+      ? "1 source"
+      : `${degradedSourceStatesBySourceId.size} sources`;
+
+  return {
+    label: "Unknown",
+    tone: "neutral",
+    reason:
+      degradedReasons[0]
+        ? `Activity heatmap includes cache-fallback data for ${sourceLabel} because ${degradedReasons[0]}`
+        : `Activity heatmap includes cache-fallback data for ${sourceLabel} because not every source is store-ready.`
+  };
+}
+
 function buildOverviewUsageSummary(
   data: LoadedTriageData,
   sessions: Session[]
@@ -1499,6 +1578,32 @@ function getFirstPrompt(data: LoadedTriageData, sessionId: string): string | und
     : undefined;
 }
 
+function buildLast30DayWindow(currentDate: Date): {
+  days: string[];
+  endDay: string;
+  startDay: string;
+} {
+  const endDate = new Date(
+    Date.UTC(
+      currentDate.getUTCFullYear(),
+      currentDate.getUTCMonth(),
+      currentDate.getUTCDate()
+    )
+  );
+  const startDate = addUtcDays(endDate, -29);
+  const days: string[] = [];
+
+  for (let index = 0; index < 30; index += 1) {
+    days.push(toIsoDay(addUtcDays(startDate, index)));
+  }
+
+  return {
+    days,
+    endDay: toIsoDay(endDate),
+    startDay: toIsoDay(startDate)
+  };
+}
+
 function getLatestTimestamp(sessions: Session[]): string | undefined {
   return sessions
     .map((session) => getSessionActivityTimestamp(session))
@@ -1508,6 +1613,13 @@ function getLatestTimestamp(sessions: Session[]): string | undefined {
 
 function getSessionActivityTimestamp(session: Session): string | undefined {
   return getSessionEndedAt(session) ?? session.startedAt;
+}
+
+function addUtcDays(date: Date, dayDelta: number): Date {
+  const next = new Date(date);
+
+  next.setUTCDate(next.getUTCDate() + dayDelta);
+  return next;
 }
 
 function groupBy<TItem>(
@@ -1592,6 +1704,10 @@ function truncate(value: string, limit: number): string {
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function toIsoDay(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }
 
 function getGitUnavailableReason(gitSnapshot?: DerivedProject["git"]): string {

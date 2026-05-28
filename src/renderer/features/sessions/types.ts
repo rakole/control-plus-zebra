@@ -10,6 +10,9 @@ import {
 export type CreateArchiveResponse = Awaited<ReturnType<typeof createArchive>>;
 export type ListSessionsResponse = Awaited<ReturnType<typeof listSessions>>;
 export type SessionSummary = Extract<ListSessionsResponse, { ok: true }>["sessions"][number];
+export type ListSessionsPageInfo = NonNullable<
+  Extract<ListSessionsResponse, { ok: true }>["pageInfo"]
+>;
 
 export type GetSessionByIdResponse = Awaited<ReturnType<typeof getSession>>;
 export type SessionPreviewView = NonNullable<
@@ -31,6 +34,7 @@ export type RunAuditView = NonNullable<
   Extract<GetRunAuditResponse, { ok: true }>["runAudit"]
 >;
 export type RunAuditSection = RunAuditView["sections"][number];
+export type RunAuditItem = RunAuditSection["items"][number];
 
 export function flattenSessionCapabilities(
   capabilityGroups: SessionCapabilityGroup[]

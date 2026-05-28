@@ -8,6 +8,10 @@ import { createTriageViewModelService } from "../../../src/main/app/triage-view-
 import { createSessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import { createWorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
 import {
+  PaginationValidationError,
+  encodeOpaqueCursor
+} from "../../../src/main/core/store/index.js";
+import {
   syncAllLatestCacheRecordsToEntityStore,
   syncLatestSourceCacheRecordToEntityStore
 } from "../../../src/main/app/workbench-entity-store-sync.js";
@@ -169,6 +173,23 @@ describe("session view model service", () => {
     ).resolves.toMatchObject({
       sessionId: geminiSession?.sessionId
     });
+  });
+
+  it("rejects stale opaque listSessions cursors", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const service = createSessionViewModelService({ runtime });
+
+    await expect(
+      service.listSessionsPage?.({
+        cursor: encodeOpaqueCursor({
+          adapterId: "gemini-cli",
+          fallbackIndex: 0,
+          nextCursorBySourceIdJson: "{}"
+        })
+      })
+    ).rejects.toMatchObject({
+      code: "invalid-cursor"
+    } satisfies Pick<PaginationValidationError, "code">);
   });
 
   it("renders Gemini-backed sessions through the existing sanitized session service", async () => {

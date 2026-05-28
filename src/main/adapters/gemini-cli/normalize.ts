@@ -629,7 +629,7 @@ function buildNormalizedGeminiCliResult(args: {
           role,
           ...(record.record.timestamp ? { timestamp: record.record.timestamp } : {}),
           text: recordText,
-          ...(record.record.model ? { modelName: record.record.model } : {}),
+          ...(record.record.model ? { modelName: resolveModelName(record.record.model) } : {}),
           ...(record.record.tokens ? { usage: toUsageSummary(record.record.tokens) } : {}),
           toolCallIds: [],
           eventIds: [messageEventId],
@@ -1282,16 +1282,27 @@ function buildSessionTitle(session: SessionAccumulator): string {
   return firstLog?.entry.message.slice(0, 80) ?? "Gemini CLI session";
 }
 
+const TABNINE_MODEL_ALISES: Readonly<Record<string, string>> = {
+    "d5ff943b-972a-45e7-9242-a3367c907078": "Claude 4.6 Sonnet",
+    "01a524ea-36d3-4ebd-a78a-ff5ed37b1533": "GPT-5.4"
+}
+
+function resolveModelName(model: string): string {
+    return TABNINE_MODEL_ALISES[model] ?? model;
+}
+
 function toMessageRole(type: string): "user" | "assistant" | "system" | "tool" | "unknown" {
   switch (type) {
     case "user":
       return "user";
     case "gemini":
+    case "tabnine":
       return "assistant";
     case "tool":
       return "tool";
     case "system":
     case "info":
+    case "error":
       return "system";
     default:
       return "unknown";

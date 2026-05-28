@@ -184,6 +184,17 @@ export interface WorkbenchOverviewRollup {
   sessionCount: number;
 }
 
+export interface WorkbenchOverviewActivityBucket {
+  day: string;
+  needsAttentionCount: number;
+  sessionCount: number;
+}
+
+export interface WorkbenchOverviewActivityQuery extends WorkbenchCurrentRunScope {
+  endDay: string;
+  startDay: string;
+}
+
 export interface WorkbenchProjectRollup {
   sourceId: SourceId;
   latestActivityAt?: string;
@@ -226,6 +237,9 @@ export interface WorkbenchEntityStore {
   getArtifactBlob?(blobId: string): Promise<WorkbenchArtifactBlobRecord | undefined>;
   getCurrentIngestRun(scope: WorkbenchCurrentRunScope): Promise<WorkbenchIngestRun | undefined>;
   getIngestRun(ingestRunId: IngestRunId): Promise<WorkbenchIngestRun | undefined>;
+  listOverviewActivityBuckets(
+    query: WorkbenchOverviewActivityQuery
+  ): Promise<WorkbenchOverviewActivityBucket[]>;
   getOverviewRollup(scope: WorkbenchCurrentRunScope): Promise<WorkbenchOverviewRollup | undefined>;
   getOutputArtifact?(
     scope: WorkbenchCurrentRunScope & { outputArtifactId: OutputArtifactId }

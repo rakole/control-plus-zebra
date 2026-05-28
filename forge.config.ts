@@ -1,6 +1,7 @@
 const config = {
   packagerConfig: {
-    asar: true
+    asar: true,
+    icon: "build/icons/zebra-icon"
   },
   rebuildConfig: {},
   makers: [

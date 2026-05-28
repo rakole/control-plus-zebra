@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
+import path from "node:path";
 
 import { createArchiveImportService } from "./app/archive-import-service.js";
 import { createArchiveExportService } from "./app/archive-export-service.js";
@@ -17,6 +18,7 @@ import { createMainWindow } from "./window.js";
 
 async function bootstrap(): Promise<void> {
   await app.whenReady();
+  applyDockIcon();
 
   const appDataDir = app.getPath("userData");
   const runtime = createWorkbenchRuntime({ appDataDir });
@@ -70,6 +72,15 @@ app.on("window-all-closed", () => {
 });
 
 void bootstrap();
+
+function applyDockIcon(): void {
+  if (process.platform !== "darwin" || app.isPackaged || !app.dock) {
+    return;
+  }
+
+  const dockIconPath = path.join(app.getAppPath(), "build", "icons", "zebra-icon.png");
+  app.dock.setIcon(dockIconPath);
+}
 
 function registerThemeWindow(
   themeService: ReturnType<typeof createThemeService>,

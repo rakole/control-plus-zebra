@@ -55,6 +55,22 @@ describe("run audit view model service", () => {
         expect.objectContaining({ label: "Pull Request", value: "No Matching PR" })
       ])
     );
+    expect(runAudit?.sections.find((section) => section.title === "Commands")?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Observed Commands" }),
+        expect.objectContaining({ label: "Failed Commands" }),
+        expect.objectContaining({
+          label: "Recent Commands",
+          kind: "command-list",
+          commands: expect.arrayContaining([
+            expect.objectContaining({
+              command: "npm run typecheck",
+              result: "Passed"
+            })
+          ])
+        })
+      ])
+    );
   });
 
   it("uses store-backed archive availability truth for v3-imported sessions on Run Audit", async () => {

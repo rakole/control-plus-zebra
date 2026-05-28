@@ -7,6 +7,7 @@ import {
   encodeOpaqueCursor
 } from "../core/store/index.js";
 import type {
+  WorkbenchOverviewActivityBucket,
   WorkbenchProjectRollup,
   WorkbenchSessionCursorKey,
   WorkbenchSessionRecord,
@@ -35,6 +36,12 @@ export interface StoreSourceCoverage {
   degradedSourceStatesBySourceId: Map<string, WorkbenchSourceHydrationState>;
   sourceRecordsBySourceId: Map<string, SourceRecord>;
   storeSources: SourceRecord[];
+}
+
+export interface StoreOverviewActivityHeatmapBucket {
+  day: string;
+  needsAttentionCount: number;
+  sessionCount: number;
 }
 
 export async function listCurrentStoreSources(
@@ -279,6 +286,61 @@ export async function listAllStoreSessions(
   }
 }
 
+export async function listStoreOverviewActivityHeatmapBuckets(
+  runtime: WorkbenchRuntime,
+  request: {
+    endDay: string;
+    startDay: string;
+  },
+  coverage?: StoreSourceCoverage
+): Promise<StoreOverviewActivityHeatmapBucket[]> {
+  const resolvedCoverage = coverage ?? (await loadStoreSourceCoverage(runtime));
+  const countsByDay = new Map<string, StoreOverviewActivityHeatmapBucket>();
+  const storeBuckets = await Promise.all(
+    resolvedCoverage.storeSources.map((source) =>
+      runtime.entityStore.listOverviewActivityBuckets({
+        sourceId: source.sourceId,
+        startDay: request.startDay,
+        endDay: request.endDay
+      })
+    )
+  );
+
+  for (const bucket of storeBuckets.flat()) {
+    mergeOverviewActivityBucket(countsByDay, bucket);
+  }
+
+  for (const record of resolvedCoverage.cacheFallbackRecords) {
+    const derivedAuditBySessionId = new Map(
+      (record.derived?.sessions ?? []).map((session) => [session.sessionId, session.audit] as const)
+    );
+
+    for (const session of record.normalized.sessions) {
+      const stamp = session.lastUpdatedAt ?? session.startedAt;
+
+      if (!stamp) {
+        continue;
+      }
+
+      const day = stamp.slice(0, 10);
+
+      if (day < request.startDay || day > request.endDay) {
+        continue;
+      }
+
+      const runAudit = session.runAudit ?? derivedAuditBySessionId.get(session.id);
+
+      mergeOverviewActivityBucket(countsByDay, {
+        day,
+        sessionCount: 1,
+        needsAttentionCount: runAudit?.status === "clean" ? 0 : 1
+      });
+    }
+  }
+
+  return [...countsByDay.values()].sort((left, right) => left.day.localeCompare(right.day));
+}
+
 export async function findStoreSessionLocation(
   runtime: WorkbenchRuntime,
   sessionId: string
@@ -430,6 +492,21 @@ function buildFallbackSessionRows(
   rows.sort(compareSessionCursorKeys);
 
   return rows;
+}
+
+function mergeOverviewActivityBucket(
+  countsByDay: Map<string, StoreOverviewActivityHeatmapBucket>,
+  bucket: WorkbenchOverviewActivityBucket | StoreOverviewActivityHeatmapBucket
+): void {
+  const current = countsByDay.get(bucket.day) ?? {
+    day: bucket.day,
+    needsAttentionCount: 0,
+    sessionCount: 0
+  };
+
+  current.sessionCount += bucket.sessionCount;
+  current.needsAttentionCount += bucket.needsAttentionCount;
+  countsByDay.set(bucket.day, current);
 }
 
 function findLatestSourceCacheRecord(

@@ -4,6 +4,7 @@ import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter
 import { ArchiveImporter } from "../../../src/main/core/archive/archive-importer.js";
 import { createSessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import { createTriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
+import { createConfidenceScore } from "../../../src/main/core/model/confidence.js";
 import {
   cleanupTempDirs,
   createHydrationDegradedRuntimeFromSeed,
@@ -73,6 +74,76 @@ describe("triage view model service", () => {
     expect(degradedProject?.gitStatus.label).toBe("Unknown");
     expect(gitBackedProject?.pullRequest.displayValue).toBe("No Matching PR");
     expect(JSON.stringify(projects)).not.toContain("rawEvents");
+  }, 15000);
+
+  it("returns exactly 30 heatmap buckets and honors the adapter filter", async () => {
+    const runtime = await createTempRuntime(tempDirs);
+    const fakeSource = await runtime.sourceRegistry.createSource({
+      adapterId: "fake-test",
+      displayName: "Fake Heatmap Source",
+      rootPath: `${runtime.appDataDir}/fake-heatmap-source`
+    });
+    const geminiSource = await runtime.sourceRegistry.createSource({
+      adapterId: "gemini-cli",
+      displayName: "Gemini Heatmap Source",
+      rootPath: `${runtime.appDataDir}/gemini-heatmap-source`
+    });
+
+    await seedHeatmapSource(runtime, fakeSource.sourceId, "fake-test", [
+      { sessionId: "fake-start", lastUpdatedAt: "2026-04-29T08:00:00.000Z", runAuditStatus: "clean" },
+      {
+        sessionId: "fake-end",
+        lastUpdatedAt: "2026-05-28T09:30:00.000Z",
+        runAuditStatus: "needs-review"
+      },
+      {
+        sessionId: "fake-outside-range",
+        lastUpdatedAt: "2026-04-28T09:30:00.000Z",
+        runAuditStatus: "clean"
+      }
+    ]);
+    await seedHeatmapSource(runtime, geminiSource.sourceId, "gemini-cli", [
+      {
+        sessionId: "gemini-end",
+        lastUpdatedAt: "2026-05-28T10:00:00.000Z",
+        runAuditStatus: "needs-review"
+      }
+    ]);
+
+    const triageService = createTriageViewModelService({
+      runtime,
+      now: () => new Date("2026-05-28T12:00:00.000Z")
+    });
+    const heatmap = await triageService.getOverviewActivityHeatmap({
+      adapterId: "fake-test"
+    });
+
+    expect(heatmap.coverageState).toEqual({
+      label: "Available",
+      tone: "info"
+    });
+    expect(heatmap.buckets).toHaveLength(30);
+    expect(heatmap.buckets[0]).toEqual({
+      day: "2026-04-29",
+      sessionCount: 1,
+      needsAttentionCount: 0
+    });
+    expect(heatmap.buckets.at(-1)).toEqual({
+      day: "2026-05-28",
+      sessionCount: 1,
+      needsAttentionCount: 1
+    });
+    expect(heatmap.buckets.find((bucket) => bucket.day === "2026-05-27")).toEqual({
+      day: "2026-05-27",
+      sessionCount: 0,
+      needsAttentionCount: 0
+    });
+    expect(
+      heatmap.buckets.reduce((total, bucket) => total + bucket.sessionCount, 0)
+    ).toBe(2);
+    expect(
+      heatmap.buckets.reduce((total, bucket) => total + bucket.needsAttentionCount, 0)
+    ).toBe(1);
   }, 15000);
 
   it("loads archive availability once for Projects route rollups", async () => {
@@ -390,4 +461,83 @@ function upsertBySessionId<TItem extends { sessionId: string }>(
   }
 
   return items.map((item, itemIndex) => (itemIndex === index ? replacement : item));
+}
+
+async function seedHeatmapSource(
+  runtime: Awaited<ReturnType<typeof createTempRuntime>>,
+  sourceId: string,
+  adapterId: string,
+  sessions: Array<{
+    lastUpdatedAt: string;
+    runAuditStatus:
+      | "active"
+      | "cancelled"
+      | "verification-failed"
+      | "incomplete"
+      | "needs-review"
+      | "clean"
+      | "unknown";
+    sessionId: string;
+  }>
+): Promise<void> {
+  const run = await runtime.entityStore.beginIngestRun({
+    adapterId,
+    sourceId,
+    ingestRunId: `run-${sourceId}`,
+    startedAt: sessions[0]?.lastUpdatedAt ?? "2026-05-28T00:00:00.000Z"
+  });
+
+  await runtime.entityStore.writeBatch({
+    ingestRunId: run.ingestRunId,
+    adapterId,
+    sourceId,
+    sessions: sessions.map(({ sessionId, lastUpdatedAt, runAuditStatus }) => ({
+      id: sessionId,
+      adapterId,
+      sourceId,
+      startedAt: lastUpdatedAt,
+      lastUpdatedAt,
+      runAudit: {
+        status: runAuditStatus,
+        attentionReasons: [],
+        confidence: createConfidenceScore("confirmed"),
+        completionClaim: "unknown",
+        supportingCommandIds: [],
+        supportingMessageIds: [],
+        supportingToolCallIds: []
+      },
+      confidence: createConfidenceScore("confirmed")
+    })),
+    runAuditSnapshots: sessions.map(({ sessionId, runAuditStatus }) => ({
+      sessionId,
+      audit: {
+        status: runAuditStatus,
+        attentionReasons: [],
+        confidence: createConfidenceScore("confirmed"),
+        completionClaim: "unknown",
+        supportingCommandIds: [],
+        supportingMessageIds: [],
+        supportingToolCallIds: []
+      }
+    })),
+    sessionRollups: sessions.map(({ sessionId, lastUpdatedAt, runAuditStatus }) => ({
+      sourceId,
+      sessionId,
+      latestActivityAt: lastUpdatedAt,
+      runAudit: {
+        status: runAuditStatus,
+        attentionReasons: [],
+        confidence: createConfidenceScore("confirmed"),
+        completionClaim: "unknown",
+        supportingCommandIds: [],
+        supportingMessageIds: [],
+        supportingToolCallIds: []
+      }
+    }))
+  });
+  await runtime.entityStore.publishIngestRun({
+    ingestRunId: run.ingestRunId,
+    sourceId,
+    publishedAt: sessions.at(-1)?.lastUpdatedAt ?? "2026-05-28T00:00:00.000Z"
+  });
 }

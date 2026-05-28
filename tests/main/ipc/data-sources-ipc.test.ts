@@ -224,6 +224,17 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
       harnessFilters: [],
       activity: []
     })),
+    getOverviewActivityHeatmap: vi.fn(async () => ({
+      buckets: Array.from({ length: 30 }, (_, index) => ({
+        day: `2026-04-${String(index + 1).padStart(2, "0")}`,
+        sessionCount: 0,
+        needsAttentionCount: 0
+      })),
+      coverageState: {
+        label: "Available" as const,
+        tone: "info" as const
+      }
+    })),
     listProjects: vi.fn(async () => [])
   };
 

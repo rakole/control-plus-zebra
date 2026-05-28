@@ -53,6 +53,8 @@ import {
   getEventsRequestSchema,
   getHarnessCapabilitiesRequestSchema,
   getHarnessCapabilitiesResponseSchema,
+  getOverviewActivityHeatmapRequestSchema,
+  getOverviewActivityHeatmapResponseSchema,
   type CreateArchiveResponse,
   getProjectRequestSchema,
   getProjectResponseSchema,
@@ -92,6 +94,7 @@ import {
   type DashboardStatsResponse,
   type EventsResponse,
   type GetHarnessCapabilitiesResponse,
+  type GetOverviewActivityHeatmapResponse,
   type GetProjectResponse,
   type GetSessionResponse,
   type GetRunAuditResponse,
@@ -333,6 +336,23 @@ export function registerIpcHandlers(
       }) satisfies DashboardStatsResponse;
     } catch {
       return buildSessionLoadFailedError() satisfies DashboardStatsResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getOverviewActivityHeatmap, async (_event, payload) => {
+    const request = getOverviewActivityHeatmapRequestSchema.safeParse(payload ?? {});
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies GetOverviewActivityHeatmapResponse;
+    }
+
+    try {
+      return getOverviewActivityHeatmapResponseSchema.parse({
+        ok: true,
+        heatmap: await services.triageService.getOverviewActivityHeatmap(request.data)
+      }) satisfies GetOverviewActivityHeatmapResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies GetOverviewActivityHeatmapResponse;
     }
   });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { getDashboardStats } from "../../../bridge/agent-workbench.js";
@@ -17,6 +17,9 @@ type OverviewView = Extract<OverviewResponse, { ok: true }>["stats"];
 
 const ERROR_COPY =
   "Overview could not load. Check the preload bridge and IPC handler, then reload triage data.";
+const OverviewActivityHeatmap = lazy(
+  () => import("../components/overview-activity-heatmap.js")
+);
 
 export function OverviewRoute() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -124,9 +127,33 @@ export function OverviewRoute() {
               />
             </SectionCard>
           </section>
-          <OverviewSummary overview={overview} selectedAdapterId={selectedAdapterId} />
+          <OverviewSummary
+            activityPanel={
+              <Suspense fallback={<OverviewActivityHeatmapFallback />}>
+                <OverviewActivityHeatmap selectedAdapterId={selectedAdapterId} />
+              </Suspense>
+            }
+            overview={overview}
+            selectedAdapterId={selectedAdapterId}
+          />
         </>
       ) : null}
     </RoutePage>
+  );
+}
+
+function OverviewActivityHeatmapFallback() {
+  return (
+    <section aria-label="Overview Activity Heatmap">
+      <SectionCard
+        title={<h2>Activity Heatmap</h2>}
+        description="Fixed last 30 days of session volume. Outlined cells mark explicit attention."
+      >
+        <LoadingState
+          title="Loading activity heatmap"
+          description="Reading the last 30 days of session activity without blocking the rest of Overview."
+        />
+      </SectionCard>
+    </section>
   );
 }
