@@ -5,6 +5,7 @@
   "type": "module",
   "main": ".vite/build/electron-main.cjs",
   "scripts": {
+    "postinstall": "patch-package",
     "lint": "eslint .",
     "start": "electron-forge start",
     "package": "electron-forge package",
@@ -63,6 +64,7 @@
     "electron": "^42.2.0",
     "eslint": "^10.4.0",
     "jsdom": "^29.1.1",
+    "patch-package": "^8.0.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.4",
     "vite": "^8.0.14",
