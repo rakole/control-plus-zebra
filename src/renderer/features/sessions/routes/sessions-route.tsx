@@ -464,29 +464,44 @@ export function SessionsRoute() {
             </div>
             <MetricGrid aria-label="Session KPI strip" className="lg:grid-cols-3 xl:grid-cols-5">
               <MetricCard
+                customSize
+                glowColor="orange"
                 label="Needs review"
                 supportingText="Visible sessions requiring follow-up."
                 value={visibleSessionKpis.needsReview}
+                variant="glow"
               />
               <MetricCard
+                customSize
+                glowColor="red"
                 label="Failed commands"
                 supportingText="Visible failed command total."
                 value={visibleSessionKpis.failedCommands}
+                variant="glow"
               />
               <MetricCard
+                customSize
+                glowColor="purple"
                 label="Not verified / not run"
                 supportingText="Visible sessions without a settled verification result."
                 value={visibleSessionKpis.notVerifiedOrNotRun}
+                variant="glow"
               />
               <MetricCard
+                customSize
+                glowColor="blue"
                 label="Files changed"
                 supportingText="Visible file mutation total."
                 value={visibleSessionKpis.filesChanged}
+                variant="glow"
               />
               <MetricCard
+                customSize
+                glowColor="green"
                 label="Active now"
                 supportingText="Visible sessions still in progress."
                 value={visibleSessionKpis.activeNow}
+                variant="glow"
               />
             </MetricGrid>
           </section>

@@ -29,21 +29,48 @@ export function OverviewSummary({
   return (
     <>
       <MetricGrid aria-label="Overview metrics">
-        <MetricCard label="Projects" value={overview.metrics.totalProjects.displayValue} />
-        <MetricCard label="Sessions" value={overview.metrics.totalSessions.displayValue} />
         <MetricCard
+          customSize
+          glowColor="blue"
+          label="Projects"
+          value={overview.metrics.totalProjects.displayValue}
+          variant="glow"
+        />
+        <MetricCard
+          customSize
+          glowColor="green"
+          label="Sessions"
+          value={overview.metrics.totalSessions.displayValue}
+          variant="glow"
+        />
+        <MetricCard
+          customSize
+          glowColor="orange"
           label="Active / Recent"
           value={overview.metrics.activeOrRecentSessions.displayValue}
+          variant="glow"
         />
         <MetricCard
+          customSize
+          glowColor="red"
           label="Failed Verification"
           value={overview.metrics.failedVerification.displayValue}
+          variant="glow"
         />
         <MetricCard
+          customSize
+          glowColor="purple"
           label="Needs Attention"
           value={overview.metrics.needsAttentionSessions.displayValue}
+          variant="glow"
         />
-        <MetricCard label="Tool Activity" value={overview.metrics.toolActivity.displayValue} />
+        <MetricCard
+          customSize
+          glowColor="blue"
+          label="Tool Activity"
+          value={overview.metrics.toolActivity.displayValue}
+          variant="glow"
+        />
       </MetricGrid>
 
       <div className="grid gap-4 xl:grid-cols-2">

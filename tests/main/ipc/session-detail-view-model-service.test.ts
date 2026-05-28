@@ -121,4 +121,45 @@ describe("session detail view model service", () => {
     );
     expect(metadataEvent?.summary).not.toContain("Unknown evidence marker");
   });
+
+  it("falls back to safe non-empty copy when timeline events expose whitespace-only title or text", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const records = await runtime.cacheStore.load();
+    const record = records.find((candidate) => candidate.normalized.sessions[0]);
+    const session = record?.normalized.sessions[0];
+
+    expect(record).toBeDefined();
+    expect(session).toBeDefined();
+    if (!record || !session) {
+      throw new Error("Expected a cached session.");
+    }
+
+    record.normalized.events.push({
+      id: "event-empty-lifecycle",
+      entityType: "session-event",
+      adapterId: record.adapterId,
+      sourceId: record.sourceId,
+      sessionId: session.id,
+      kind: "lifecycle",
+      title: "   ",
+      text: "   ",
+      orderKey: "zz-empty-lifecycle",
+      diagnostics: [],
+      diagnosticIds: []
+    });
+    await runtime.cacheStore.save(records);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, record.sourceId);
+
+    const service = createSessionDetailViewModelService({ runtime });
+    const detail = await service.getSessionDetail({ sessionId: session.id });
+    const lifecycleEvent = detail?.timeline.find((event) => event.id === "event-empty-lifecycle");
+
+    expect(lifecycleEvent).toEqual(
+      expect.objectContaining({
+        kind: "lifecycle",
+        title: "Lifecycle event",
+        summary: "Chronological lifecycle evidence"
+      })
+    );
+  });
 });

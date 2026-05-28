@@ -116,7 +116,9 @@ export function buildTimelineEventsFromStore(
           kind: "message" as const,
           timestamp: event.timestamp,
           title: `${humanizeMessageRole(message?.role)} message`,
-          summary: truncate(message?.text ?? event.text ?? event.title ?? "", 220),
+          ...(truncateNonEmpty(message?.text, event.text, event.title, 220)
+            ? { summary: truncateNonEmpty(message?.text, event.text, event.title, 220) }
+            : {}),
           metadata: [
             { label: "Role", value: humanizeMessageRole(message?.role) },
             { label: "Order Key", value: event.orderKey ?? "Unknown" }
@@ -127,8 +129,8 @@ export function buildTimelineEventsFromStore(
           id: event.id,
           kind: "lifecycle" as const,
           timestamp: event.timestamp,
-          title: event.title ?? "Lifecycle event",
-          summary: event.text ?? "Chronological lifecycle evidence",
+          title: firstNonEmpty(event.title) ?? "Lifecycle event",
+          summary: firstNonEmpty(event.text) ?? "Chronological lifecycle evidence",
           metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
         }];
       case "tool-call":
@@ -136,8 +138,10 @@ export function buildTimelineEventsFromStore(
           id: event.id,
           kind: "tool-call" as const,
           timestamp: event.timestamp,
-          title: toolCall?.name ?? event.title ?? "Tool call",
-          summary: toolCall?.resultPreview ?? toolCall?.argsPreview ?? event.text,
+          title: firstNonEmpty(toolCall?.name, event.title) ?? "Tool call",
+          ...(firstNonEmpty(toolCall?.resultPreview, toolCall?.argsPreview, event.text)
+            ? { summary: firstNonEmpty(toolCall?.resultPreview, toolCall?.argsPreview, event.text) }
+            : {}),
           metadata: [
             { label: "Status", value: humanizeToolCallStatus(toolCall) },
             { label: "Artifacts", value: String(toolCall?.outputArtifactIds?.length ?? 0) }
@@ -148,8 +152,10 @@ export function buildTimelineEventsFromStore(
           id: event.id,
           kind: "shell-command" as const,
           timestamp: event.timestamp,
-          title: shellCommand?.command ?? event.title ?? "Shell command",
-          summary: shellCommand?.outputInline ?? event.text,
+          title: firstNonEmpty(shellCommand?.command, event.title) ?? "Shell command",
+          ...(firstNonEmpty(shellCommand?.outputInline, event.text)
+            ? { summary: firstNonEmpty(shellCommand?.outputInline, event.text) }
+            : {}),
           metadata: [
             { label: "Intent", value: "Unknown" },
             { label: "Result", value: "Unknown" },
@@ -169,10 +175,10 @@ export function buildTimelineEventsFromStore(
             kind: "output-artifact" as const,
             timestamp: event.timestamp,
             title: "Output artifact",
-            summary: event.text ?? "Output artifact",
+            summary: firstNonEmpty(event.text) ?? "Output artifact",
             metadata: [
               { label: "Kind", value: "unknown" },
-              { label: "Reference", value: event.text ?? event.title ?? "Unknown" }
+              { label: "Reference", value: firstNonEmpty(event.text, event.title) ?? "Unknown" }
             ]
           }];
         }
@@ -182,10 +188,10 @@ export function buildTimelineEventsFromStore(
           kind: "output-artifact" as const,
           timestamp: event.timestamp,
           title: "Output artifact",
-          summary: summarizeArtifact(artifact) ?? event.text ?? "Output artifact",
+          summary: firstNonEmpty(summarizeArtifact(artifact), event.text) ?? "Output artifact",
           metadata: [
             { label: "Kind", value: summarizeArtifactKind(artifact) },
-            { label: "Reference", value: summarizeArtifact(artifact) ?? "Unknown" }
+            { label: "Reference", value: firstNonEmpty(summarizeArtifact(artifact)) ?? "Unknown" }
           ]
         }));
       case "file-event":
@@ -194,7 +200,9 @@ export function buildTimelineEventsFromStore(
           kind: "file-mutation" as const,
           timestamp: event.timestamp,
           title: summarizeFileMutation(fileMutation),
-          summary: fileMutation?.path ?? event.text,
+          ...(firstNonEmpty(fileMutation?.path, event.text)
+            ? { summary: firstNonEmpty(fileMutation?.path, event.text) }
+            : {}),
           metadata: [
             { label: "Mutation", value: humanizeMutationKind(fileMutation?.mutationKind) }
           ]
@@ -205,10 +213,7 @@ export function buildTimelineEventsFromStore(
           kind: "metadata" as const,
           timestamp: event.timestamp,
           title: "Session metadata",
-          summary:
-            event.text ??
-            event.title ??
-            "Session metadata is available as a safe marker.",
+          summary: firstNonEmpty(event.text, event.title) ?? "Session metadata is available as a safe marker.",
           metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
         }];
       default:
@@ -216,12 +221,22 @@ export function buildTimelineEventsFromStore(
           id: event.id,
           kind: "unknown" as const,
           timestamp: event.timestamp,
-          title: event.title ?? "Unknown evidence marker",
-          summary: event.text ?? "Timeline evidence is available as a safe marker.",
+          title: firstNonEmpty(event.title) ?? "Unknown evidence marker",
+          summary: firstNonEmpty(event.text) ?? "Timeline evidence is available as a safe marker.",
           metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
         }];
     }
   });
+}
+
+function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    if (value && value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  return undefined;
 }
 
 function humanizeMessageRole(role?: string): string {
@@ -303,4 +318,14 @@ function truncate(value: string, limit: number): string {
   }
 
   return `${collapsed.slice(0, limit - 1)}...`;
+}
+
+function truncateNonEmpty(
+  first: string | undefined,
+  second: string | undefined,
+  third: string | undefined,
+  limit: number
+): string | undefined {
+  const value = firstNonEmpty(first, second, third);
+  return value ? truncate(value, limit) : undefined;
 }
