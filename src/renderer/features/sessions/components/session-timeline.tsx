@@ -9,6 +9,7 @@ import { Badge } from "../../../components/ui/badge.js";
 import { Button } from "../../../components/ui/button.js";
 import { SectionCard } from "../../../components/app/section-card.js";
 import { Timeline } from "../../../components/app/timeline.js";
+import { TimelineEvidencePreview } from "../../../components/app/timeline-evidence-preview.js";
 import type { SessionDetailView, SessionTimelineEvent } from "../types.js";
 
 interface SessionTimelineProps {
@@ -146,7 +147,7 @@ export function SessionTimeline({ detail }: SessionTimelineProps) {
           eyebrow: event.kind,
           title: event.title,
           timestamp: event.timestamp,
-          description: event.summary,
+          ...renderTimelineSummary(event),
           metadata: event.metadata,
           ...(event.kind === "output-artifact"
             ? {
@@ -187,6 +188,24 @@ export function SessionTimeline({ detail }: SessionTimelineProps) {
       />
     </SectionCard>
   );
+}
+
+function renderTimelineSummary(event: SessionTimelineEvent) {
+  if ((event.kind === "tool-call" || event.kind === "shell-command") && event.summary) {
+    return {
+      summaryDetail: (
+        <TimelineEvidencePreview
+          id={event.id}
+          label={event.kind === "tool-call" ? "Tool evidence" : "Shell output"}
+          value={event.summary}
+        />
+      )
+    };
+  }
+
+  return {
+    description: event.summary
+  };
 }
 
 type PreviewResponse = Awaited<ReturnType<typeof getOutputArtifactPreview>>;

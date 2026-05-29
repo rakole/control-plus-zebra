@@ -166,9 +166,12 @@ export const pagedRequestSchema = z
   .strict();
 export type PagedRequest = z.infer<typeof pagedRequestSchema>;
 
+export const opaqueCursorViewModelSchema = z.string().min(1);
+export type OpaqueCursorViewModel = z.infer<typeof opaqueCursorViewModelSchema>;
+
 export const pageInfoViewModelSchema = z
   .object({
-    nextCursor: z.string().regex(/^\d+$/u).optional(),
+    nextCursor: opaqueCursorViewModelSchema.optional(),
     hasMore: z.boolean(),
     totalCount: z.number().int().nonnegative().optional()
   })
@@ -1122,7 +1125,7 @@ export type GetSessionResponse = z.infer<typeof getSessionResponseSchema>;
 
 export const getSessionTimelineRequestSchema = getSessionByIdRequestSchema
   .extend({
-    cursor: pagedRequestSchema.shape.cursor,
+    cursor: opaqueCursorViewModelSchema.optional(),
     limit: pagedRequestSchema.shape.limit
   })
   .strict();

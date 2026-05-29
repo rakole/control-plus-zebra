@@ -96,6 +96,11 @@ export interface SessionDetailFixture {
     summary: string;
     metadata: Array<{ label: string; value: string }>;
   }>;
+  timelinePageInfo?: {
+    hasMore: boolean;
+    nextCursor?: string;
+    totalCount?: number;
+  };
 }
 
 export interface RunAuditFixture {
@@ -651,7 +656,9 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
         ok: true,
         timeline:
           (detailBySessionId[sessionId] ?? detailBySessionId[firstSession.sessionId])?.timeline ??
-          null
+          null,
+        pageInfo: (detailBySessionId[sessionId] ?? detailBySessionId[firstSession.sessionId])
+          ?.timelinePageInfo
       })
     ),
     getRunAudit: vi.fn().mockResolvedValue({

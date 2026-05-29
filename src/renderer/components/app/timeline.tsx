@@ -10,6 +10,7 @@ export interface TimelineItem {
   title: React.ReactNode;
   timestamp?: React.ReactNode;
   description?: React.ReactNode;
+  summaryDetail?: React.ReactNode;
   metadata?: Array<{
     label: React.ReactNode;
     value: React.ReactNode;
@@ -38,7 +39,7 @@ export function Timeline({ title, items }: TimelineProps) {
               className="min-w-0 rounded-lg border border-border bg-card px-3 py-3 text-card-foreground"
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 space-y-1">
+                <div className="min-w-0 flex-1 space-y-1">
                   {item.eyebrow ? (
                     <p className="text-[0.6875rem] font-medium uppercase text-muted-foreground">
                       {item.eyebrow}
@@ -57,6 +58,7 @@ export function Timeline({ title, items }: TimelineProps) {
                       {item.description}
                     </p>
                   ) : null}
+                  {item.summaryDetail}
                   {item.metadata?.length ? (
                     <dl className="mt-3 grid gap-2 2xl:grid-cols-2">
                       {item.metadata.map((entry, index) => (

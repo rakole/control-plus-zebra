@@ -128,7 +128,7 @@ describe("ipc handlers", () => {
     });
   });
 
-  it("accepts opaque listSessions cursors without widening timeline pagination", async () => {
+  it("accepts opaque list and timeline cursors at IPC boundaries", async () => {
     const collector = createIpcCollector();
     const services = createFakeServices();
     const requestCursor = encodeOpaqueCursor({
@@ -142,6 +142,7 @@ describe("ipc handlers", () => {
       nextCursorBySourceIdJson: "{}"
     });
     const requests: unknown[] = [];
+    const timelineRequests: unknown[] = [];
 
     services.sessionService.listSessionsPage = async (request = {}) => {
       requests.push(request);
@@ -151,6 +152,17 @@ describe("ipc handlers", () => {
           hasMore: true,
           nextCursor: responseCursor,
           totalCount: 1
+        }
+      };
+    };
+    services.sessionDetailService.getSessionTimeline = async (request) => {
+      timelineRequests.push(request);
+      return {
+        timeline: [],
+        pageInfo: {
+          hasMore: true,
+          nextCursor: responseCursor,
+          totalCount: 51
         }
       };
     };
@@ -182,11 +194,19 @@ describe("ipc handlers", () => {
         totalCount: 1
       }
     });
+    expect(timelineRequests).toEqual([
+      {
+        sessionId: "session_1",
+        cursor: requestCursor
+      }
+    ]);
     expect(timeline).toEqual({
-      ok: false,
-      error: {
-        code: "invalid-request",
-        message: "Request payload is not valid for this operation."
+      ok: true,
+      timeline: [],
+      pageInfo: {
+        hasMore: true,
+        nextCursor: responseCursor,
+        totalCount: 51
       }
     });
   });

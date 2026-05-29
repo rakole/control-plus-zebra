@@ -21,6 +21,8 @@ import {
   findStoreSessionLocation
 } from "./store-session-query.js";
 
+const TIMELINE_SUMMARY_MAX_LENGTH = 2_000;
+
 export interface SessionDetailViewModelService {
   getSessionDetail(
     request: GetSessionByIdRequest
@@ -140,7 +142,14 @@ export function buildTimelineEventsFromStore(
           timestamp: event.timestamp,
           title: firstNonEmpty(toolCall?.name, event.title) ?? "Tool call",
           ...(firstNonEmpty(toolCall?.resultPreview, toolCall?.argsPreview, event.text)
-            ? { summary: firstNonEmpty(toolCall?.resultPreview, toolCall?.argsPreview, event.text) }
+            ? {
+                summary: truncateNonEmpty(
+                  toolCall?.resultPreview,
+                  toolCall?.argsPreview,
+                  event.text,
+                  TIMELINE_SUMMARY_MAX_LENGTH
+                )
+              }
             : {}),
           metadata: [
             { label: "Status", value: humanizeToolCallStatus(toolCall) },
@@ -154,7 +163,14 @@ export function buildTimelineEventsFromStore(
           timestamp: event.timestamp,
           title: firstNonEmpty(shellCommand?.command, event.title) ?? "Shell command",
           ...(firstNonEmpty(shellCommand?.outputInline, event.text)
-            ? { summary: firstNonEmpty(shellCommand?.outputInline, event.text) }
+            ? {
+                summary: truncateNonEmpty(
+                  shellCommand?.outputInline,
+                  event.text,
+                  undefined,
+                  TIMELINE_SUMMARY_MAX_LENGTH
+                )
+              }
             : {}),
           metadata: [
             { label: "Intent", value: "Unknown" },
@@ -317,7 +333,7 @@ function truncate(value: string, limit: number): string {
     return collapsed;
   }
 
-  return `${collapsed.slice(0, limit - 1)}...`;
+  return `${collapsed.slice(0, Math.max(0, limit - 3))}...`;
 }
 
 function truncateNonEmpty(
