@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -338,6 +338,108 @@ describe("gemini-cli normalization", () => {
       expect(normalized.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
         "gemini-cli.normalize.missing-sidecar"
       );
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
+  });
+
+  it("keeps duplicate tool-call sidecars ambiguous instead of attaching one sidecar to every duplicate occurrence", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+    const sessionId = "33333333-3333-4333-8333-333333333333";
+    const duplicateToolCallId = "list_directory_1700000004000_0";
+    const sidecarRelativePath = path.join(
+      "tool-outputs",
+      `session-${sessionId}`,
+      "list_directory_list_directory_1700000004000_0_a1b2c3.txt"
+    );
+
+    try {
+      const chatPath = path.join(
+        rootPath,
+        "beta-project",
+        "chats",
+        "session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl"
+      );
+      const rows = (await readFile(chatPath, "utf8"))
+        .split(/\r?\n/u)
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as { toolCalls?: Array<Record<string, unknown>> });
+      let strippedDuplicateCount = 0;
+
+      for (const row of rows) {
+        for (const toolCall of row.toolCalls ?? []) {
+          if (toolCall.id === duplicateToolCallId && strippedDuplicateCount === 0) {
+            delete toolCall.result;
+            delete toolCall.resultDisplay;
+            strippedDuplicateCount += 1;
+            break;
+          }
+        }
+      }
+
+      expect(strippedDuplicateCount).toBe(1);
+
+      await writeFile(
+        chatPath,
+        `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`,
+        "utf8"
+      );
+      await mkdir(path.dirname(path.join(rootPath, "beta-project", sidecarRelativePath)), {
+        recursive: true
+      });
+      await writeFile(
+        path.join(rootPath, "beta-project", sidecarRelativePath),
+        "src/main\nsrc/renderer\n",
+        "utf8"
+      );
+
+      const betaSource = await requireGeminiSource(rootPath, "beta-project");
+      const artifacts = await collectGeminiArtifacts(betaSource);
+      const rawEvents = (
+        await Promise.all(
+          artifacts.map((artifact) =>
+            collectAsync(
+              geminiCliAdapter.parseArtifact(
+                artifact,
+                createGeminiAdapterContext(betaSource.rootPath)
+              )
+            )
+          )
+        )
+      ).flat();
+      const normalized = await geminiCliAdapter.normalize(
+        {
+          source: betaSource,
+          artifacts,
+          rawEvents
+        },
+        createGeminiAdapterContext(betaSource.rootPath)
+      );
+      const outputArtifactsById = new Map(
+        normalized.outputArtifacts.map((artifact) => [artifact.id, artifact] as const)
+      );
+      const duplicateToolCalls = normalized.toolCalls.filter(
+        (toolCall) => toolCall.nativeToolCallId === duplicateToolCallId
+      );
+      const linkedSidecarNativeIds = duplicateToolCalls.flatMap((toolCall) =>
+        (toolCall.outputArtifactIds ?? []).map(
+          (artifactId) => outputArtifactsById.get(artifactId)?.nativeId
+        )
+      );
+      const ambiguityDiagnostics = normalized.diagnostics.filter(
+        (diagnostic) => diagnostic.code === "gemini-cli.normalize.ambiguous-sidecar"
+      );
+      const missingSidecarDiagnostics = normalized.diagnostics.filter(
+        (diagnostic) => diagnostic.code === "gemini-cli.normalize.missing-sidecar"
+      );
+
+      expect(ambiguityDiagnostics).toHaveLength(1);
+      expect(ambiguityDiagnostics[0]?.message).toContain(duplicateToolCallId);
+      expect(missingSidecarDiagnostics).toHaveLength(1);
+      expect(normalized.outputArtifacts.map((artifact) => artifact.nativeId)).toContain(
+        sidecarRelativePath
+      );
+      expect(linkedSidecarNativeIds).not.toContain(sidecarRelativePath);
     } finally {
       await cleanupTempGeminiFixtureRoot(tempDir);
     }

@@ -524,6 +524,7 @@ function buildNormalizedGeminiCliResult(args: {
       nativeId: sessionNativeId
     });
     const timeline = buildTimeline(session);
+    const toolCallCounts = countToolCallOccurrences(timeline);
     const lifecycle = deriveLifecycle(timeline);
     const sessionOutputArtifacts = new Map<string, NormalizedOutputArtifact>();
     const sessionToolCalls = new Map<string, NormalizedToolCall>();
@@ -531,6 +532,7 @@ function buildNormalizedGeminiCliResult(args: {
     const sessionFileMutations = new Map<string, NormalizedFileMutation>();
     const sessionMessages: NormalizedMessage[] = [];
     const sessionEvents: NormalizedEvent[] = [];
+    const warnedAmbiguousSidecars = new Set<string>();
     let ordinal = 1;
 
     if (lifecycle.conflictMessage) {
@@ -671,7 +673,35 @@ function buildNormalizedGeminiCliResult(args: {
         const matchingSidecars = session.sidecars.filter(
           (sidecar) => sidecar.toolCallId === toolCallRecord.id
         );
-        const outputArtifactIds = matchingSidecars.flatMap((sidecar) => {
+        const duplicateToolCallCount = toolCallCounts.get(toolCallRecord.id) ?? 0;
+        const sidecarLinkageIsAmbiguous =
+          duplicateToolCallCount > 1 && matchingSidecars.length > 0;
+        const linkedSidecars = sidecarLinkageIsAmbiguous ? [] : matchingSidecars;
+
+        if (sidecarLinkageIsAmbiguous && !warnedAmbiguousSidecars.has(toolCallRecord.id)) {
+          diagnostics.push(
+            buildDiagnostic(
+              adapterId,
+              "gemini-cli.normalize.ambiguous-sidecar",
+              `Gemini tool call '${toolCallRecord.id}' reused a native tool-call ID across ${duplicateToolCallCount} occurrences, so discovered sidecars remain unlinked to avoid ambiguous attribution.`,
+              "warning",
+              "tool-call",
+              MEDIUM_CONFIDENCE,
+              {
+                sourceId,
+                nativeId: `${toolCallRecord.id}:ambiguous-sidecar`,
+                relatedEntityIds: [sessionId, toolCallId],
+                metadata: {
+                  duplicateOccurrences: duplicateToolCallCount,
+                  sidecarCount: matchingSidecars.length
+                }
+              }
+            )
+          );
+          warnedAmbiguousSidecars.add(toolCallRecord.id);
+        }
+
+        const outputArtifactIds = linkedSidecars.flatMap((sidecar) => {
           const matchingArtifact = rawArtifactsById.get(sidecar.artifactId);
           const outputArtifactId = createOutputArtifactId({
             adapterId,
@@ -812,7 +842,7 @@ function buildNormalizedGeminiCliResult(args: {
           ordinal += 1;
         }
 
-        if (shouldWarnMissingSidecar(toolCallRecord, matchingSidecars.length)) {
+        if (shouldWarnMissingSidecar(toolCallRecord, linkedSidecars.length)) {
           diagnostics.push(
             buildDiagnostic(
               adapterId,
@@ -1104,6 +1134,18 @@ function buildTimeline(session: SessionAccumulator) {
 
     return (left.locator.lineNumber ?? 0) - (right.locator.lineNumber ?? 0);
   });
+}
+
+function countToolCallOccurrences(timeline: ReturnType<typeof buildTimeline>): Map<string, number> {
+  const counts = new Map<string, number>();
+
+  for (const record of timeline) {
+    for (const toolCallRecord of record.record.toolCalls ?? []) {
+      counts.set(toolCallRecord.id, (counts.get(toolCallRecord.id) ?? 0) + 1);
+    }
+  }
+
+  return counts;
 }
 
 function shouldWarnMissingSidecar(
