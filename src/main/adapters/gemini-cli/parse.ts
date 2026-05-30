@@ -238,7 +238,8 @@ async function* parseChatRowsAsEvents(
         artifact,
         row.diagnosticSuffix,
         row.message,
-        sessionIdFromHeader
+        sessionIdFromHeader,
+        buildParseDiagnosticLocation(row)
       );
       continue;
     }
@@ -309,7 +310,8 @@ async function* parseChatRowsAsEvents(
         artifact,
         "chat-shape",
         `Gemini chat row ${row.label} failed validation: ${issues}`,
-        sessionIdFromHeader
+        sessionIdFromHeader,
+        buildParseDiagnosticLocation(row)
       );
       continue;
     }
@@ -348,6 +350,9 @@ type ParsedChatRow =
   | {
       ok: false;
       diagnosticSuffix: string;
+      eventKey: string;
+      index?: number;
+      lineNumber?: number;
       message: string;
     };
 
@@ -393,6 +398,8 @@ function parseJsonlChatRows(artifactText: string): ParsedChatRow[] {
       rows.push({
         ok: false,
         diagnosticSuffix: "chat-json-line",
+        eventKey: String(lineNumber),
+        lineNumber,
         message: `Gemini chat row ${lineNumber} failed JSON parsing: ${message}`
       });
     }
@@ -428,6 +435,8 @@ async function* parseJsonlChatRowsStream(
       yield {
         ok: false,
         diagnosticSuffix: "chat-json-line",
+        eventKey: String(lineNumber),
+        lineNumber,
         message: `Gemini chat row ${lineNumber} failed JSON parsing: ${message}`
       };
     }
@@ -445,6 +454,7 @@ function parseJsonChatRows(artifactText: string): ParsedChatRow[] {
       {
         ok: false,
         diagnosticSuffix: "chat-json",
+        eventKey: "document",
         message: `Gemini chat JSON parsing failed: ${message}`
       }
     ];
@@ -457,6 +467,7 @@ function parseJsonChatRows(artifactText: string): ParsedChatRow[] {
       {
         ok: false,
         diagnosticSuffix: "chat-json-shape",
+        eventKey: "document",
         message:
           "Gemini chat JSON must contain a transcript record object or an array of transcript records."
       }
@@ -608,10 +619,23 @@ function buildParseDiagnosticEvent(
   artifact: RawArtifactRef,
   suffix: string,
   message: string,
-  sessionId?: string
+  sessionId?: string,
+  location?: {
+    eventKey?: string;
+    lineNumber?: number;
+    index?: number;
+  }
 ): GeminiRawEvent {
+  const identitySuffix =
+    location?.lineNumber !== undefined
+      ? `line-${location.lineNumber}`
+      : location?.index !== undefined
+        ? `index-${location.index}`
+        : location?.eventKey;
+  const diagnosticNativeId = buildArtifactDiagnosticNativeId(artifact, identitySuffix);
+
   return {
-    id: `${artifact.id}:parse-diagnostic:${suffix}:${sessionId ?? "global"}`,
+    id: `${artifact.id}:parse-diagnostic:${suffix}:${sessionId ?? "global"}${identitySuffix ? `:${identitySuffix}` : ""}`,
     adapterId: artifact.adapterId,
     sourceId: artifact.sourceId,
     artifactId: artifact.id,
@@ -620,9 +644,10 @@ function buildParseDiagnosticEvent(
     raw: {
       code: `gemini-cli.parse.${suffix}`,
       message,
-      sessionId
+      sessionId,
+      ...(diagnosticNativeId ? { nativeId: diagnosticNativeId } : {})
     },
-    source: buildPointer(artifact),
+    source: buildPointer(artifact, location?.lineNumber, location?.index),
     diagnostics: [],
     payload: {
       kind: "parse-diagnostic",
@@ -630,11 +655,36 @@ function buildParseDiagnosticEvent(
         code: `gemini-cli.parse.${suffix}`,
         severity: "error",
         message,
-        nativeId: artifact.nativeId,
+        ...(diagnosticNativeId ? { nativeId: diagnosticNativeId } : {}),
         ...(sessionId ? { sessionId } : {})
       }
     }
   };
+}
+
+function buildParseDiagnosticLocation(row: ParsedChatRow): {
+  eventKey?: string;
+  lineNumber?: number;
+  index?: number;
+} {
+  return {
+    ...(row.eventKey ? { eventKey: row.eventKey } : {}),
+    ...(row.lineNumber !== undefined ? { lineNumber: row.lineNumber } : {}),
+    ...(row.index !== undefined ? { index: row.index } : {})
+  };
+}
+
+function buildArtifactDiagnosticNativeId(
+  artifact: RawArtifactRef,
+  identitySuffix?: string
+): string | undefined {
+  const artifactNativeId = artifact.nativeId ?? artifact.nativeRef ?? artifact.id;
+
+  if (!artifactNativeId) {
+    return undefined;
+  }
+
+  return identitySuffix ? `${artifactNativeId}:${identitySuffix}` : artifactNativeId;
 }
 
 function buildPointer(

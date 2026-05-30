@@ -24,6 +24,7 @@ describe("preload API surface", () => {
     expect(typesSource).toContain("createArchive(request");
     expect(typesSource).toContain("openArchive(request?");
     expect(typesSource).toContain("getDashboardStats(request?");
+    expect(typesSource).toContain("getOverviewActivityHeatmap(");
     expect(typesSource).toContain("listProjects(request?");
     expect(typesSource).toContain("getProject(request");
     expect(typesSource).toContain("listSessions(request?");
@@ -54,6 +55,7 @@ describe("preload API surface", () => {
       "createArchive",
       "openArchive",
       "getDashboardStats",
+      "getOverviewActivityHeatmap",
       "listProjects",
       "getProject",
       "listSessions",
@@ -92,6 +94,7 @@ describe("preload API surface", () => {
       "createArchive",
       "openArchive",
       "getDashboardStats",
+      "getOverviewActivityHeatmap",
       "listProjects",
       "getProject",
       "listSessions",

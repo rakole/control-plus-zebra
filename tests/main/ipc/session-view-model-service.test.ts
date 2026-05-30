@@ -175,6 +175,62 @@ describe("session view model service", () => {
     });
   });
 
+  it("uses the current source identity for degraded cacheKey fallback sessions after source replacement", async () => {
+    const runtime = await createTempRuntime(tempDirs);
+    const source = await runtime.sourceRegistry.createSource({
+      adapterId: "fake-test",
+      displayName: "Fixture Source",
+      rootPath: fakeFixturePath
+    });
+    const validated = await runtime.scanner.validateSource(source.sourceId);
+
+    await runtime.scanner.scanSource(validated.source.sourceId);
+
+    const scannedSource = await runtime.sourceRegistry.getSource(validated.source.sourceId);
+
+    expect(scannedSource?.cache.cacheKey).toBeTruthy();
+    if (!scannedSource?.cache.cacheKey) {
+      throw new Error("Expected scanned source to persist a cache key.");
+    }
+
+    const replacementSourceId = `${validated.source.sourceId}-replacement`;
+
+    await runtime.sourceRegistry.replaceSourceIdentity(
+      validated.source.sourceId,
+      replacementSourceId
+    );
+
+    runtime.getEntityStoreHydrationState = async () => ({
+      failedSourceIds: [replacementSourceId],
+      sourceStates: [
+        {
+          sourceId: replacementSourceId,
+          status: "cache-fallback",
+          reason: "Latest cached session data remains available because entity-store hydration failed for this source."
+        }
+      ]
+    });
+
+    const service = createSessionViewModelService({ runtime });
+
+    if (!service.listSessionsPage) {
+      throw new Error("Expected listSessionsPage to be available.");
+    }
+
+    const page = await service.listSessionsPage();
+    const degradedSession = page.sessions[0];
+
+    expect(degradedSession).toBeDefined();
+    expect(degradedSession?.sourceId).toBe(replacementSourceId);
+
+    await expect(
+      service.getSessionById({ sessionId: degradedSession?.sessionId ?? "missing-session" })
+    ).resolves.toMatchObject({
+      sessionId: degradedSession?.sessionId,
+      sourceId: replacementSourceId
+    });
+  });
+
   it("rejects stale opaque listSessions cursors", async () => {
     const runtime = await createScannedRuntime(tempDirs);
     const service = createSessionViewModelService({ runtime });

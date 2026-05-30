@@ -95,14 +95,14 @@ export async function loadStoreSourceCoverage(
   storeSources.sort((left, right) => left.sourceId.localeCompare(right.sourceId));
   degradedSources.sort((left, right) => left.sourceId.localeCompare(right.sourceId));
 
-  const cacheFallbackRecords =
-    degradedSources.length === 0
-      ? []
-      : (await runtime.cacheStore.listLatestRecords())
-          .filter((record) =>
-            degradedSources.some((source) => findLatestSourceCacheRecord([record], source))
-          )
-          .sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+  const latestCacheRecords =
+    degradedSources.length === 0 ? [] : await runtime.cacheStore.listLatestRecords();
+  const cacheFallbackRecords = degradedSources
+    .flatMap((source) => {
+      const record = findLatestSourceCacheRecord(latestCacheRecords, source);
+      return record ? [alignCacheRecordToCurrentSource(record, source)] : [];
+    })
+    .sort((left, right) => left.sourceId.localeCompare(right.sourceId));
 
   return {
     cacheFallbackRecords,
@@ -482,10 +482,7 @@ function buildFallbackSessionRows(
 ): WorkbenchSessionRecord[] {
   const rows = records.flatMap((record) =>
     record.normalized.sessions.map((session) => ({
-      session: {
-        ...session,
-        sourceId: record.sourceId
-      }
+      session
     }))
   );
 
@@ -520,6 +517,115 @@ function findLatestSourceCacheRecord(
 
     return candidate.sourceId === source.sourceId;
   });
+}
+
+function alignCacheRecordToCurrentSource(
+  record: NormalizedCacheRecord,
+  source: SourceRecord
+): NormalizedCacheRecord {
+  if (record.sourceId === source.sourceId) {
+    return record;
+  }
+
+  return {
+    ...record,
+    sourceId: source.sourceId,
+    normalized: {
+      ...record.normalized,
+      sourceId: source.sourceId,
+      capabilities: {
+        ...record.normalized.capabilities,
+        source: replaceOptionalSourceId(record.normalized.capabilities.source, source.sourceId),
+        sessions: replaceOptionalSourceIdInArray(
+          record.normalized.capabilities.sessions,
+          source.sourceId
+        )
+      },
+      projects: replaceOptionalSourceIdInArray(record.normalized.projects, source.sourceId),
+      sessions: replaceOptionalSourceIdInArray(record.normalized.sessions, source.sourceId),
+      events: replaceOptionalSourceIdInArray(record.normalized.events, source.sourceId),
+      messages: replaceOptionalSourceIdInArray(record.normalized.messages, source.sourceId),
+      toolCalls: replaceOptionalSourceIdInArray(record.normalized.toolCalls, source.sourceId),
+      shellCommands: replaceOptionalSourceIdInArray(
+        record.normalized.shellCommands,
+        source.sourceId
+      ),
+      outputArtifacts: replaceOptionalSourceIdInArray(
+        record.normalized.outputArtifacts,
+        source.sourceId
+      ),
+      fileMutations: replaceOptionalSourceIdInArray(
+        record.normalized.fileMutations,
+        source.sourceId
+      ),
+      diagnostics: replaceOptionalSourceIdInArray(
+        record.normalized.diagnostics,
+        source.sourceId
+      )
+    },
+    ...(record.diagnostics
+      ? {
+          diagnostics: {
+            ...record.diagnostics,
+            entries: replaceOptionalSourceIdInArray(
+              record.diagnostics.entries,
+              source.sourceId
+            )
+          }
+        }
+      : {}),
+    ...(record.rawArtifactIndex
+      ? {
+          rawArtifactIndex: {
+            ...record.rawArtifactIndex,
+            entries: replaceOptionalSourceIdInArray(
+              record.rawArtifactIndex.entries,
+              source.sourceId
+            )
+          }
+        }
+      : {}),
+    ...(record.capabilitySnapshots
+      ? {
+          capabilitySnapshots: {
+            ...record.capabilitySnapshots,
+            source: replaceOptionalSourceId(
+              record.capabilitySnapshots.source,
+              source.sourceId
+            ),
+            sessions: replaceOptionalSourceIdInArray(
+              record.capabilitySnapshots.sessions,
+              source.sourceId
+            )
+          }
+        }
+      : {})
+  };
+}
+
+function replaceOptionalSourceIdInArray<T extends { sourceId?: string }>(
+  values: T[],
+  sourceId: string
+): T[] {
+  return values.map((value) =>
+    value.sourceId === undefined || value.sourceId === sourceId
+      ? value
+      : { ...value, sourceId }
+  );
+}
+
+function replaceOptionalSourceId<T extends { sourceId?: string }>(
+  value: T,
+  sourceId: string
+): T {
+  if (value.sourceId === undefined || value.sourceId === sourceId) {
+    return value;
+  }
+
+  return {
+    ...value,
+    sourceId
+  };
 }
 
 function sortSessionHeap(

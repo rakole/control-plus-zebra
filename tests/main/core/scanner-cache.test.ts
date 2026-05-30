@@ -99,6 +99,25 @@ class FailingCacheStore extends FileBackedCacheStore {
   }
 }
 
+class FailingAfterWriteCountCacheStore extends FileBackedCacheStore {
+  readonly #failAfterWriteCount: number;
+  #writeCount = 0;
+
+  constructor(filePath: string, failAfterWriteCount: number) {
+    super(filePath);
+    this.#failAfterWriteCount = failAfterWriteCount;
+  }
+
+  async writeRecord(record: Parameters<FileBackedCacheStore["writeRecord"]>[0]): Promise<void> {
+    this.#writeCount += 1;
+    if (this.#writeCount > this.#failAfterWriteCount) {
+      throw new Error("Simulated cache persistence failure.");
+    }
+
+    await super.writeRecord(record);
+  }
+}
+
 class StubGitSnapshotProvider extends GitSnapshotProvider {
   readonly #result: ProjectGitSnapshotResult;
 
@@ -879,6 +898,53 @@ describe("Scanner cache integration", () => {
 
     expect(persisted?.scan.status).toBe("scan-failed");
     expect(persisted?.cache.status).toBe("unknown");
+    expect(
+      persisted?.scan.diagnostics.some(
+        (diagnostic) => diagnostic.code === "scanner.scan.execution-failed"
+      )
+    ).toBe(true);
+  });
+
+  it("preserves the previous cacheKey when a replacement source rescan fails before a new cache record is written", async () => {
+    const { entityStore, fixturePath, rawArtifactIndex, sourceRegistry, tempDir } = await createScannerHarness();
+    const scanner = new Scanner({
+      adapterRegistry: createBundledAdapterRegistry(),
+      cacheStore: new FailingAfterWriteCountCacheStore(path.join(tempDir, "normalized-cache.json"), 1),
+      entityStore,
+      projectDir: process.cwd(),
+      rawArtifactIndex,
+      sourceRegistry,
+      watchOrchestrator: new WatchOrchestrator()
+    });
+    const source = await sourceRegistry.createSource({
+      adapterId: "fake-test",
+      rootPath: fixturePath
+    });
+    const validated = await scanner.validateSource(source.sourceId);
+
+    await scanner.scanSource(validated.source.sourceId);
+
+    const scannedSource = await sourceRegistry.getSource(validated.source.sourceId);
+
+    expect(scannedSource?.cache.cacheKey).toBeTruthy();
+    if (!scannedSource?.cache.cacheKey) {
+      throw new Error("Expected scanned source to persist a cache key.");
+    }
+
+    const previousCacheKey = scannedSource.cache.cacheKey;
+    const replacementSourceId = `${validated.source.sourceId}-replacement`;
+
+    await sourceRegistry.replaceSourceIdentity(validated.source.sourceId, replacementSourceId);
+
+    await expect(scanner.scanSource(replacementSourceId)).rejects.toThrow(
+      "Simulated cache persistence failure."
+    );
+
+    const persisted = await sourceRegistry.getSource(replacementSourceId);
+
+    expect(persisted?.scan.status).toBe("scan-failed");
+    expect(persisted?.cache.status).toBe("unknown");
+    expect(persisted?.cache.cacheKey).toBe(previousCacheKey);
     expect(
       persisted?.scan.diagnostics.some(
         (diagnostic) => diagnostic.code === "scanner.scan.execution-failed"

@@ -376,6 +376,91 @@ describe("gemini-cli normalization", () => {
     });
   });
 
+  it("keeps malformed chat-row diagnostics distinct after normalization", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const chatPath = path.join(
+        rootPath,
+        "alpha-project",
+        "chats",
+        "session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+      );
+
+      await writeFile(
+        chatPath,
+        [
+          JSON.stringify({
+            sessionId: "11111111-1111-4111-8111-111111111111",
+            projectHash: "alpha-project",
+            startTime: "2026-05-23T09:11:00.000Z",
+            kind: "main"
+          }),
+          JSON.stringify({
+            id: "user-valid-1",
+            timestamp: "2026-05-23T09:11:01.000Z",
+            type: "user",
+            content: [{ text: "first valid row" }]
+          }),
+          "{malformed-row-3",
+          JSON.stringify({
+            id: "assistant-valid-1",
+            timestamp: "2026-05-23T09:11:02.000Z",
+            type: "gemini",
+            content: [{ text: "still going" }]
+          }),
+          "{malformed-row-5",
+          JSON.stringify({
+            id: "assistant-valid-2",
+            timestamp: "2026-05-23T09:11:03.000Z",
+            type: "gemini",
+            content: [{ text: "final valid row" }]
+          })
+        ].join("\n"),
+        "utf8"
+      );
+
+      const alphaSource = await requireGeminiSource(rootPath, "alpha-project");
+      const artifacts = await collectGeminiArtifacts(alphaSource);
+      const rawEvents = (
+        await Promise.all(
+          artifacts.map((artifact) =>
+            collectAsync(
+              geminiCliAdapter.parseArtifact(
+                artifact,
+                createGeminiAdapterContext(alphaSource.rootPath)
+              )
+            )
+          )
+        )
+      ).flat();
+      const normalized = await geminiCliAdapter.normalize(
+        {
+          source: alphaSource,
+          artifacts,
+          rawEvents
+        },
+        createGeminiAdapterContext(alphaSource.rootPath)
+      );
+
+      const malformedRowDiagnostics = normalized.diagnostics.filter(
+        (diagnostic) => diagnostic.code === "gemini-cli.parse.chat-json-line"
+      );
+
+      expect(malformedRowDiagnostics).toHaveLength(2);
+      expect(new Set(malformedRowDiagnostics.map((diagnostic) => diagnostic.id)).size).toBe(2);
+      expect(malformedRowDiagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+        expect.stringContaining("row 3"),
+        expect.stringContaining("row 5")
+      ]);
+      expect(normalized.messages.map((message) => message.nativeId)).toEqual(
+        expect.arrayContaining(["assistant-valid-2:6", "user-valid-1:2"])
+      );
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
+  });
+
   it("keeps shell failure evidence as output text when Gemini lacks exit-code support", async () => {
     const deltaSource = await requireGeminiSource(geminiFixtureRoot, "delta-project");
     const artifacts = await collectGeminiArtifacts(deltaSource);

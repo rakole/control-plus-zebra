@@ -795,7 +795,8 @@ export class Scanner {
       });
       await this.#sourceRegistry.saveCacheSummary(source.sourceId, {
         status: "unknown",
-        diagnostics: failureDiagnostics
+        diagnostics: failureDiagnostics,
+        ...(source.cache.cacheKey ? { cacheKey: source.cache.cacheKey } : {})
       });
 
       throw error;
