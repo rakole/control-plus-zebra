@@ -1,10 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, utilityProcess } from "electron";
 import path from "node:path";
 
 import { createArchiveImportService } from "./app/archive-import-service.js";
 import { createArchiveExportService } from "./app/archive-export-service.js";
 import { createDiagnosticsViewModelService } from "./app/diagnostics-view-model-service.js";
 import { createDataSourcesViewModelService } from "./app/data-sources-view-model-service.js";
+import { createElectronUtilityScanJobRunner } from "./app/electron-utility-scan-job-runner.js";
 import { createOutputArtifactViewModelService } from "./app/output-artifact-view-model-service.js";
 import { createRunAuditViewModelService } from "./app/run-audit-view-model-service.js";
 import { createSessionViewModelService } from "./app/session-view-model-service.js";
@@ -22,6 +23,14 @@ async function bootstrap(): Promise<void> {
 
   const appDataDir = app.getPath("userData");
   const runtime = createWorkbenchRuntime({ appDataDir });
+  runtime.scanJobRunner = createElectronUtilityScanJobRunner({
+    appDataDir: runtime.appDataDir,
+    forkUtilityProcess(modulePath, args, options) {
+      return utilityProcess.fork(modulePath, args, options);
+    },
+    projectDir: runtime.projectDir,
+    sourceRegistry: runtime.sourceRegistry
+  });
   const themePreferenceStore = createThemePreferenceStore(appDataDir);
   const themeService = createThemeService({
     nativeTheme,
@@ -57,6 +66,7 @@ async function bootstrap(): Promise<void> {
     themeService
   });
   registerThemeWindow(themeService, createMainWindow());
+  void runtime.backgroundScanScheduler.runStartupRefresh();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

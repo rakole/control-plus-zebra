@@ -1067,6 +1067,11 @@ export const scannerStatusViewModelSchema = z
     enabledSources: z.number().int().nonnegative(),
     activeScans: z.number().int().nonnegative(),
     staleSources: z.number().int().nonnegative(),
+    queuedScans: z.number().int().nonnegative(),
+    activeBackgroundScans: z.number().int().nonnegative(),
+    coalescingSources: z.number().int().nonnegative(),
+    watchingSources: z.number().int().nonnegative(),
+    lastBackgroundScanAt: z.string().min(1).optional(),
     lastUpdatedAt: z.string().min(1).optional()
   })
   .strict();

@@ -10,7 +10,11 @@ import { SQLiteWorkbenchEntityStore } from "../core/store/index.js";
 import { Scanner } from "../core/ingestion/scanner.js";
 import { WatchOrchestrator } from "../core/watcher/watch-orchestrator.js";
 import { createInProcessScanJobRunner, type ScanJobRunner } from "./scan-job-runner.js";
-import { syncMissingCurrentRunsFromCacheToEntityStore } from "./workbench-entity-store-sync.js";
+import { BackgroundScanScheduler } from "./background-scan-scheduler.js";
+import {
+  syncLatestSourceCacheRecordToEntityStore,
+  syncMissingCurrentRunsFromCacheToEntityStore
+} from "./workbench-entity-store-sync.js";
 
 export interface WorkbenchRuntimeOptions {
   appDataDir?: string;
@@ -20,6 +24,7 @@ export interface WorkbenchRuntimeOptions {
 export interface WorkbenchRuntime {
   appDataDir: string;
   adapterRegistry: AdapterRegistry;
+  backgroundScanScheduler: BackgroundScanScheduler;
   cacheStore: FileBackedCacheStore;
   entityStore: SQLiteWorkbenchEntityStore;
   ensureEntityStoreReady(): Promise<void>;
@@ -63,6 +68,7 @@ export function createWorkbenchRuntime(
     artifactBlobRootDir: path.join(appDataDir, "artifact-blobs"),
     databasePath: path.join(appDataDir, "workbench.sqlite")
   });
+  let backgroundScanScheduler: BackgroundScanScheduler | undefined;
   const watchOrchestrator = new WatchOrchestrator({
     async onSourceCacheStale(event) {
       const source = await sourceRegistry.getSource(event.sourceId);
@@ -84,6 +90,9 @@ export function createWorkbenchRuntime(
         diagnostics: source.scan.diagnostics,
         reason
       });
+    },
+    onSourceUpdateSignaled(event) {
+      backgroundScanScheduler?.handleWatchUpdateSignal(event);
     }
   });
   const scanner = new Scanner({
@@ -99,6 +108,7 @@ export function createWorkbenchRuntime(
   const runtime = {
     appDataDir,
     adapterRegistry,
+    backgroundScanScheduler: undefined as unknown as BackgroundScanScheduler,
     cacheStore,
     entityStore,
     ensureEntityStoreReady: undefined as unknown as () => Promise<void>,
@@ -114,6 +124,16 @@ export function createWorkbenchRuntime(
   runtime.scanJobRunner = createInProcessScanJobRunner({
     getScanner: () => runtime.scanner
   });
+  backgroundScanScheduler = new BackgroundScanScheduler({
+    scanner: runtime.scanner,
+    getScanJobRunner: () => runtime.scanJobRunner,
+    sourceRegistry: runtime.sourceRegistry,
+    watchOrchestrator: runtime.watchOrchestrator,
+    onScanComplete(sourceId) {
+      return syncLatestSourceCacheRecordToEntityStore(runtime, sourceId);
+    }
+  });
+  runtime.backgroundScanScheduler = backgroundScanScheduler;
   let entityStoreReady = false;
   let entityStoreHydrationState: WorkbenchEntityStoreHydrationState = {
     failedSourceIds: [],

@@ -243,6 +243,7 @@ describe("ipc handlers", () => {
     });
     const diagnostics = await collector.invoke(IPC_CHANNELS.listDiagnostics);
     const sources = await collector.invoke(IPC_CHANNELS.listSources);
+    const scanner = await collector.invoke(IPC_CHANNELS.getScannerStatus);
 
     expect(() => shellStateViewModelSchema.parse(shell)).not.toThrow();
     expect(() => createArchiveResponseSchema.parse(archive)).not.toThrow();
@@ -257,6 +258,15 @@ describe("ipc handlers", () => {
     expect(() => getRunAuditResponseSchema.parse(runAudit)).not.toThrow();
     expect(() => listDiagnosticsResponseSchema.parse(diagnostics)).not.toThrow();
     expect(() => sourcesResponseSchema.parse(sources)).not.toThrow();
+    expect(scanner).toMatchObject({
+      ok: true,
+      scanner: {
+        queuedScans: 0,
+        activeBackgroundScans: 0,
+        coalescingSources: 0,
+        watchingSources: 0
+      }
+    });
   });
 
   it("routes the dedicated overview heatmap request through the triage service", async () => {
@@ -647,6 +657,19 @@ function createFakeServices(): {
     },
     async scanDataSource() {
       return dataSourcesViewModel;
+    },
+    async getScannerStatus() {
+      return {
+        status: "idle",
+        totalSources: dataSourcesViewModel.sources.length,
+        enabledSources: 0,
+        activeScans: 0,
+        staleSources: 0,
+        queuedScans: 0,
+        activeBackgroundScans: 0,
+        coalescingSources: 0,
+        watchingSources: 0
+      };
     }
   };
   const themeService: ThemeService = {

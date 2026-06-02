@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: active
 stopped_at: Quick task v2-bounded-import complete; Phase 8 not started
-last_updated: "2026-05-28T11:45:00Z"
-last_activity: 2026-05-28 - Completed quick task overview-activity-heatmap for lazy Overview activity heatmap
+last_updated: "2026-05-30T14:16:27Z"
+last_activity: 2026-05-30 - Completed quick task auto-import-live-tail for stale-triggered background snapshot refresh
 progress:
   total_phases: 8
   completed_phases: 7
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 Phase: 8 of 8 (Hardening, Packaging, and Readiness)
 Plan: Phase 7 complete; Phase 8 not started
 Status: active
-Last activity: 2026-05-28 - Completed quick task overview-activity-heatmap for lazy Overview activity heatmap
+Last activity: 2026-05-30 - Completed quick task auto-import-live-tail for stale-triggered background snapshot refresh
 
 Progress: [█████████-] 88%
 
@@ -140,6 +140,7 @@ Recent decisions affecting current work:
 
 | Date | Task | Summary | Verification |
 |------|------|---------|--------------|
+| 2026-05-30 | auto-import-live-tail | Added stale-triggered background snapshot refresh for valid local sources with a main-process scheduler, utility-process scan wiring, watch-signal enqueueing, and scanner queue status fields. | `npx vitest run tests/main/app/background-scan-scheduler.test.ts tests/main/app/electron-utility-scan-job-runner.test.ts tests/main/ipc/data-sources-ipc.test.ts tests/main/ipc/ipc-handlers.test.ts tests/main/core/watch-orchestrator.test.ts`; `npm run typecheck`; `npm run lint` |
 | 2026-05-28 | overview-activity-heatmap | Added a lazy fixed last-30-days Overview activity heatmap with a dedicated store-backed IPC request and fuchsia-themed renderer card. | `npx vitest run tests/main/ipc/triage-view-model-service.test.ts tests/main/ipc/ipc-handlers.test.ts tests/main/core/sqlite-workbench-entity-store.test.ts tests/main/ipc/data-sources-ipc.test.ts`; `npm run test -- --project renderer tests/renderer/overview-route.test.tsx`; `npm run lint` |
 | 2026-05-25 | project-card-status-tooltips | Hid compact `Unknown` project-card bubbles in the Projects list and added category-aware hover tooltips for visible status chips. | `npm run test -- --project renderer tests/renderer/projects-route.test.tsx`; `npm run typecheck`; `npm run lint`; `npm run test:renderer` |
 | 2026-05-25 | v2-bounded-import | Replaced monolithic archive import/export with v2 sectioned NDJSON, bounded ingestion limits, chunked raw artifacts, sectioned cache records, Gemini JSONL streaming, and paged session/timeline IPC. | `npm run typecheck`; `npm run lint`; `npm run test` |

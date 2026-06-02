@@ -143,6 +143,17 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
     setDataSourceEnabled: vi.fn(async () => dataSourcesViewModel),
     validateDataSource: vi.fn(async () => dataSourcesViewModel),
     scanDataSource: vi.fn(async () => dataSourcesViewModel),
+    getScannerStatus: vi.fn(async () => ({
+      status: "idle" as const,
+      totalSources: 0,
+      enabledSources: 0,
+      activeScans: 0,
+      staleSources: 0,
+      queuedScans: 0,
+      activeBackgroundScans: 0,
+      coalescingSources: 0,
+      watchingSources: 0
+    })),
     ...overrides
   };
 

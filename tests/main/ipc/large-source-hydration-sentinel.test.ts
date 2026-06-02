@@ -426,6 +426,16 @@ function createRuntimeStub(
         return fixture.records;
       }
     } as WorkbenchRuntime["cacheStore"],
+    backgroundScanScheduler: {
+      getStatus() {
+        return {
+          activeBackgroundScans: 0,
+          coalescingSources: 0,
+          queuedScans: 0,
+          watchingSources: 0
+        };
+      }
+    } as WorkbenchRuntime["backgroundScanScheduler"],
     entityStore: {
       async getCurrentIngestRun({ sourceId }: WorkbenchCurrentRunScope) {
         return sourcesById.has(sourceId)

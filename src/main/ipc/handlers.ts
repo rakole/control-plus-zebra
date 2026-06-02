@@ -108,6 +108,7 @@ import {
   type OutputArtifactLoadResponse,
   type OutputArtifactPreviewResponse,
   type SanitizedErrorViewModel,
+  type ScannerStatusViewModel,
   type ScannerStatusResponse,
   type SessionTimelineResponse,
   type ShellCommandsResponse,
@@ -251,7 +252,7 @@ export function registerIpcHandlers(
       return buildInvalidRequestError() satisfies ScannerStatusResponse;
     }
 
-    return runScannerStatusOperation(() => services.dataSourcesService.listDataSources());
+    return runScannerStatusOperation(() => services.dataSourcesService.getScannerStatus());
   });
 
   ipcMain.handle(IPC_CHANNELS.rescanAllSources, async (_event, payload) => {
@@ -750,25 +751,12 @@ async function runHarnessCapabilitiesOperation(
 }
 
 async function runScannerStatusOperation(
-  operation: () => Promise<Awaited<ReturnType<DataSourcesViewModelService["listDataSources"]>>>
+  operation: () => Promise<ScannerStatusViewModel>
 ): Promise<ScannerStatusResponse> {
   try {
-    const dataSources = await operation();
-    const activeScans = dataSources.sources.filter(
-      (source) => source.scanStatus === "Scanning"
-    ).length;
-
     return scannerStatusResponseSchema.parse({
       ok: true,
-      scanner: {
-        status: activeScans > 0 ? "scanning" : "idle",
-        totalSources: dataSources.sources.length,
-        enabledSources: dataSources.sources.filter((source) => source.enabled).length,
-        activeScans,
-        staleSources: dataSources.sources.filter(
-          (source) => source.scanStatus === "Stale" || source.cacheStatus === "Stale"
-        ).length
-      }
+      scanner: await operation()
     }) satisfies ScannerStatusResponse;
   } catch {
     return buildDataSourcesLoadFailedError() satisfies ScannerStatusResponse;

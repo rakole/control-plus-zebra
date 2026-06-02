@@ -21,6 +21,8 @@ import {
   type DataSourceValidationStatus,
   scanDataSourceRequestSchema,
   type ScanDataSourceRequest,
+  scannerStatusViewModelSchema,
+  type ScannerStatusViewModel,
   setDataSourceEnabledRequestSchema,
   type SetDataSourceEnabledRequest,
   updateDataSourceRequestSchema,
@@ -51,6 +53,7 @@ export interface DataSourcesViewModelService {
   setDataSourceEnabled(request: SetDataSourceEnabledRequest): Promise<DataSourcesViewModel>;
   validateDataSource(request: ValidateDataSourceRequest): Promise<DataSourcesViewModel>;
   scanDataSource(request: ScanDataSourceRequest): Promise<DataSourcesViewModel>;
+  getScannerStatus(): Promise<ScannerStatusViewModel>;
 }
 
 export interface DataSourcesViewModelServiceOptions extends WorkbenchRuntimeOptions {
@@ -149,6 +152,36 @@ export function createDataSourcesViewModelService(
       await runtime.scanJobRunner.scanSource(parsed.sourceId);
       await syncLatestSourceCacheRecordToEntityStore(runtime, parsed.sourceId);
       return buildViewModel(runtime);
+    },
+
+    async getScannerStatus() {
+      const dataSources = await buildViewModel(runtime);
+      const backgroundStatus = runtime.backgroundScanScheduler.getStatus();
+      const activeScanStatuses = dataSources.sources.filter(
+        (source) => source.scanStatus === "Scanning"
+      ).length;
+      const activeScans = Math.max(
+        activeScanStatuses,
+        runtime.scanJobRunner.getActiveScanCount(),
+        backgroundStatus.activeBackgroundScans
+      );
+
+      return scannerStatusViewModelSchema.parse({
+        status: activeScans > 0 ? "scanning" : "idle",
+        totalSources: dataSources.sources.length,
+        enabledSources: dataSources.sources.filter((source) => source.enabled).length,
+        activeScans,
+        staleSources: dataSources.sources.filter(
+          (source) => source.scanStatus === "Stale" || source.cacheStatus === "Stale"
+        ).length,
+        queuedScans: backgroundStatus.queuedScans,
+        activeBackgroundScans: backgroundStatus.activeBackgroundScans,
+        coalescingSources: backgroundStatus.coalescingSources,
+        watchingSources: backgroundStatus.watchingSources,
+        ...(backgroundStatus.lastBackgroundScanAt
+          ? { lastBackgroundScanAt: backgroundStatus.lastBackgroundScanAt }
+          : {})
+      });
     }
   };
 }
