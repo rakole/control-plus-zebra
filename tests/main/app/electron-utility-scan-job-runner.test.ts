@@ -12,7 +12,7 @@ import { createWorkbenchRuntime } from "../../../src/main/app/workbench-runtime.
 const fakeFixturePath = path.resolve(
   "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json"
 );
-const fakeWorkerPath = path.resolve(".vite/build/scan-source-worker.js");
+const fakeWorkerPath = path.resolve(".vite/build/scan-source-worker.cjs");
 
 class FakeUtilityChild extends EventEmitter {
   readonly stderr = new EventEmitter();

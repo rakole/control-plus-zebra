@@ -6,8 +6,7 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
-        entryFileNames: (chunkInfo) =>
-          chunkInfo.name === "electron-main" ? "electron-main.cjs" : `${chunkInfo.name}.js`
+        entryFileNames: (chunkInfo) => `${chunkInfo.name}.cjs`
       }
     }
   }

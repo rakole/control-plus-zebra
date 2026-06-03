@@ -148,7 +148,7 @@ function getDefaultWorkerScriptPath(): string {
       ? __dirname
       : path.dirname(fileURLToPath(import.meta.url));
 
-  return path.join(moduleDirectory, "scan-source-worker.js");
+  return path.join(moduleDirectory, "scan-source-worker.cjs");
 }
 
 function parseWorkerResponse(message: unknown): ScanSourceWorkerResponse | undefined {
