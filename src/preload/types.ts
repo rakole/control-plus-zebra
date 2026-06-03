@@ -7,6 +7,8 @@ import type {
   DisableSourceRequest,
   EventsResponse,
   GetEventsRequest,
+  GetOverviewActivityHeatmapRequest,
+  GetOverviewActivityHeatmapResponse,
   GitHubSnapshotRequest,
   GitHubSnapshotResponse,
   GitSnapshotRequest,
@@ -70,6 +72,9 @@ export interface AgentWorkbenchBridge {
   createArchive(request: CreateArchiveRequest): Promise<CreateArchiveResponse>;
   openArchive(request?: OpenArchiveRequest): Promise<OpenArchiveResponse>;
   getDashboardStats(request?: DashboardStatsRequest): Promise<DashboardStatsResponse>;
+  getOverviewActivityHeatmap(
+    request?: GetOverviewActivityHeatmapRequest
+  ): Promise<GetOverviewActivityHeatmapResponse>;
   listProjects(request?: ListProjectsRequest): Promise<ListProjectsResponse>;
   getProject(request: GetProjectRequest): Promise<GetProjectResponse>;
   listSessions(request?: ListSessionsRequest): Promise<ListSessionsResponse>;

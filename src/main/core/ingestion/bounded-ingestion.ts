@@ -1,6 +1,6 @@
 export const DEFAULT_BOUNDED_INGESTION_LIMITS = {
   maxArchiveLineBytes: 4 * 1024 * 1024,
-  maxEntityBatchSize: 1_000,
+  maxEntityBatchSize: 5_000,
   maxRawArtifactChunkBytes: 1024 * 1024,
   maxTextLineBytes: 4 * 1024 * 1024
 } as const;

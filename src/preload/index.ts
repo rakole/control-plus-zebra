@@ -8,6 +8,7 @@ import type {
   DisableSourceRequest,
   GetEventsRequest,
   GetHarnessCapabilitiesRequest,
+  GetOverviewActivityHeatmapRequest,
   GetProjectRequest,
   GetSessionRequest,
   GetSessionTimelineRequest,
@@ -69,6 +70,9 @@ const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
   },
   getDashboardStats(request: DashboardStatsRequest = {}) {
     return ipcRenderer.invoke(IPC_CHANNELS.getDashboardStats, request);
+  },
+  getOverviewActivityHeatmap(request: GetOverviewActivityHeatmapRequest = {}) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getOverviewActivityHeatmap, request);
   },
   listProjects(request: ListProjectsRequest = {}) {
     return ipcRenderer.invoke(IPC_CHANNELS.listProjects, request);

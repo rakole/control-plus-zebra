@@ -10,6 +10,7 @@ import { HashRouter, useLocation } from "react-router";
 
 import { AnimatedWorkbenchMenu } from "./components/app/animated-workbench-menu.js";
 import { ModeToggle } from "./components/app/mode-toggle.js";
+import { WorkbenchBrand } from "./components/app/workbench-brand.js";
 import { WorkbenchShell } from "./components/app/workbench-shell.js";
 import { WorkbenchTopbar } from "./components/app/workbench-topbar.js";
 import { RouteRegistry } from "./routes/route-registry.js";
@@ -40,7 +41,25 @@ function WorkbenchApp() {
       navigation={<AnimatedWorkbenchMenu items={navigation} minimized={isMenuMinimized} />}
       onSidebarMinimizedChange={setIsMenuMinimized}
       sidebarMinimized={isMenuMinimized}
-      topbar={<WorkbenchTopbar actions={<ModeToggle />} title={routeTitle} />}
+      sidebarHeader={<WorkbenchBrand minimized={isMenuMinimized} />}
+      topbar={
+        <WorkbenchTopbar>
+          <>
+            <div className="flex min-w-0 items-center gap-3">
+              <WorkbenchBrand aria-hidden="true" minimized showCaption={false} />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">{routeTitle}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  Zebra mark preview in app chrome
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <ModeToggle />
+            </div>
+          </>
+        </WorkbenchTopbar>
+      }
     >
       <RouteRegistry />
     </WorkbenchShell>

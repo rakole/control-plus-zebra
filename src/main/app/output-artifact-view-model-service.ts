@@ -17,15 +17,19 @@ import {
   type TimelineEventViewModel
 } from "../ipc/view-models.js";
 import {
+  buildTimelineEventsFromStore,
   createSessionDetailViewModelService,
   type SessionDetailViewModelService
 } from "./session-detail-view-model-service.js";
-import { loadTriageData } from "./triage-view-model-service.js";
 import {
   createWorkbenchRuntime,
   type WorkbenchRuntime,
   type WorkbenchRuntimeOptions
 } from "./workbench-runtime.js";
+import {
+  collectAllSessionTimelineRecords,
+  findStoreSessionLocation
+} from "./store-session-query.js";
 
 const OUTPUT_ARTIFACT_PREVIEW_CHAR_LIMIT = 4_096;
 const OUTPUT_ARTIFACT_LOAD_BYTE_LIMIT = 1_048_576;
@@ -157,32 +161,50 @@ export function createOutputArtifactViewModelService(
 
 async function resolveOutputArtifact(
   runtime: WorkbenchRuntime,
-  sessionDetailService: SessionDetailViewModelService,
+  _sessionDetailService: SessionDetailViewModelService,
   request: OutputArtifactRequest
 ): Promise<
   OutputArtifactResolution
   | OutputArtifactFailureResult
 > {
-  const [data, detail, rawArtifactEntries] = await Promise.all([
-    loadTriageData(runtime),
-    sessionDetailService.getSessionDetail({ sessionId: request.sessionId }),
-    runtime.rawArtifactIndex.load()
-  ]);
+  const location = await findStoreSessionLocation(runtime, request.sessionId);
 
-  const session = data.sessionsById.get(request.sessionId);
-
-  if (!session) {
+  if (!location) {
     return buildFailureResult("missing", request, null, {
       reason: "The requested session is not available."
     });
   }
 
-  const outputArtifacts = data.outputArtifactsBySessionId.get(session.id) ?? [];
-  const artifact = outputArtifacts.find((candidate) => candidate.id === request.outputArtifactId);
+  const degradedState = (await runtime.getEntityStoreHydrationState()).sourceStates.find(
+    (state) => state.sourceId === location.source.sourceId && state.status === "cache-fallback"
+  );
+
+  if (degradedState) {
+    return buildFailureResult("unavailable", request, null, {
+      reason:
+        degradedState.reason ??
+        "This source is temporarily degraded while entity-store hydration retries."
+    });
+  }
+
+  let matchingRecord = await resolveOutputArtifactTimelineRecord(
+    runtime,
+    location.source.sourceId,
+    request.sessionId,
+    request.outputArtifactId
+  );
+  const artifact = await runtime.entityStore.getOutputArtifact({
+    sourceId: location.source.sourceId,
+    outputArtifactId: request.outputArtifactId
+  });
+
   const timelineEntry =
-    detail?.timeline.find(
-      (event) => event.id === request.outputArtifactId && event.kind === "output-artifact"
-    ) ?? null;
+    matchingRecord
+      ? buildTimelineEventsFromStore([matchingRecord]).find(
+          (event) =>
+            event.id === request.outputArtifactId && event.kind === "output-artifact"
+        ) ?? null
+      : null;
 
   if (!artifact) {
     return buildFailureResult("missing", request, timelineEntry, {
@@ -190,7 +212,30 @@ async function resolveOutputArtifact(
     });
   }
 
-  if (session.capabilities?.tools.sidecarOutputs === false) {
+  const rawMetadata = await resolveRawArtifactMetadata(
+    runtime,
+    location.source.sourceId,
+    request.outputArtifactId,
+    artifact
+  );
+  const artifactBelongsToSession =
+    artifact.sessionId === request.sessionId ||
+    (location.session.outputArtifactIds ?? []).includes(request.outputArtifactId) ||
+    rawMetadata?.sessionId === request.sessionId;
+
+  if (!matchingRecord && !artifactBelongsToSession) {
+    return buildFailureResult("missing", request, null, {
+      reason: "The requested output artifact is not present for this session."
+    });
+  }
+
+  if (artifact.sessionId && artifact.sessionId !== request.sessionId) {
+    return buildFailureResult("missing", request, timelineEntry, {
+      reason: "The requested output artifact is not present for this session."
+    });
+  }
+
+  if (location.session.capabilities?.tools.sidecarOutputs === false) {
     return buildFailureResult("unsupported", request, timelineEntry, {
       contentKind: artifact.contentKind,
       mediaType: artifact.mediaType,
@@ -198,21 +243,18 @@ async function resolveOutputArtifact(
     });
   }
 
-  const cacheRecord = data.records.find((record) =>
-    record.normalized.outputArtifacts.some((candidate) => candidate.id === artifact.id)
-  );
-  let sourceRecord =
-    (await runtime.sourceRegistry.getSource(artifact.sourceId)) ??
-    (cacheRecord ? await runtime.sourceRegistry.getSource(cacheRecord.sourceId) : undefined);
-  const entry = resolveRawArtifactIndexEntry(rawArtifactEntries, artifact, sourceRecord);
+  const sourceRecord =
+    (await runtime.sourceRegistry.getSource(location.source.sourceId)) ?? location.source;
 
-  if (!sourceRecord && entry?.path) {
-    sourceRecord = await findSourceForEntry(runtime, entry);
+  if (rawMetadata?.sessionId && rawMetadata.sessionId !== request.sessionId) {
+    return buildFailureResult("missing", request, timelineEntry, {
+      contentKind: artifact.contentKind,
+      mediaType: artifact.mediaType,
+      reason: "The requested output artifact is not present for this session."
+    });
   }
 
-  if (!sourceRecord) {
-    sourceRecord = await findOnlySourceForAdapter(runtime, artifact.adapterId);
-  }
+  const entry = rawMetadata?.entry;
 
   return {
     artifact,
@@ -222,30 +264,68 @@ async function resolveOutputArtifact(
   };
 }
 
-async function findOnlySourceForAdapter(
+async function resolveOutputArtifactTimelineRecord(
   runtime: WorkbenchRuntime,
-  adapterId: string
-): Promise<SourceRecord | undefined> {
-  const sources = (await runtime.sourceRegistry.listSources()).filter(
-    (source) => source.adapterId === adapterId
-  );
-
-  return sources.length === 1 ? sources[0] : undefined;
-}
-
-async function findSourceForEntry(
-  runtime: WorkbenchRuntime,
-  entry: RawArtifactIndexEntry
-): Promise<SourceRecord | undefined> {
-  const sources = await runtime.sourceRegistry.listSources();
-
-  for (const source of sources) {
-    if (await isResolvedPathWithinRoot(entry.path ?? "", source.rootPath)) {
-      return source;
-    }
+  sourceId: string,
+  sessionId: string,
+  outputArtifactId: string
+) {
+  if (runtime.entityStore.getOutputArtifactTimelineRecord) {
+    return runtime.entityStore.getOutputArtifactTimelineRecord({
+      sourceId,
+      sessionId,
+      outputArtifactId
+    });
   }
 
-  return undefined;
+  return resolveOutputArtifactTimelineRecordFromSessionTimeline(
+    runtime,
+    sourceId,
+    sessionId,
+    outputArtifactId
+  );
+}
+
+async function resolveOutputArtifactTimelineRecordFromSessionTimeline(
+  runtime: WorkbenchRuntime,
+  sourceId: string,
+  sessionId: string,
+  outputArtifactId: string
+) {
+  const records = await collectAllSessionTimelineRecords(runtime, sourceId, sessionId);
+
+  return records.find((record) =>
+    (record.outputArtifacts ?? []).some((artifact) => artifact.id === outputArtifactId)
+  );
+}
+
+async function resolveRawArtifactMetadata(
+  runtime: WorkbenchRuntime,
+  sourceId: string,
+  outputArtifactId: string,
+  artifact: OutputArtifact
+) {
+  const metadataByOutputArtifactId =
+    await runtime.entityStore.getRawArtifactMetadataByOutputArtifactId?.({
+      sourceId,
+      outputArtifactId
+    });
+
+  if (metadataByOutputArtifactId) {
+    return metadataByOutputArtifactId;
+  }
+
+  const rawArtifactId =
+    (artifact.source as { rawArtifactId?: string; artifactId?: string } | undefined)?.rawArtifactId ??
+    (artifact.source as { rawArtifactId?: string; artifactId?: string } | undefined)?.artifactId ??
+    artifact.ref?.id;
+
+  return rawArtifactId
+    ? runtime.entityStore.getRawArtifactMetadata({
+        sourceId,
+        artifactId: rawArtifactId
+      })
+    : undefined;
 }
 
 async function prepareIndexedTextArtifact(

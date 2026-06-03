@@ -126,11 +126,11 @@ export function hasTerminalAssistantResponse(
   const orderedMessages = sessionMessages
     .filter((message) => message.sessionId === session.id)
     .sort(compareMessagesForVerification);
-  const lastMessage = [...orderedMessages]
+  const lastAssistantMessage = [...orderedMessages]
     .reverse()
-    .find((message) => message.role !== "system");
+    .find((message) => message.role === "assistant" && (message.text ?? "").trim().length > 0);
 
-  return lastMessage?.role === "assistant" && (lastMessage.text ?? "").trim().length > 0;
+  return lastAssistantMessage !== undefined;
 }
 
 function deriveIntentResult(

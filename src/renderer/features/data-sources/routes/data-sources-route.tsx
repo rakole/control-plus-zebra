@@ -358,6 +358,7 @@ export function DataSourcesRoute() {
         }
         eyebrow="Local and archived sources"
         title="Data Sources"
+        description="Manage the sources that feed adapter discovery, scanning, and validation for observed sessions."
       />
 
       {isLoading ? <DataSourcesLoadingState /> : null}

@@ -1,6 +1,7 @@
 const config = {
   packagerConfig: {
-    asar: true
+    asar: true,
+    icon: "resources/icons/zebra-icon"
   },
   rebuildConfig: {},
   makers: [
@@ -16,6 +17,10 @@ const config = {
         build: [
           {
             entry: "src/main/electron-main.ts",
+            config: "vite.main.config.ts"
+          },
+          {
+            entry: "src/main/workers/scan-source-worker.ts",
             config: "vite.main.config.ts"
           },
           {

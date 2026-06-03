@@ -57,6 +57,13 @@ export class WatchOrchestrator {
     return this.#records.get(sourceId);
   }
 
+  restoreRecord(record: WatchLifecycleRecord): void {
+    this.#records.set(record.sourceId, {
+      ...record,
+      scopePaths: [...record.scopePaths]
+    });
+  }
+
   listRecords(): WatchLifecycleRecord[] {
     return [...this.#records.values()];
   }

@@ -103,7 +103,7 @@ describe("shared shell command parser", () => {
       outputTextSource: "summary",
       rawToolStatus: "succeeded",
       toolCallId: "tool-call-03",
-      failureMarkers: ["failed"]
+      failureMarkers: ["tests failed", "test failed"]
     });
     expect(parsed.exitCode).toBeUndefined();
   });
@@ -124,6 +124,20 @@ describe("shared shell command parser", () => {
       exitCodeSource: "summary",
       outputTextSource: "summary",
       rawToolStatus: "succeeded"
+    });
+  });
+
+  it("does not mark benign success output as failed just because it mentions error-like words", () => {
+    const parsed = parseShellCommandEvidence({
+      shellCommand: createShellCommand({
+        rawStatus: "succeeded",
+        outputInline: "Error handling audit passed. not found count: 0."
+      })
+    });
+
+    expect(parsed).toMatchObject<Partial<ParsedShellCommand>>({
+      result: "unknown",
+      failureMarkers: []
     });
   });
 });

@@ -37,6 +37,7 @@ import {
   type TriageViewModelService
 } from "../app/triage-view-model-service.js";
 import { createWorkbenchRuntime } from "../app/workbench-runtime.js";
+import { PaginationValidationError } from "../core/store/index.js";
 import { createThemeService, type ThemeService } from "../theme/theme-service.js";
 import { IPC_CHANNELS } from "./channels.js";
 import {
@@ -52,6 +53,8 @@ import {
   getEventsRequestSchema,
   getHarnessCapabilitiesRequestSchema,
   getHarnessCapabilitiesResponseSchema,
+  getOverviewActivityHeatmapRequestSchema,
+  getOverviewActivityHeatmapResponseSchema,
   type CreateArchiveResponse,
   getProjectRequestSchema,
   getProjectResponseSchema,
@@ -91,6 +94,7 @@ import {
   type DashboardStatsResponse,
   type EventsResponse,
   type GetHarnessCapabilitiesResponse,
+  type GetOverviewActivityHeatmapResponse,
   type GetProjectResponse,
   type GetSessionResponse,
   type GetRunAuditResponse,
@@ -104,6 +108,7 @@ import {
   type OutputArtifactLoadResponse,
   type OutputArtifactPreviewResponse,
   type SanitizedErrorViewModel,
+  type ScannerStatusViewModel,
   type ScannerStatusResponse,
   type SessionTimelineResponse,
   type ShellCommandsResponse,
@@ -247,7 +252,7 @@ export function registerIpcHandlers(
       return buildInvalidRequestError() satisfies ScannerStatusResponse;
     }
 
-    return runScannerStatusOperation(() => services.dataSourcesService.listDataSources());
+    return runScannerStatusOperation(() => services.dataSourcesService.getScannerStatus());
   });
 
   ipcMain.handle(IPC_CHANNELS.rescanAllSources, async (_event, payload) => {
@@ -335,6 +340,23 @@ export function registerIpcHandlers(
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.getOverviewActivityHeatmap, async (_event, payload) => {
+    const request = getOverviewActivityHeatmapRequestSchema.safeParse(payload ?? {});
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies GetOverviewActivityHeatmapResponse;
+    }
+
+    try {
+      return getOverviewActivityHeatmapResponseSchema.parse({
+        ok: true,
+        heatmap: await services.triageService.getOverviewActivityHeatmap(request.data)
+      }) satisfies GetOverviewActivityHeatmapResponse;
+    } catch {
+      return buildSessionLoadFailedError() satisfies GetOverviewActivityHeatmapResponse;
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.listProjects, async (_event, payload) => {
     const request = listProjectsRequestSchema.safeParse(payload ?? {});
 
@@ -394,7 +416,11 @@ export function registerIpcHandlers(
         sessions: page.sessions,
         pageInfo: page.pageInfo
       }) satisfies ListSessionsResponse;
-    } catch {
+    } catch (error) {
+      if (error instanceof PaginationValidationError) {
+        return buildInvalidRequestError() satisfies ListSessionsResponse;
+      }
+
       return buildSessionLoadFailedError() satisfies ListSessionsResponse;
     }
   });
@@ -438,7 +464,11 @@ export function registerIpcHandlers(
         timeline: page.timeline,
         pageInfo: page.pageInfo
       }) satisfies SessionTimelineResponse;
-    } catch {
+    } catch (error) {
+      if (error instanceof PaginationValidationError) {
+        return buildInvalidRequestError() satisfies SessionTimelineResponse;
+      }
+
       return buildSessionLoadFailedError() satisfies SessionTimelineResponse;
     }
   });
@@ -531,23 +561,6 @@ export function registerIpcHandlers(
       }) satisfies OutputArtifactLoadResponse;
     } catch {
       return buildSessionLoadFailedError() satisfies OutputArtifactLoadResponse;
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.getRunAudit, async (_event, payload) => {
-    const request = getSessionByIdRequestSchema.safeParse(payload);
-
-    if (!request.success) {
-      return buildInvalidRequestError() satisfies GetRunAuditResponse;
-    }
-
-    try {
-      return getRunAuditResponseSchema.parse({
-        ok: true,
-        runAudit: await services.runAuditService.getRunAudit(request.data)
-      }) satisfies GetRunAuditResponse;
-    } catch {
-      return buildSessionLoadFailedError() satisfies GetRunAuditResponse;
     }
   });
 
@@ -738,25 +751,12 @@ async function runHarnessCapabilitiesOperation(
 }
 
 async function runScannerStatusOperation(
-  operation: () => Promise<Awaited<ReturnType<DataSourcesViewModelService["listDataSources"]>>>
+  operation: () => Promise<ScannerStatusViewModel>
 ): Promise<ScannerStatusResponse> {
   try {
-    const dataSources = await operation();
-    const activeScans = dataSources.sources.filter(
-      (source) => source.scanStatus === "Scanning"
-    ).length;
-
     return scannerStatusResponseSchema.parse({
       ok: true,
-      scanner: {
-        status: activeScans > 0 ? "scanning" : "idle",
-        totalSources: dataSources.sources.length,
-        enabledSources: dataSources.sources.filter((source) => source.enabled).length,
-        activeScans,
-        staleSources: dataSources.sources.filter(
-          (source) => source.scanStatus === "Stale" || source.cacheStatus === "Stale"
-        ).length
-      }
+      scanner: await operation()
     }) satisfies ScannerStatusResponse;
   } catch {
     return buildDataSourcesLoadFailedError() satisfies ScannerStatusResponse;

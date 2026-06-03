@@ -96,6 +96,11 @@ export interface SessionDetailFixture {
     summary: string;
     metadata: Array<{ label: string; value: string }>;
   }>;
+  timelinePageInfo?: {
+    hasMore: boolean;
+    nextCursor?: string;
+    totalCount?: number;
+  };
 }
 
 export interface RunAuditFixture {
@@ -114,7 +119,14 @@ export interface RunAuditFixture {
     id: string;
     title: string;
     summary: string;
-    items: Array<{ label: string; value: string; tone: string; hint?: string }>;
+    items: Array<{
+      label: string;
+      value: string;
+      tone: string;
+      hint?: string;
+      kind?: "text" | "command-list";
+      commands?: Array<{ command: string; result: string }>;
+    }>;
   }>;
 }
 
@@ -126,6 +138,11 @@ export interface OverviewFixture {
   };
   harnessFilters: Array<{ adapterId: string; label: string; sessionCount: number }>;
   activity: Array<{ day: string; sessionCount: number; needsAttentionCount: number }>;
+}
+
+export interface OverviewHeatmapFixture {
+  buckets: Array<{ day: string; sessionCount: number; needsAttentionCount: number }>;
+  coverageState: TruthStateFixture;
 }
 
 export interface ProjectFixture {
@@ -345,6 +362,26 @@ export function buildRunAudit(overrides: Partial<RunAuditFixture> = {}) {
         ]
       },
       {
+        id: "commands",
+        title: "Commands",
+        summary: "Show command evidence without replaying raw output.",
+        items: [
+          { label: "Observed Commands", value: "3", tone: "neutral" as const },
+          { label: "Failed Commands", value: "1", tone: "danger" as const },
+          {
+            label: "Recent Commands",
+            value: "Recent command activity",
+            tone: "neutral" as const,
+            kind: "command-list" as const,
+            commands: [
+              { command: "npm run test -- tests/main/core/run-audit-engine.test.ts", result: "Failed" },
+              { command: "npm run typecheck", result: "Passed" },
+              { command: "git status --short", result: "Passed" }
+            ]
+          }
+        ]
+      },
+      {
         id: "git-github",
         title: "Git / GitHub",
         summary: "Show shared read-only repository truth and keep GitHub gaps explicit.",
@@ -391,6 +428,35 @@ export function buildOverview(overrides: Partial<OverviewFixture> = {}) {
       { adapterId: "gemini-cli", label: "Gemini CLI", sessionCount: 2 }
     ],
     activity: [{ day: "2026-05-23", sessionCount: 3, needsAttentionCount: 2 }],
+    ...overrides
+  };
+}
+
+export function buildOverviewHeatmap(
+  overrides: Partial<OverviewHeatmapFixture> = {}
+): OverviewHeatmapFixture {
+  return {
+    buckets: Array.from({ length: 30 }, (_, index) => {
+      const date = new Date(2026, 3, 29 + index);
+      const day = `${date.getFullYear()}-${(date.getMonth() + 1)
+        .toString()
+        .padStart(2, "0")}-${date.getDate().toString().padStart(2, "0")}`;
+
+      if (day === "2026-05-03") {
+        return { day, sessionCount: 1, needsAttentionCount: 0 };
+      }
+
+      if (day === "2026-05-14") {
+        return { day, sessionCount: 2, needsAttentionCount: 1 };
+      }
+
+      if (day === "2026-05-28") {
+        return { day, sessionCount: 3, needsAttentionCount: 2 };
+      }
+
+      return { day, sessionCount: 0, needsAttentionCount: 0 };
+    }),
+    coverageState: { label: "Available", tone: "info" },
     ...overrides
   };
 }
@@ -567,6 +633,10 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
       ok: true,
       stats: options.overview ?? buildOverview()
     }),
+    getOverviewActivityHeatmap: vi.fn().mockResolvedValue({
+      ok: true,
+      heatmap: options.overviewHeatmap ?? buildOverviewHeatmap()
+    }),
     listProjects: vi.fn().mockResolvedValue({
       ok: true,
       projects: options.projects ?? [buildProject()]
@@ -586,7 +656,9 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
         ok: true,
         timeline:
           (detailBySessionId[sessionId] ?? detailBySessionId[firstSession.sessionId])?.timeline ??
-          null
+          null,
+        pageInfo: (detailBySessionId[sessionId] ?? detailBySessionId[firstSession.sessionId])
+          ?.timelinePageInfo
       })
     ),
     getRunAudit: vi.fn().mockResolvedValue({
@@ -651,6 +723,7 @@ interface BridgeOptions {
   firstPreview: SessionPreviewFixture;
   firstSession: SessionSummaryFixture;
   overview: OverviewFixture;
+  overviewHeatmap: OverviewHeatmapFixture;
   projects: ProjectFixture[];
   runAudit: RunAuditFixture;
   secondDetail: SessionDetailFixture;

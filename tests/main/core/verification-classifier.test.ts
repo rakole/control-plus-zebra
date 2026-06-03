@@ -284,6 +284,33 @@ describe("verification classifier", () => {
     });
   });
 
+  it("keeps completed runs with an assistant completion claim and later user follow-up as not-run", () => {
+    const result = deriveVerificationForSession({
+      adapterCapabilities: createCapabilities("supported"),
+      parsedShellCommands: [],
+      session: createSession(),
+      sessionMessages: [
+        createMessage({
+          timestamp: "2026-05-24T10:00:00.000Z"
+        }),
+        createMessage({
+          id: "message-02",
+          nativeId: "native-message-02",
+          role: "user",
+          text: "Can you summarize what changed?",
+          eventIds: ["event-02"],
+          timestamp: "2026-05-24T10:00:02.000Z"
+        })
+      ]
+    });
+
+    expect(result).toMatchObject({
+      status: "not-run",
+      reasonCodes: ["no-qualifying-commands"],
+      confidence: HIGH_CONFIDENCE
+    });
+  });
+
   it("resolves missing shell capability to unsupported instead of passed", () => {
     const unsupported = deriveVerificationForSession({
       adapterCapabilities: createCapabilities("unsupported"),

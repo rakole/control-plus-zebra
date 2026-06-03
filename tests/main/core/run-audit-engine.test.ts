@@ -12,6 +12,7 @@ import type {
 import type { ProjectGitSnapshot } from "../../../src/main/core/git/git-snapshot-provider.js";
 import type { ParsedShellCommand } from "../../../src/main/core/shell/types.js";
 import { deriveRunAuditForSession } from "../../../src/main/core/audit/run-audit-engine.js";
+import { deriveVerificationForSession } from "../../../src/main/core/verification/verification-classifier.js";
 import type { VerificationResult } from "../../../src/main/core/verification/types.js";
 
 function createCapabilities(gitStatus: "supported" | "unsupported" | "unknown"): CapabilityEnvelope {
@@ -426,6 +427,48 @@ describe("run audit engine", () => {
 
     expect(result.status).toBe("needs-review");
     expect(result.attentionReasons).not.toContain("capability-missing");
+    expect(result.attentionReasons).toContain("no-verification");
+  });
+
+  it("keeps no-verification explicit when a completion claim is followed by a later user message", () => {
+    const session = createSession();
+    const sessionMessages = [
+      createMessage({
+        timestamp: "2026-05-24T10:00:00.000Z"
+      }),
+      createMessage({
+        id: "message-02",
+        nativeId: "native-message-02",
+        role: "user",
+        text: "Can you summarize what changed?",
+        eventIds: ["message-event-02"],
+        timestamp: "2026-05-24T10:00:02.000Z"
+      })
+    ];
+    const verification = deriveVerificationForSession({
+      adapterCapabilities: createCapabilities("supported"),
+      parsedShellCommands: [],
+      session,
+      sessionMessages
+    });
+    const result = deriveRunAuditForSession({
+      adapterCapabilities: createCapabilities("supported"),
+      diagnostics: [],
+      parsedShellCommands: [],
+      projectGitSnapshot: createProjectGitSnapshot(),
+      session,
+      sessionEvents: [createEvent({ id: "message-event-01", kind: "message" })],
+      sessionFileMutations: [],
+      sessionMessages,
+      sessionToolCalls: [],
+      verification
+    });
+
+    expect(verification).toMatchObject({
+      status: "not-run",
+      reasonCodes: ["no-qualifying-commands"]
+    });
+    expect(result.status).toBe("needs-review");
     expect(result.attentionReasons).toContain("no-verification");
   });
 });

@@ -7,17 +7,27 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
 import { FileBackedCacheStore } from "../../../src/main/core/cache/index.js";
+import type {
+  AdapterBatchStreamingNormalizationInput,
+  AdapterNormalizationResult,
+  RawArtifactRef,
+  RawHarnessEvent,
+  SessionSourceAdapter
+} from "../../../src/main/core/adapter-contract/index.js";
 import {
   GitSnapshotProvider,
   type ProjectGitSnapshotResult
 } from "../../../src/main/core/git/git-snapshot-provider.js";
 import { RawArtifactIndex, Scanner } from "../../../src/main/core/ingestion/index.js";
+import { HIGH_CONFIDENCE } from "../../../src/main/core/model/confidence.js";
 import type { Project } from "../../../src/main/core/model/entities.js";
 import {
+  AdapterRegistry,
   createBundledAdapterRegistry,
   FileBackedSourceRegistryStore,
   SourceRegistry
 } from "../../../src/main/core/registry/index.js";
+import { SQLiteWorkbenchEntityStore } from "../../../src/main/core/store/index.js";
 import { WatchOrchestrator } from "../../../src/main/core/watcher/index.js";
 
 const sourceFixturePath = path.resolve(
@@ -34,10 +44,77 @@ const incompleteRunFixturePath = path.resolve(
 );
 const geminiFixtureRoot = path.resolve("src/main/adapters/gemini-cli/fixtures/sample-root");
 const execFileAsync = promisify(execFile);
+const streamingCapabilities = {
+  discovery: {
+    defaultRoots: true,
+    projectRootMapping: "native",
+    stableProjectId: true,
+    stableSessionId: true
+  },
+  replay: {
+    transcriptReplay: true,
+    messageRoles: true,
+    assistantMessages: true,
+    lifecycleEvents: true,
+    cancellationEvents: false,
+    topicEvents: false,
+    rawEventPointers: true
+  },
+  tools: {
+    toolCalls: false,
+    toolResults: false,
+    fileReads: false,
+    fileSearches: false,
+    fileMutations: false,
+    diffStats: false,
+    shellCommands: false,
+    shellOutputs: false,
+    sidecarOutputs: false
+  },
+  usage: {
+    modelNames: false,
+    tokenCounts: false,
+    costEstimates: false
+  },
+  live: {
+    activeSessionDetection: "none",
+    watchableArtifacts: false,
+    incrementalParsing: true
+  },
+  audit: {
+    agentClaimDetection: false,
+    finalAnswerDetection: false,
+    shellExitCodeEvidence: false,
+    verificationCommandEvidence: false
+  },
+  export: {
+    rawArtifactExport: false,
+    normalizedExport: true
+  }
+} as const;
 
 class FailingCacheStore extends FileBackedCacheStore {
   async writeRecord(): Promise<void> {
     throw new Error("Simulated cache persistence failure.");
+  }
+}
+
+class FailingAfterWriteCountCacheStore extends FileBackedCacheStore {
+  readonly #failAfterWriteCount: number;
+  #writeCount = 0;
+
+  constructor(filePath: string, failAfterWriteCount: number) {
+    super(filePath);
+    this.#failAfterWriteCount = failAfterWriteCount;
+  }
+
+  async writeRecord(record: Parameters<FileBackedCacheStore["writeRecord"]>[0]): Promise<void> {
+    this.#writeCount += 1;
+    if (this.#writeCount > this.#failAfterWriteCount) {
+      throw new Error("Simulated cache persistence failure.");
+    }
+
+    await super.writeRecord(record);
   }
 }
 
@@ -52,6 +129,263 @@ class StubGitSnapshotProvider extends GitSnapshotProvider {
   async collect(_project: Project): Promise<ProjectGitSnapshotResult> {
     return this.#result;
   }
+}
+
+type StreamingRawEvent = RawHarnessEvent<{
+  kind: "session-message";
+  role: "assistant" | "user";
+  text: string;
+}>;
+
+function createStreamingTestAdapter(): SessionSourceAdapter<StreamingRawEvent> {
+  return {
+    descriptor: {
+      id: "streaming-test",
+      displayName: "Streaming Test Adapter",
+      adapterVersion: "0.1.0",
+      supportedPlatforms: ["darwin", "linux", "win32"],
+      defaultRoots: [{ path: ".", label: "streaming", kind: "file" }],
+      capabilities: streamingCapabilities
+    },
+    async getDefaultSourceRoots() {
+      return [{ path: ".", label: "streaming", kind: "file" }];
+    },
+    async validateSourceRoot(root) {
+      return {
+        ok: true,
+        normalizedPath: root.rootPath,
+        diagnostics: [],
+        capabilities: streamingCapabilities
+      };
+    },
+    async *discoverSources(root) {
+      yield {
+        id: `streaming:${root.rootPath}`,
+        adapterId: "streaming-test",
+        nativeId: root.rootPath,
+        rootPath: root.rootPath,
+        displayName: "Streaming source",
+        confidence: HIGH_CONFIDENCE
+      };
+    },
+    async *discoverArtifacts(source) {
+      yield {
+        id: `artifact:${source.rootPath}`,
+        adapterId: "streaming-test",
+        sourceId: source.id,
+        path: source.rootPath,
+        nativeRef: source.rootPath,
+        artifactKind: "session-log",
+        parseStrategy: "json"
+      } as RawArtifactRef;
+    },
+    async *parseArtifact(artifact) {
+      yield {
+        id: `${artifact.id}:1`,
+        adapterId: artifact.adapterId,
+        sourceId: artifact.sourceId,
+        artifactId: artifact.id,
+        kind: "streaming.message",
+        raw: {
+          kind: "session-message",
+          role: "user",
+          text: "streaming user"
+        },
+        source: {
+          artifactId: artifact.id,
+          path: artifact.path,
+          pointer: "event:1"
+        },
+        diagnostics: [],
+        payload: {
+          kind: "session-message",
+          role: "user",
+          text: "streaming user"
+        }
+      };
+      yield {
+        id: `${artifact.id}:2`,
+        adapterId: artifact.adapterId,
+        sourceId: artifact.sourceId,
+        artifactId: artifact.id,
+        kind: "streaming.message",
+        raw: {
+          kind: "session-message",
+          role: "assistant",
+          text: "streaming assistant"
+        },
+        source: {
+          artifactId: artifact.id,
+          path: artifact.path,
+          pointer: "event:2"
+        },
+        diagnostics: [],
+        payload: {
+          kind: "session-message",
+          role: "assistant",
+          text: "streaming assistant"
+        }
+      };
+    },
+    async *normalizeBatches(
+      input: AdapterBatchStreamingNormalizationInput<StreamingRawEvent>
+    ): AsyncIterable<AdapterNormalizationResult> {
+      const sessionId = `session:${input.source.id}`;
+      const projectId = `project:${input.source.id}`;
+      const userText = "streaming user";
+      const assistantText = "streaming assistant";
+
+      for await (const _rawEvent of input.rawEvents) {
+        // Drain the async stream to prove scanner can hand batches a real event iterator.
+      }
+
+      yield {
+        adapterId: "streaming-test",
+        sourceId: input.source.id,
+        capabilities: {
+          adapter: {
+            adapterId: "streaming-test",
+            capabilities: streamingCapabilities
+          },
+          source: {
+            adapterId: "streaming-test",
+            sourceId: input.source.id,
+            capabilities: streamingCapabilities
+          },
+          sessions: [
+            {
+              adapterId: "streaming-test",
+              sourceId: input.source.id,
+              sessionId,
+              capabilities: streamingCapabilities
+            }
+          ]
+        },
+        projects: [
+          {
+            id: projectId,
+            adapterId: "streaming-test",
+            sourceId: input.source.id,
+            displayName: "streaming-project",
+            rootPath: input.source.rootPath,
+            primaryRootPath: input.source.rootPath,
+            rootConfidence: "confirmed",
+            harnessRefs: [
+              {
+                adapterId: "streaming-test",
+                sourceId: input.source.id,
+                nativeProjectId: "streaming-project",
+                nativeProjectPath: input.source.rootPath,
+                projectRootPath: input.source.rootPath,
+                projectRootConfidence: "confirmed",
+                rawArtifactRefs: []
+              }
+            ],
+            sessionIds: [sessionId],
+            latestActivityAt: "2026-05-25T12:00:02.000Z",
+            diagnostics: []
+          }
+        ],
+        sessions: [
+          {
+            id: sessionId,
+            adapterId: "streaming-test",
+            sourceId: input.source.id,
+            nativeSessionId: "streaming-session",
+            projectId,
+            startedAt: "2026-05-25T12:00:00.000Z",
+            lastUpdatedAt: "2026-05-25T12:00:02.000Z",
+            lifecycleStatus: "completed",
+            capabilities: streamingCapabilities,
+            parseConfidence: "confirmed",
+            messageIds: [`message:${sessionId}:1`, `message:${sessionId}:2`],
+            eventIds: [`event:${sessionId}:1`, `event:${sessionId}:2`],
+            toolCallIds: [],
+            fileMutationIds: [],
+            shellCommandIds: [],
+            outputArtifactIds: [],
+            usage: {},
+            rawArtifactRefs: [],
+            diagnostics: []
+          }
+        ],
+        events: [
+          {
+            id: `event:${sessionId}:1`,
+            adapterId: "streaming-test",
+            sourceId: input.source.id,
+            sessionId,
+            kind: "message",
+            orderKey: "000001:event:1",
+            actor: "user",
+            title: "User message",
+            text: userText,
+            diagnostics: []
+          },
+          {
+            id: `event:${sessionId}:2`,
+            adapterId: "streaming-test",
+            sourceId: input.source.id,
+            sessionId,
+            kind: "message",
+            orderKey: "000002:event:2",
+            actor: "assistant",
+            title: "Assistant message",
+            text: assistantText,
+            diagnostics: []
+          }
+        ],
+        messages: [
+          {
+            id: `message:${sessionId}:1`,
+            adapterId: "streaming-test",
+            sourceId: input.source.id,
+            sessionId,
+            role: "user",
+            text: userText,
+            toolCallIds: [],
+            eventIds: [`event:${sessionId}:1`],
+            source: {
+              eventId: `event:${sessionId}:1`
+            },
+            confidence: "confirmed"
+          },
+          {
+            id: `message:${sessionId}:2`,
+            adapterId: "streaming-test",
+            sourceId: input.source.id,
+            sessionId,
+            role: "assistant",
+            text: assistantText,
+            toolCallIds: [],
+            eventIds: [`event:${sessionId}:2`],
+            source: {
+              eventId: `event:${sessionId}:2`
+            },
+            confidence: "confirmed"
+          }
+        ],
+        toolCalls: [],
+        shellCommands: [],
+        outputArtifacts: [],
+        fileMutations: [],
+        diagnostics: []
+      };
+    },
+    async normalize() {
+      throw new Error("Legacy normalize should not run for the streaming test adapter.");
+    },
+    async getWatchPlan(source) {
+      return {
+        adapterId: source.adapterId,
+        sourceId: source.id,
+        status: "unsupported",
+        scopePaths: [],
+        strategy: "none",
+        reason: "Streaming test adapter does not watch artifacts."
+      };
+    }
+  };
 }
 
 async function createScannerHarness(options: {
@@ -69,10 +403,15 @@ async function createScannerHarness(options: {
   );
   const rawArtifactIndex = new RawArtifactIndex(path.join(tempDir, "raw-artifact-index.json"));
   const cacheStore = new FileBackedCacheStore(path.join(tempDir, "normalized-cache.json"));
+  const entityStore = new SQLiteWorkbenchEntityStore({
+    artifactBlobRootDir: path.join(tempDir, "artifact-blobs"),
+    databasePath: path.join(tempDir, "workbench.sqlite")
+  });
   const watchOrchestrator = new WatchOrchestrator();
   const scanner = new Scanner({
     adapterRegistry: createBundledAdapterRegistry(),
     cacheStore,
+    entityStore,
     ...(options.gitSnapshotProvider ? { gitSnapshotProvider: options.gitSnapshotProvider } : {}),
     projectDir: process.cwd(),
     rawArtifactIndex,
@@ -82,6 +421,7 @@ async function createScannerHarness(options: {
 
   return {
     cacheStore,
+    entityStore,
     fixturePath,
     rawArtifactIndex,
     scanner,
@@ -120,6 +460,57 @@ describe("Scanner cache integration", () => {
     expect(cachedRecord?.capabilitySnapshots?.adapter.capabilities.live.incrementalParsing).toBe(
       false
     );
+  });
+
+  it("writes streaming normalization batches straight to the entity store without cache persistence", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-streaming-scanner-"));
+    const fixturePath = path.join(tempDir, "streaming.fixture.json");
+
+    try {
+      await writeFile(fixturePath, "{\n}\n", "utf8");
+
+      const sourceRegistry = new SourceRegistry(
+        new FileBackedSourceRegistryStore(path.join(tempDir, "sources.json"))
+      );
+      const rawArtifactIndex = new RawArtifactIndex(path.join(tempDir, "raw-artifact-index.json"));
+      const entityStore = new SQLiteWorkbenchEntityStore({
+        artifactBlobRootDir: path.join(tempDir, "artifact-blobs"),
+        databasePath: path.join(tempDir, "workbench.sqlite")
+      });
+      const cacheStore = new FailingCacheStore(path.join(tempDir, "normalized-cache.json"));
+      const adapterRegistry = new AdapterRegistry().register(createStreamingTestAdapter());
+      const scanner = new Scanner({
+        adapterRegistry,
+        cacheStore,
+        entityStore,
+        projectDir: process.cwd(),
+        rawArtifactIndex,
+        sourceRegistry,
+        watchOrchestrator: new WatchOrchestrator()
+      });
+      const source = await sourceRegistry.createSource({
+        adapterId: "streaming-test",
+        rootPath: fixturePath
+      });
+
+      const validated = await scanner.validateSource(source.sourceId);
+      const scanned = await scanner.scanSource(validated.source.sourceId);
+      const cachedRecord = await cacheStore.getLatestSourceRecord(validated.source.sourceId);
+      const currentRun = await entityStore.getCurrentIngestRun({ sourceId: validated.source.sourceId });
+      const overviewRollup = await entityStore.getOverviewRollup({
+        sourceId: validated.source.sourceId
+      });
+      const rawArtifactEntries = await rawArtifactIndex.load();
+
+      expect(scanned.cachedRecord).toBeUndefined();
+      expect(cachedRecord).toBeUndefined();
+      expect(currentRun?.status).toBe("published");
+      expect(overviewRollup?.projectCount).toBe(1);
+      expect(overviewRollup?.sessionCount).toBe(1);
+      expect(rawArtifactEntries).toEqual([]);
+    } finally {
+      await rm(tempDir, { force: true, recursive: true });
+    }
   });
 
   it("keeps cached source state unchanged when indexed artifact inputs do not change", async () => {
@@ -171,8 +562,9 @@ describe("Scanner cache integration", () => {
     expect(rescanned?.scan.reason).toContain("Change summary: 0 added, 0 removed, 1 changed.");
   });
 
-  it("caches Gemini sessions through the shared scanner pipeline alongside existing bundled adapters", async () => {
-    const { cacheStore, scanner, sourceRegistry, tempDir } = await createScannerHarness();
+  it("streams Gemini sessions through the shared scanner pipeline into the entity store", async () => {
+    const { cacheStore, entityStore, rawArtifactIndex, scanner, sourceRegistry, tempDir } =
+      await createScannerHarness();
     const copiedGeminiRoot = path.join(tempDir, "gemini-root");
 
     await cp(geminiFixtureRoot, copiedGeminiRoot, { recursive: true });
@@ -186,74 +578,115 @@ describe("Scanner cache integration", () => {
     await scanner.scanSource(validated.source.sourceId);
 
     const cachedRecords = await cacheStore.listLatestRecords();
-    const geminiRecords = cachedRecords.filter((record) => record.adapterId === "gemini-cli");
-    const derivedSessions = geminiRecords.flatMap((record) => record.derived?.sessions ?? []);
-    const shellCommands = geminiRecords.flatMap(
-      (record) => record.shellCommands?.sessions.flatMap((session) => session.shellCommands) ?? []
-    );
-    const verificationStatuses = geminiRecords.flatMap(
-      (record) =>
-        record.verificationResults?.sessions.map((session) => session.verification.status) ?? []
-    );
-    const auditStatuses = geminiRecords.flatMap(
-      (record) => record.runAudits?.sessions.map((session) => session.audit.status) ?? []
-    );
-    const rawArtifactKinds = new Set(
-      geminiRecords.flatMap((record) => record.rawArtifactIndex?.entries.map((entry) => entry.artifactKind) ?? [])
-    );
-
-    expect(geminiRecords.length).toBeGreaterThan(0);
-    expect(geminiRecords.flatMap((record) => record.normalized.sessions).length).toBeGreaterThan(0);
-    expect(
-      geminiRecords.every(
-        (record) => record.capabilitySnapshots?.adapter.capabilities.live.incrementalParsing === false
+    const currentRun = await entityStore.getCurrentIngestRun({
+      sourceId: validated.source.sourceId
+    });
+    const overviewRollup = await entityStore.getOverviewRollup({
+      sourceId: validated.source.sourceId
+    });
+    const sessionPage = await entityStore.listSessionsPage({
+      sourceId: validated.source.sourceId
+    });
+    const verificationStatuses = (
+      await Promise.all(
+        sessionPage.items.map((item) =>
+          entityStore.getSessionVerificationSnapshot({
+            sourceId: validated.source.sourceId,
+            sessionId: item.session.id
+          })
+        )
       )
-    ).toBe(true);
-    expect(geminiRecords.some((record) => (record.shellCommands?.sessions.length ?? 0) > 0)).toBe(true);
-    expect(
-      geminiRecords.some((record) => (record.verificationResults?.sessions.length ?? 0) > 0)
-    ).toBe(true);
-    expect(geminiRecords.some((record) => (record.runAudits?.sessions.length ?? 0) > 0)).toBe(true);
-    expect(geminiRecords.some((record) => (record.diagnostics?.entries.length ?? 0) > 0)).toBe(true);
+    )
+      .flatMap((snapshot) => (snapshot ? [snapshot.verification.status] : []));
+    const auditStatuses = (
+      await Promise.all(
+        sessionPage.items.map((item) =>
+          entityStore.getSessionRunAuditSnapshot({
+            sourceId: validated.source.sourceId,
+            sessionId: item.session.id
+          })
+        )
+      )
+    )
+      .flatMap((snapshot) => (snapshot ? [snapshot.audit.status] : []));
+    const rawArtifactMetadata = await entityStore.listRawArtifactMetadata({
+      sourceId: validated.source.sourceId
+    });
+    const rawArtifactKinds = new Set(
+      rawArtifactMetadata.flatMap((metadata) => (metadata.entry ? [metadata.entry.artifactKind] : []))
+    );
+    const projectRollups = await entityStore.listProjectRollups({
+      sourceId: validated.source.sourceId
+    });
+    const rawArtifactIndexEntries = await rawArtifactIndex.listSourceEntries(validated.source.sourceId);
+
+    expect(cachedRecords.filter((record) => record.adapterId === "gemini-cli")).toEqual([]);
+    expect(currentRun?.status).toBe("published");
+    expect(overviewRollup?.sessionCount).toBeGreaterThan(0);
+    expect(projectRollups.length).toBeGreaterThan(0);
+    expect(sessionPage.items.length).toBeGreaterThan(0);
+    expect(sessionPage.items.some((item) => (item.session.outputArtifactIds?.length ?? 0) > 0)).toBe(true);
+    expect(sessionPage.items.some((item) => item.outputArtifactCount && item.outputArtifactCount > 0)).toBe(
+      true
+    );
     expect([...rawArtifactKinds]).toEqual(
       expect.arrayContaining(["project-root-map", "history", "session-log", "output-artifact"])
     );
-    expect(shellCommands).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          intent: "typecheck",
-          result: "unknown",
-          rawToolStatus: "succeeded"
-        })
-        ])
-    );
+    expect(rawArtifactMetadata.length).toBeGreaterThan(0);
+    expect(rawArtifactIndexEntries).toEqual([]);
     expect(verificationStatuses).toEqual(expect.arrayContaining(["failed", "unknown"]));
     expect(auditStatuses).toEqual(expect.arrayContaining(["active", "cancelled", "needs-review"]));
-    const failedVerificationSession = derivedSessions
-      .find((session) =>
-        session.shellCommands.some(
-          (shellCommand) =>
-            shellCommand.command === "npm run test -- tests/main/core/run-audit-engine.test.ts" &&
-            shellCommand.result === "failed" &&
-            shellCommand.rawToolStatus === "succeeded"
-        )
-      );
-    expect(failedVerificationSession?.verification?.status).toBe("failed");
-    expect(failedVerificationSession?.audit?.attentionReasons).toContain("failed-verification");
     expect(
-      derivedSessions.every(
-        (session) => !session.audit?.attentionReasons.includes("missing-sidecar")
-      )
-    ).toBe(true);
-    expect(
-      geminiRecords.some((record) =>
-        record.normalized.sessions.some((session) => session.lifecycleStatus === "completed")
-      )
+      sessionPage.items.some((item) => item.session.lifecycleStatus === "completed")
     ).toBe(true);
   });
 
+  it("reconciles streamed Gemini sources from entity-store raw artifact metadata without rewriting the JSON index", async () => {
+    const { entityStore, rawArtifactIndex, scanner, sourceRegistry, tempDir } =
+      await createScannerHarness();
+    const copiedGeminiRoot = path.join(tempDir, "gemini-root-reconcile");
+
+    await cp(geminiFixtureRoot, copiedGeminiRoot, { recursive: true });
+
+    const source = await sourceRegistry.createSource({
+      adapterId: "gemini-cli",
+      rootPath: copiedGeminiRoot
+    });
+    const validated = await scanner.validateSource(source.sourceId);
+
+    await scanner.scanSource(validated.source.sourceId);
+
+    const persistedMetadata = await entityStore.listRawArtifactMetadata({
+      sourceId: validated.source.sourceId
+    });
+    const unchanged = await scanner.reconcileSource(validated.source.sourceId);
+    const touchTarget = persistedMetadata.find((metadata) => metadata.entry?.path)?.entry?.path;
+
+    expect(await rawArtifactIndex.listSourceEntries(validated.source.sourceId)).toEqual([]);
+    expect(persistedMetadata.length).toBeGreaterThan(0);
+    expect(unchanged.cache.status).toBe("cached");
+    expect(unchanged.scan.status).toBe("scanned-with-diagnostics");
+
+    if (!touchTarget) {
+      throw new Error("Expected streamed Gemini raw artifact metadata to include at least one path.");
+    }
+
+    const currentStat = await stat(touchTarget);
+    const nextTime = new Date(currentStat.mtimeMs + 5_000);
+
+    await utimes(touchTarget, nextTime, nextTime);
+    await scanner.reconcileSource(validated.source.sourceId);
+
+    const reconciled = await sourceRegistry.getSource(validated.source.sourceId);
+
+    expect(reconciled?.cache.status).toBe("stale");
+    expect(reconciled?.scan.status).toBe("stale");
+    expect(reconciled?.cache.reason).toContain("next scan will perform a full reparse");
+    expect(reconciled?.scan.reason).toContain("Change summary: 0 added, 0 removed, 1 changed.");
+  });
+
   it("persists partial derived shell summaries when a Gemini shell sidecar is missing but inline output exists", async () => {
-    const { cacheStore, scanner, sourceRegistry, tempDir } = await createScannerHarness();
+    const { entityStore, scanner, sourceRegistry, tempDir } = await createScannerHarness();
     const copiedGeminiRoot = path.join(tempDir, "gemini-root-missing-sidecar");
     const missingSidecarPath = path.join(
       copiedGeminiRoot,
@@ -274,11 +707,11 @@ describe("Scanner cache integration", () => {
 
     await scanner.scanSource(validated.source.sourceId);
 
-    const cachedRecords = await cacheStore.listLatestRecords();
-    const derivedShellCommand = cachedRecords
-      .filter((record) => record.adapterId === "gemini-cli")
-      .flatMap((record) => record.derived?.sessions ?? [])
-      .flatMap((session) => session.shellCommands)
+    const sessionPage = await entityStore.listSessionsPage({
+      sourceId: validated.source.sourceId
+    });
+    const derivedShellCommand = sessionPage.items
+      .flatMap((item) => item.session.parsedShellCommands ?? [])
       .find((shellCommand) => shellCommand.command === "npm run typecheck");
 
     expect(derivedShellCommand).toEqual(
@@ -287,16 +720,14 @@ describe("Scanner cache integration", () => {
         intent: "typecheck"
       })
     );
-    expect(derivedShellCommand?.confidence.level).not.toBe("high");
+    expect(derivedShellCommand?.confidence).not.toEqual(HIGH_CONFIDENCE);
     expect(derivedShellCommand?.diagnosticIds ?? []).toEqual([]);
     expect(
-      cachedRecords
-        .filter((record) => record.adapterId === "gemini-cli")
-        .some((record) =>
-          record.normalized.diagnostics.some(
-            (diagnostic) => diagnostic.code === "gemini-cli.normalize.missing-sidecar"
-          )
-        )
+      (
+        await entityStore.listDiagnostics({
+          sourceId: validated.source.sourceId
+        })
+      ).some((diagnostic) => diagnostic.code === "gemini-cli.normalize.missing-sidecar")
     ).toBe(false);
   });
 
@@ -443,10 +874,11 @@ describe("Scanner cache integration", () => {
   });
 
   it("marks the source scan as failed when cache persistence throws mid-scan", async () => {
-    const { fixturePath, rawArtifactIndex, sourceRegistry, tempDir } = await createScannerHarness();
+    const { entityStore, fixturePath, rawArtifactIndex, sourceRegistry, tempDir } = await createScannerHarness();
     const scanner = new Scanner({
       adapterRegistry: createBundledAdapterRegistry(),
       cacheStore: new FailingCacheStore(path.join(tempDir, "normalized-cache.json")),
+      entityStore,
       projectDir: process.cwd(),
       rawArtifactIndex,
       sourceRegistry,
@@ -466,6 +898,53 @@ describe("Scanner cache integration", () => {
 
     expect(persisted?.scan.status).toBe("scan-failed");
     expect(persisted?.cache.status).toBe("unknown");
+    expect(
+      persisted?.scan.diagnostics.some(
+        (diagnostic) => diagnostic.code === "scanner.scan.execution-failed"
+      )
+    ).toBe(true);
+  });
+
+  it("preserves the previous cacheKey when a replacement source rescan fails before a new cache record is written", async () => {
+    const { entityStore, fixturePath, rawArtifactIndex, sourceRegistry, tempDir } = await createScannerHarness();
+    const scanner = new Scanner({
+      adapterRegistry: createBundledAdapterRegistry(),
+      cacheStore: new FailingAfterWriteCountCacheStore(path.join(tempDir, "normalized-cache.json"), 1),
+      entityStore,
+      projectDir: process.cwd(),
+      rawArtifactIndex,
+      sourceRegistry,
+      watchOrchestrator: new WatchOrchestrator()
+    });
+    const source = await sourceRegistry.createSource({
+      adapterId: "fake-test",
+      rootPath: fixturePath
+    });
+    const validated = await scanner.validateSource(source.sourceId);
+
+    await scanner.scanSource(validated.source.sourceId);
+
+    const scannedSource = await sourceRegistry.getSource(validated.source.sourceId);
+
+    expect(scannedSource?.cache.cacheKey).toBeTruthy();
+    if (!scannedSource?.cache.cacheKey) {
+      throw new Error("Expected scanned source to persist a cache key.");
+    }
+
+    const previousCacheKey = scannedSource.cache.cacheKey;
+    const replacementSourceId = `${validated.source.sourceId}-replacement`;
+
+    await sourceRegistry.replaceSourceIdentity(validated.source.sourceId, replacementSourceId);
+
+    await expect(scanner.scanSource(replacementSourceId)).rejects.toThrow(
+      "Simulated cache persistence failure."
+    );
+
+    const persisted = await sourceRegistry.getSource(replacementSourceId);
+
+    expect(persisted?.scan.status).toBe("scan-failed");
+    expect(persisted?.cache.status).toBe("unknown");
+    expect(persisted?.cache.cacheKey).toBe(previousCacheKey);
     expect(
       persisted?.scan.diagnostics.some(
         (diagnostic) => diagnostic.code === "scanner.scan.execution-failed"

@@ -21,6 +21,8 @@ import {
   type DataSourceValidationStatus,
   scanDataSourceRequestSchema,
   type ScanDataSourceRequest,
+  scannerStatusViewModelSchema,
+  type ScannerStatusViewModel,
   setDataSourceEnabledRequestSchema,
   type SetDataSourceEnabledRequest,
   updateDataSourceRequestSchema,
@@ -37,6 +39,7 @@ import {
   type WorkbenchRuntime,
   type WorkbenchRuntimeOptions
 } from "./workbench-runtime.js";
+import { syncLatestSourceCacheRecordToEntityStore } from "./workbench-entity-store-sync.js";
 import { toCapabilityGroups } from "./capability-view-models.js";
 
 const settingsChangedReason = "Source settings changed. Validate again before scanning.";
@@ -50,6 +53,7 @@ export interface DataSourcesViewModelService {
   setDataSourceEnabled(request: SetDataSourceEnabledRequest): Promise<DataSourcesViewModel>;
   validateDataSource(request: ValidateDataSourceRequest): Promise<DataSourcesViewModel>;
   scanDataSource(request: ScanDataSourceRequest): Promise<DataSourcesViewModel>;
+  getScannerStatus(): Promise<ScannerStatusViewModel>;
 }
 
 export interface DataSourcesViewModelServiceOptions extends WorkbenchRuntimeOptions {
@@ -145,8 +149,39 @@ export function createDataSourcesViewModelService(
         throw new Error("Source validation must succeed before scanning.");
       }
 
-      await runtime.scanner.scanSource(parsed.sourceId);
+      await runtime.scanJobRunner.scanSource(parsed.sourceId);
+      await syncLatestSourceCacheRecordToEntityStore(runtime, parsed.sourceId);
       return buildViewModel(runtime);
+    },
+
+    async getScannerStatus() {
+      const dataSources = await buildViewModel(runtime);
+      const backgroundStatus = runtime.backgroundScanScheduler.getStatus();
+      const activeScanStatuses = dataSources.sources.filter(
+        (source) => source.scanStatus === "Scanning"
+      ).length;
+      const activeScans = Math.max(
+        activeScanStatuses,
+        runtime.scanJobRunner.getActiveScanCount(),
+        backgroundStatus.activeBackgroundScans
+      );
+
+      return scannerStatusViewModelSchema.parse({
+        status: activeScans > 0 ? "scanning" : "idle",
+        totalSources: dataSources.sources.length,
+        enabledSources: dataSources.sources.filter((source) => source.enabled).length,
+        activeScans,
+        staleSources: dataSources.sources.filter(
+          (source) => source.scanStatus === "Stale" || source.cacheStatus === "Stale"
+        ).length,
+        queuedScans: backgroundStatus.queuedScans,
+        activeBackgroundScans: backgroundStatus.activeBackgroundScans,
+        coalescingSources: backgroundStatus.coalescingSources,
+        watchingSources: backgroundStatus.watchingSources,
+        ...(backgroundStatus.lastBackgroundScanAt
+          ? { lastBackgroundScanAt: backgroundStatus.lastBackgroundScanAt }
+          : {})
+      });
     }
   };
 }
@@ -269,11 +304,13 @@ async function markSourceDirtyAfterSettingsChange(
 ): Promise<void> {
   const nextScanStatus: SourceOperationalStatus =
     source.scan.status === "never-scanned" ? "never-scanned" : "stale";
+  const nextCacheStatus: SourceOperationalStatus =
+    source.cache.status === "cached" ? "stale" : source.cache.status;
   const nextCacheSummary: SourceCacheSummary = {
     ...source.cache,
-    status: source.cache.cacheKey ? "stale" : source.cache.status,
+    status: nextCacheStatus,
     diagnostics: source.cache.diagnostics,
-    ...(source.cache.cacheKey ? { reason: settingsChangedReason } : {})
+    ...(nextCacheStatus === "stale" ? { reason: settingsChangedReason } : {})
   };
 
   await runtime.sourceRegistry.saveValidationSummary(source.sourceId, {

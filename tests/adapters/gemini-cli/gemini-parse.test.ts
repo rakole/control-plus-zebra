@@ -10,8 +10,10 @@ import type { GeminiRawEvent } from "../../../src/main/adapters/gemini-cli/parse
 import { collectAsync } from "../../contract/run-adapter-contract.js";
 
 import {
+  cleanupTempGeminiFixtureRoot,
   collectGeminiArtifacts,
   createGeminiAdapterContext,
+  createTempGeminiFixtureRoot,
   geminiFixtureRoot,
   requireGeminiSource
 } from "./test-helpers.js";
@@ -218,6 +220,93 @@ describe("gemini-cli parsing", () => {
       ).toBe(true);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves distinct malformed JSONL row identity across multiple parse diagnostics in one chat artifact", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const chatPath = path.join(
+        rootPath,
+        "alpha-project",
+        "chats",
+        "session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+      );
+
+      await writeFile(
+        chatPath,
+        [
+          JSON.stringify({
+            sessionId: "11111111-1111-4111-8111-111111111111",
+            projectHash: "alpha-project",
+            startTime: "2026-05-23T09:11:00.000Z",
+            kind: "main"
+          }),
+          JSON.stringify({
+            id: "user-valid-1",
+            timestamp: "2026-05-23T09:11:01.000Z",
+            type: "user",
+            content: [{ text: "first valid row" }]
+          }),
+          "{malformed-row-3",
+          JSON.stringify({
+            id: "assistant-valid-1",
+            timestamp: "2026-05-23T09:11:02.000Z",
+            type: "gemini",
+            content: [{ text: "still going" }]
+          }),
+          "{malformed-row-5",
+          JSON.stringify({
+            id: "assistant-valid-2",
+            timestamp: "2026-05-23T09:11:03.000Z",
+            type: "gemini",
+            content: [{ text: "final valid row" }]
+          })
+        ].join("\n"),
+        "utf8"
+      );
+
+      const alphaSource = await requireGeminiSource(rootPath, "alpha-project");
+      const artifacts = await collectGeminiArtifacts(alphaSource);
+      const chatArtifact = artifacts.find(
+        (artifact) =>
+          artifact.nativeId ===
+          "chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+      );
+
+      if (!chatArtifact) {
+        throw new Error("Expected the rewritten alpha chat artifact.");
+      }
+
+      const rawEvents = await collectAsync(
+        geminiCliAdapter.parseArtifact(chatArtifact, createGeminiAdapterContext(alphaSource.rootPath))
+      );
+      const parseDiagnostics = rawEvents.filter(
+        (event): event is GeminiRawEvent & { payload: { kind: "parse-diagnostic" } } =>
+          event.payload.kind === "parse-diagnostic"
+      );
+
+      expect(parseDiagnostics).toHaveLength(2);
+      expect(parseDiagnostics.map((event) => event.payload.diagnostic.code)).toEqual([
+        "gemini-cli.parse.chat-json-line",
+        "gemini-cli.parse.chat-json-line"
+      ]);
+      expect(parseDiagnostics.map((event) => event.payload.diagnostic.nativeId)).toEqual([
+        "chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl:line-3",
+        "chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl:line-5"
+      ]);
+      expect(parseDiagnostics.map((event) => event.id)).toEqual([
+        `${chatArtifact.id}:parse-diagnostic:chat-json-line:11111111-1111-4111-8111-111111111111:line-3`,
+        `${chatArtifact.id}:parse-diagnostic:chat-json-line:11111111-1111-4111-8111-111111111111:line-5`
+      ]);
+      expect(
+        rawEvents.some(
+          (event) => event.payload.kind === "transcript-record" && event.payload.record.id === "assistant-valid-2"
+        )
+      ).toBe(true);
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
     }
   });
 

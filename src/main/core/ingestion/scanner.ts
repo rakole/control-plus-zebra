@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
 
-import type { SessionSourceAdapter } from "../adapter-contract/session-source-adapter.js";
+import {
+  normalizeSessionSource,
+  streamNormalizedSessionSource,
+  type SessionSourceAdapter
+} from "../adapter-contract/session-source-adapter.js";
 import type {
+  AdapterNormalizationResult,
+  AdapterBatchStreamingNormalizationInput,
   AdapterCapabilitySnapshots,
   AdapterContext,
   DiscoveredHarnessSource,
@@ -12,13 +18,15 @@ import type { FileBackedCacheStore, NormalizedCacheRecord } from "../cache/file-
 import { createCacheKey } from "../cache/cache-keys.js";
 import { buildDiagnostic } from "../diagnostics/diagnostic.js";
 import { HIGH_CONFIDENCE } from "../model/confidence.js";
-import { createSourceId } from "../model/identifiers.js";
+import { createSourceId, type RawArtifactRef as ModelRawArtifactRef } from "../model/identifiers.js";
 import type { Diagnostic } from "../diagnostics/diagnostic.js";
 import { createSafeFilesystem, type SafeFilesystem } from "../security/safe-filesystem.js";
 import type { RawArtifactIndex } from "./raw-artifact-index.js";
 import {
+  compareRawArtifactIndexEntries,
   createRawArtifactIndexEntries,
   fingerprintEntries,
+  type RawArtifactIndexEntry,
   type RawArtifactIndexComparison,
   RAW_ARTIFACT_SCHEMA_VERSION
 } from "./raw-artifact-index.js";
@@ -33,11 +41,20 @@ import { deriveVerificationForSession } from "../verification/verification-class
 import { deriveRunAuditForSession } from "../audit/run-audit-engine.js";
 import { GitSnapshotProvider, type ProjectGitSnapshotResult } from "../git/git-snapshot-provider.js";
 import { GitHubSnapshotProvider } from "../github/github-snapshot-provider.js";
-import type { Project } from "../model/entities.js";
+import type { OutputArtifact, Project, Session } from "../model/entities.js";
+import type { EntityWriteBatch, EntityWriter } from "../store/entity-writer.js";
+import {
+  buildProjectRollups,
+  buildRawArtifactMetadata,
+  buildSessionRollups,
+  maxIsoTimestamp
+} from "../store/normalized-cache-record-entity-importer.js";
+import type { WorkbenchEntityStore } from "../store/workbench-entity-store.js";
 
 export interface ScannerOptions {
   adapterRegistry: AdapterRegistry;
   cacheStore: FileBackedCacheStore;
+  entityStore: WorkbenchEntityStore & EntityWriter;
   githubSnapshotProvider?: GitHubSnapshotProvider;
   gitSnapshotProvider?: GitSnapshotProvider;
   projectDir: string;
@@ -60,6 +77,7 @@ type RuntimeAdapterContext = AdapterContext & { safeFilesystem: SafeFilesystem }
 export class Scanner {
   readonly #adapterRegistry: AdapterRegistry;
   readonly #cacheStore: FileBackedCacheStore;
+  readonly #entityStore: WorkbenchEntityStore & EntityWriter;
   readonly #githubSnapshotProvider: GitHubSnapshotProvider;
   readonly #gitSnapshotProvider: GitSnapshotProvider;
   readonly #projectDir: string;
@@ -70,6 +88,7 @@ export class Scanner {
   constructor(options: ScannerOptions) {
     this.#adapterRegistry = options.adapterRegistry;
     this.#cacheStore = options.cacheStore;
+    this.#entityStore = options.entityStore;
     this.#githubSnapshotProvider = options.githubSnapshotProvider ?? new GitHubSnapshotProvider();
     this.#gitSnapshotProvider = options.gitSnapshotProvider ?? new GitSnapshotProvider();
     this.#projectDir = options.projectDir;
@@ -147,25 +166,36 @@ export class Scanner {
         validationContext
       )
     );
-    const discoveredSource = discoveredSources[0];
-
-    if (!discoveredSource) {
+    if (discoveredSources.length === 0) {
       return source;
     }
+    const rebasedArtifacts: RawArtifactRef[] = [];
 
-    const artifactContext = this.createContext({
-      allowedRootPaths: [source.rootPath]
-    });
-    const artifacts = await collectAsync(adapter.discoverArtifacts(discoveredSource, artifactContext));
+    for (const discoveredSource of discoveredSources) {
+      const artifactContext = this.createContext({
+        allowedRootPaths: [discoveredSource.rootPath]
+      });
+      const artifacts = await collectAsync(adapter.discoverArtifacts(discoveredSource, artifactContext));
+
+      rebasedArtifacts.push(
+        ...artifacts.map((artifact) => rebaseRawArtifactSourceId(artifact, source.sourceId))
+      );
+    }
+
     const diagnosticsHash = createDiagnosticsHash(source.diagnostics);
     const indexEntries = createRawArtifactIndexEntries({
       adapterVersion: adapter.descriptor.adapterVersion,
-      artifacts,
+      artifacts: rebasedArtifacts,
       diagnosticsHash,
       parserVersion: adapter.descriptor.parserVersion ?? adapter.descriptor.adapterVersion,
       schemaVersion: RAW_ARTIFACT_SCHEMA_VERSION
     });
-    const change = await this.#rawArtifactIndex.hasSourceChanged(source.sourceId, indexEntries);
+    const change = await comparePersistedRawArtifactEntriesForSource({
+      entityStore: this.#entityStore,
+      nextEntries: indexEntries,
+      rawArtifactIndex: this.#rawArtifactIndex,
+      source
+    });
 
     if (!change.changed) {
       return source;
@@ -251,6 +281,9 @@ export class Scanner {
       }
 
       const normalizedResults = [];
+      const streamedProjects = new Map<string, Project>();
+      const streamedSessions = new Map<string, Session>();
+      const streamedOutputArtifacts = new Map<string, OutputArtifact>();
       let scanDiagnostics = [...source.validation.diagnostics];
       let totalArtifacts = 0;
       let totalSessions = 0;
@@ -268,6 +301,13 @@ export class Scanner {
         NonNullable<NormalizedCacheRecord["githubSnapshots"]>["projects"][number]
       >();
       let capabilitySnapshots: AdapterCapabilitySnapshots | undefined;
+      const streamedIngestRun = adapter.normalizeBatches
+        ? await this.#entityStore.beginIngestRun({
+            adapterId: source.adapterId,
+            sourceId: source.sourceId,
+            startedAt: new Date().toISOString()
+          })
+        : undefined;
 
       for (const discoveredSource of discoveredSources) {
         const discoveryContext = this.createContext({
@@ -293,8 +333,103 @@ export class Scanner {
             return applySafeArtifactMetadata(artifact, fileStat);
           })
         );
+        const rebasedArtifacts = artifactsWithMetadata.map((artifact) =>
+          rebaseRawArtifactSourceId(artifact, source.sourceId)
+        );
+
+        if (adapter.normalizeBatches && streamedIngestRun) {
+          const watchRecord = await this.#watchOrchestrator.planForSource(
+            adapter,
+            discoveredSource,
+            parseContext
+          );
+
+          await this.#sourceRegistry.saveWatchSummary(source.sourceId, {
+            status: watchRecord.status,
+            ...(watchRecord.reason ? { reason: watchRecord.reason } : {}),
+            strategy: watchRecord.strategy,
+            scopePaths: watchRecord.scopePaths,
+            plannedAt: watchRecord.plannedAt
+          });
+
+          const streamed = await ingestNormalizedBatchesToEntityStore({
+            adapter,
+            entityStore: this.#entityStore,
+            gitSnapshotProvider: this.#gitSnapshotProvider,
+            githubSnapshotProvider: this.#githubSnapshotProvider,
+            ingestRunId: streamedIngestRun.ingestRunId,
+            parseContext,
+            sourceId: source.sourceId,
+            streamingInput: {
+              source: discoveredSource,
+              artifacts: rebasedArtifacts,
+              rawEvents: streamRawEvents(adapter, artifactsWithMetadata, parseContext)
+            }
+          });
+
+          scanDiagnostics = [...scanDiagnostics, ...streamed.diagnostics];
+          totalSessions += streamed.sessionCount;
+          capabilitySnapshots = streamed.capabilitySnapshots
+            ? mergeCapabilitySnapshots(capabilitySnapshots, streamed.capabilitySnapshots)
+            : capabilitySnapshots;
+
+          for (const artifact of rebasedArtifacts) {
+            rawArtifactRefs.set(artifact.id, artifact);
+          }
+
+          for (const project of streamed.projects) {
+            streamedProjects.set(project.id, project);
+          }
+
+          for (const session of streamed.sessions) {
+            streamedSessions.set(session.id, session);
+          }
+
+          for (const outputArtifact of streamed.outputArtifacts) {
+            streamedOutputArtifacts.set(outputArtifact.id, outputArtifact);
+          }
+
+          for (const session of streamed.derivedSessions) {
+            shellSessions.set(session.sessionId, {
+              sessionId: session.sessionId,
+              shellCommands: session.shellCommands
+            });
+
+            if (session.verification) {
+              verificationResults.set(session.sessionId, {
+                sessionId: session.sessionId,
+                verification: session.verification
+              });
+            }
+
+            if (session.audit) {
+              runAudits.set(session.sessionId, {
+                sessionId: session.sessionId,
+                audit: session.audit
+              });
+            }
+          }
+
+          for (const projectSnapshot of streamed.projectSnapshots) {
+            gitSnapshots.set(projectSnapshot.projectId, {
+              projectId: projectSnapshot.projectId,
+              git: projectSnapshot.git
+            });
+
+            if (projectSnapshot.github) {
+              githubSnapshots.set(projectSnapshot.projectId, {
+                projectId: projectSnapshot.projectId,
+                github: projectSnapshot.github
+              });
+            }
+          }
+
+          continue;
+        }
+
         const rawEvents = await collectRawEvents(adapter, artifactsWithMetadata, parseContext);
-        const normalized = await adapter.normalize(
+        const normalized = await normalizeSessionSource(
+          adapter,
           {
             source: discoveredSource,
             artifacts: artifactsWithMetadata,
@@ -435,7 +570,7 @@ export class Scanner {
           normalizedWithDerivedDiagnostics.capabilities
         );
 
-        for (const artifact of artifactsWithMetadata) {
+        for (const artifact of rebasedArtifacts) {
           rawArtifactRefs.set(artifact.id, artifact);
         }
 
@@ -475,13 +610,14 @@ export class Scanner {
         }
       }
 
-      const merged = mergeNormalizedResults(normalizedResults);
+      const finalDiagnostics = dedupeDiagnostics(scanDiagnostics);
+      const merged = streamedIngestRun ? null : mergeNormalizedResults(normalizedResults);
       const rawArtifactEntries =
-        merged && rawArtifactRefs.size > 0
+        (streamedIngestRun || merged) && rawArtifactRefs.size > 0
           ? createRawArtifactIndexEntries({
               adapterVersion: adapter.descriptor.adapterVersion,
               artifacts: [...rawArtifactRefs.values()],
-              diagnosticsHash: createDiagnosticsHash(merged.diagnostics),
+              diagnosticsHash: createDiagnosticsHash(streamedIngestRun ? finalDiagnostics : merged!.diagnostics),
               parserVersion: adapter.descriptor.parserVersion ?? adapter.descriptor.adapterVersion,
               schemaVersion: RAW_ARTIFACT_SCHEMA_VERSION
             })
@@ -490,9 +626,10 @@ export class Scanner {
         rawArtifactEntries.length > 0
           ? await getChangedArtifactFallbackReasonForSource({
               adapter,
+              entityStore: this.#entityStore,
               rawArtifactEntries,
               rawArtifactIndex: this.#rawArtifactIndex,
-              sourceId: source.sourceId
+              source
             })
           : undefined;
 
@@ -500,7 +637,57 @@ export class Scanner {
         await this.#rawArtifactIndex.replaceSourceEntries(source.sourceId, rawArtifactEntries);
       }
 
-      if (merged) {
+      if (streamedIngestRun) {
+        const now = new Date().toISOString();
+        const streamedRecord = buildStreamingCompatibilityRecord({
+          adapterId: source.adapterId,
+          sourceId: source.sourceId,
+          capabilitySnapshots,
+          diagnostics: finalDiagnostics,
+          gitSnapshots,
+          githubSnapshots,
+          outputArtifacts: [...streamedOutputArtifacts.values()],
+          projects: [...streamedProjects.values()],
+          rawArtifactEntries,
+          runAudits,
+          sessions: [...streamedSessions.values()],
+          verificationResults
+        });
+        const rawArtifactMetadata = buildRawArtifactMetadata(streamedRecord);
+        const projectRollups = buildProjectRollups(streamedRecord, rawArtifactMetadata);
+        const sessionRollups = buildSessionRollups(streamedRecord, rawArtifactMetadata);
+        const latestActivityAt = maxIsoTimestamp(
+          streamedRecord.normalized.sessions.map((session) => session.lastUpdatedAt ?? session.startedAt)
+        );
+
+        await this.#entityStore.writeBatch({
+          ingestRunId: streamedIngestRun.ingestRunId,
+          adapterId: source.adapterId,
+          sourceId: source.sourceId,
+          rawArtifacts: rawArtifactMetadata,
+          overviewRollup: {
+            sourceId: source.sourceId,
+            needsAttentionCount: 0,
+            projectCount: streamedRecord.normalized.projects.length,
+            sessionCount: streamedRecord.normalized.sessions.length,
+            ...(latestActivityAt ? { latestActivityAt } : {})
+          },
+          projectRollups,
+          sessionRollups
+        });
+        await this.#entityStore.markLifecycle({
+          kind: "source-complete",
+          ingestRunId: streamedIngestRun.ingestRunId,
+          adapterId: source.adapterId,
+          sourceId: source.sourceId,
+          occurredAt: now
+        });
+        await this.#entityStore.publishIngestRun({
+          ingestRunId: streamedIngestRun.ingestRunId,
+          sourceId: source.sourceId,
+          publishedAt: now
+        });
+      } else if (merged) {
         const now = new Date().toISOString();
         const artifactFingerprint = fingerprintEntries(rawArtifactEntries);
         const cacheKey = createCacheKey({
@@ -554,20 +741,17 @@ export class Scanner {
         await this.#cacheStore.writeRecord(cacheRecord);
       }
 
-      const nextScanStatus =
-        normalizedResults.length === 0
-          ? "scan-failed"
-          : scanDiagnostics.some((diagnostic) => diagnostic.severity === "error") ||
-              scanDiagnostics.length > source.validation.diagnostics.length
-            ? "scanned-with-diagnostics"
-            : "cached";
-      const nextCacheStatus =
-        normalizedResults.length === 0
-          ? "unknown"
+      const scanSucceeded = streamedIngestRun ? totalSessions > 0 : normalizedResults.length > 0;
+      const nextScanStatus = !scanSucceeded
+        ? "scan-failed"
+        : finalDiagnostics.some((diagnostic) => diagnostic.severity === "error") ||
+            finalDiagnostics.length > source.validation.diagnostics.length
+          ? "scanned-with-diagnostics"
           : "cached";
+      const nextCacheStatus = scanSucceeded ? "cached" : "unknown";
       const nextSource = await this.#sourceRegistry.saveScanSummary(source.sourceId, {
         status: nextScanStatus,
-        diagnostics: scanDiagnostics,
+        diagnostics: finalDiagnostics,
         artifactCount: totalArtifacts,
         sessionCount: totalSessions,
         ...(changedArtifactFallbackReason ? { reason: changedArtifactFallbackReason } : {})
@@ -575,7 +759,7 @@ export class Scanner {
 
       await this.#sourceRegistry.saveCacheSummary(source.sourceId, {
         status: nextCacheStatus,
-        diagnostics: scanDiagnostics,
+        diagnostics: finalDiagnostics,
         ...(cacheRecord ? { cacheKey: cacheRecord.cacheKey } : {}),
         ...(changedArtifactFallbackReason ? { reason: changedArtifactFallbackReason } : {})
       });
@@ -611,7 +795,8 @@ export class Scanner {
       });
       await this.#sourceRegistry.saveCacheSummary(source.sourceId, {
         status: "unknown",
-        diagnostics: failureDiagnostics
+        diagnostics: failureDiagnostics,
+        ...(source.cache.cacheKey ? { cacheKey: source.cache.cacheKey } : {})
       });
 
       throw error;
@@ -672,6 +857,16 @@ async function collectAsync<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   return items;
 }
 
+async function* streamRawEvents(
+  adapter: SessionSourceAdapter,
+  artifacts: RawArtifactRef[],
+  context: AdapterContext
+): AsyncIterable<RawHarnessEvent> {
+  for (const artifact of artifacts) {
+    yield* adapter.parseArtifact(artifact, context);
+  }
+}
+
 async function collectRawEvents(
   adapter: SessionSourceAdapter,
   artifacts: RawArtifactRef[],
@@ -684,6 +879,560 @@ async function collectRawEvents(
   }
 
   return rawEvents;
+}
+
+async function ingestNormalizedBatchesToEntityStore(args: {
+  adapter: SessionSourceAdapter;
+  entityStore: WorkbenchEntityStore & EntityWriter;
+  gitSnapshotProvider: GitSnapshotProvider;
+  githubSnapshotProvider: GitHubSnapshotProvider;
+  ingestRunId: string;
+  parseContext: RuntimeAdapterContext;
+  sourceId: string;
+  streamingInput: AdapterBatchStreamingNormalizationInput;
+}): Promise<{
+  capabilitySnapshots?: AdapterCapabilitySnapshots;
+  derivedSessions: NonNullable<NormalizedCacheRecord["derived"]>["sessions"];
+  diagnostics: Diagnostic[];
+  outputArtifacts: OutputArtifact[];
+  projectSnapshots: Array<{
+    git: ProjectGitSnapshotResult["git"];
+    github?: Awaited<ReturnType<GitHubSnapshotProvider["collect"]>>["github"];
+    projectId: string;
+  }>;
+  projects: Project[];
+  sessionCount: number;
+  sessions: Session[];
+}> {
+  const diagnostics: Diagnostic[] = [];
+  const projects = new Map<string, Project>();
+  const sessions = new Map<string, Session>();
+  const outputArtifacts = new Map<string, OutputArtifact>();
+  const derivedSessions: NonNullable<NormalizedCacheRecord["derived"]>["sessions"] = [];
+  const projectSnapshots = new Map<
+    string,
+    {
+      git: ProjectGitSnapshotResult["git"];
+      github?: Awaited<ReturnType<GitHubSnapshotProvider["collect"]>>["github"];
+      projectId: string;
+    }
+  >();
+  let capabilitySnapshots: AdapterCapabilitySnapshots | undefined;
+
+  for await (const batch of streamNormalizedSessionSource(
+    args.adapter,
+    args.streamingInput,
+    args.parseContext
+  )) {
+    const normalized = rebaseNormalizedResultSourceId(batch, args.sourceId);
+    const validation = validateNormalizedResult(normalized);
+
+    if (!validation.ok) {
+      diagnostics.push(...validation.diagnostics);
+      continue;
+    }
+
+    const derived = await deriveNormalizedBatch({
+      adapter: args.adapter,
+      gitSnapshotProvider: args.gitSnapshotProvider,
+      githubSnapshotProvider: args.githubSnapshotProvider,
+      normalized,
+      parseContext: args.parseContext
+    });
+
+    diagnostics.push(...derived.normalized.diagnostics);
+    capabilitySnapshots = capabilitySnapshots
+      ? mergeCapabilitySnapshots(capabilitySnapshots, derived.normalized.capabilities)
+      : derived.normalized.capabilities;
+
+    for (const project of derived.normalized.projects) {
+      projects.set(project.id, project);
+    }
+
+    for (const session of derived.normalized.sessions) {
+      sessions.set(session.id, session);
+    }
+
+    for (const outputArtifact of derived.normalized.outputArtifacts) {
+      outputArtifacts.set(outputArtifact.id, outputArtifact);
+    }
+
+    derived.derivedSessions.forEach((session) => derivedSessions.push(session));
+    derived.projectSnapshots.forEach((snapshot) => projectSnapshots.set(snapshot.projectId, snapshot));
+
+    await writeNormalizedBatchToEntityStore({
+      adapterId: args.adapter.descriptor.id,
+      batch: derived.normalized,
+      entityStore: args.entityStore,
+      ingestRunId: args.ingestRunId,
+      projectSnapshots: derived.projectSnapshots,
+      sourceId: args.sourceId,
+      derivedSessions: derived.derivedSessions
+    });
+  }
+
+  return {
+    ...(capabilitySnapshots ? { capabilitySnapshots } : {}),
+    derivedSessions,
+    diagnostics: dedupeDiagnostics(diagnostics),
+    outputArtifacts: [...outputArtifacts.values()],
+    projectSnapshots: [...projectSnapshots.values()],
+    projects: [...projects.values()],
+    sessionCount: sessions.size,
+    sessions: [...sessions.values()]
+  };
+}
+
+async function deriveNormalizedBatch(args: {
+  adapter: SessionSourceAdapter;
+  gitSnapshotProvider: GitSnapshotProvider;
+  githubSnapshotProvider: GitHubSnapshotProvider;
+  normalized: AdapterNormalizationResult;
+  parseContext: RuntimeAdapterContext;
+}): Promise<{
+  derivedSessions: NonNullable<NormalizedCacheRecord["derived"]>["sessions"];
+  normalized: AdapterNormalizationResult;
+  projectSnapshots: Array<{
+    git: ProjectGitSnapshotResult["git"];
+    github?: Awaited<ReturnType<GitHubSnapshotProvider["collect"]>>["github"];
+    projectId: string;
+  }>;
+}> {
+  const shellDerivation = await deriveShellSessions({
+    adapter: args.adapter,
+    context: args.parseContext,
+    normalized: args.normalized
+  });
+  const normalizedWithShellDiagnostics = {
+    ...args.normalized,
+    diagnostics: dedupeDiagnostics([
+      ...args.normalized.diagnostics,
+      ...shellDerivation.diagnostics
+    ])
+  };
+  const projectGitDerivation = await deriveProjectGitSnapshots(
+    normalizedWithShellDiagnostics.projects,
+    args.gitSnapshotProvider
+  );
+  const projectGitHubDerivation = await deriveProjectGitHubSnapshots(
+    normalizedWithShellDiagnostics.projects,
+    projectGitDerivation.projects,
+    args.githubSnapshotProvider
+  );
+  const normalizedWithDerivedDiagnostics = {
+    ...normalizedWithShellDiagnostics,
+    diagnostics: dedupeDiagnostics([
+      ...normalizedWithShellDiagnostics.diagnostics,
+      ...projectGitDerivation.diagnostics,
+      ...projectGitHubDerivation.diagnostics
+    ])
+  };
+  const projectGitSnapshotsByProjectId = new Map(
+    projectGitDerivation.projects.map((project) => [project.projectId, project.git] as const)
+  );
+
+  const derivedSessions = shellDerivation.sessions.map((sessionDerivation) => {
+    const session = normalizedWithDerivedDiagnostics.sessions.find(
+      (candidate) => candidate.id === sessionDerivation.sessionId
+    );
+
+    if (!session) {
+      throw new Error(`Expected derived shell session '${sessionDerivation.sessionId}' to exist.`);
+    }
+
+    const sessionCapabilities = normalizedWithDerivedDiagnostics.capabilities.sessions.find(
+      (candidate) => candidate.sessionId === session.id
+    );
+    const sessionEvents = normalizedWithDerivedDiagnostics.events.filter(
+      (event) => event.sessionId === session.id
+    );
+    const sessionMessages = normalizedWithDerivedDiagnostics.messages.filter(
+      (message) => message.sessionId === session.id
+    );
+    const sessionToolCalls = normalizedWithDerivedDiagnostics.toolCalls.filter(
+      (toolCall) => toolCall.sessionId === session.id
+    );
+    const sessionDiagnostics = getSessionDiagnostics(
+      normalizedWithDerivedDiagnostics.diagnostics,
+      session,
+      sessionDerivation
+    );
+    const verification = deriveVerificationForSession({
+      adapterCapabilities: normalizedWithDerivedDiagnostics.capabilities.adapter,
+      parsedShellCommands: sessionDerivation.shellCommands,
+      session,
+      sessionMessages,
+      ...(sessionCapabilities ? { sessionCapabilities } : {}),
+      sourceCapabilities: normalizedWithDerivedDiagnostics.capabilities.source
+    });
+    const projectGitSnapshot = session.projectId
+      ? projectGitSnapshotsByProjectId.get(session.projectId)
+      : undefined;
+
+    return {
+      ...sessionDerivation,
+      verification,
+      audit: deriveRunAuditForSession({
+        adapterCapabilities: normalizedWithDerivedDiagnostics.capabilities.adapter,
+        diagnostics: sessionDiagnostics,
+        parsedShellCommands: sessionDerivation.shellCommands,
+        ...(projectGitSnapshot ? { projectGitSnapshot } : {}),
+        session,
+        sessionEvents,
+        sessionFileMutations: normalizedWithDerivedDiagnostics.fileMutations.filter(
+          (fileMutation) => fileMutation.sessionId === session.id
+        ),
+        sessionMessages,
+        sessionToolCalls,
+        verification,
+        ...(sessionCapabilities ? { sessionCapabilities } : {}),
+        sourceCapabilities: normalizedWithDerivedDiagnostics.capabilities.source
+      })
+    };
+  });
+  const derivedSessionsById = new Map(derivedSessions.map((session) => [session.sessionId, session] as const));
+  const modelNamesBySessionId = new Map(
+    normalizedWithDerivedDiagnostics.sessions.map((session) => [
+      session.id,
+      collectSessionModelNames(normalizedWithDerivedDiagnostics.messages, session.id)
+    ] as const)
+  );
+  const normalizedWithEnrichedSessions = {
+    ...normalizedWithDerivedDiagnostics,
+    sessions: normalizedWithDerivedDiagnostics.sessions.map((session) => {
+      const derivedSession = derivedSessionsById.get(session.id);
+      const modelNames = modelNamesBySessionId.get(session.id) ?? [];
+
+      if (!derivedSession) {
+        return modelNames.length > 0
+          ? {
+              ...session,
+              metadata: {
+                ...(session.metadata ?? {}),
+                modelNames
+              }
+            }
+          : session;
+      }
+
+      return {
+        ...session,
+        ...(modelNames.length > 0
+          ? {
+              metadata: {
+                ...(session.metadata ?? {}),
+                modelNames
+              }
+            }
+          : {}),
+        parsedShellCommands: derivedSession.shellCommands,
+        ...(derivedSession.verification ? { verification: derivedSession.verification } : {}),
+        ...(derivedSession.audit ? { runAudit: derivedSession.audit } : {})
+      };
+    })
+  };
+
+  const projectSnapshots = projectGitDerivation.projects.map((projectGitSnapshot) => {
+    const githubSnapshot = projectGitHubDerivation.projectsByProjectId.get(projectGitSnapshot.projectId);
+
+    return {
+      ...projectGitSnapshot,
+      ...(githubSnapshot ? { github: githubSnapshot } : {})
+    };
+  });
+
+  return {
+    derivedSessions,
+    normalized: normalizedWithEnrichedSessions,
+    projectSnapshots
+  };
+}
+
+async function writeNormalizedBatchToEntityStore(args: {
+  adapterId: string;
+  batch: AdapterNormalizationResult;
+  derivedSessions: NonNullable<NormalizedCacheRecord["derived"]>["sessions"];
+  entityStore: WorkbenchEntityStore & EntityWriter;
+  ingestRunId: string;
+  projectSnapshots: Array<{
+    git: ProjectGitSnapshotResult["git"];
+    github?: Awaited<ReturnType<GitHubSnapshotProvider["collect"]>>["github"];
+    projectId: string;
+  }>;
+  sourceId: string;
+}): Promise<void> {
+  await writeChunkedEntityBatch(args.entityStore, {
+    adapterId: args.adapterId,
+    diagnostics: args.batch.diagnostics,
+    events: args.batch.events,
+    fileMutations: args.batch.fileMutations,
+    githubSnapshots: args.projectSnapshots
+      .filter((snapshot) => snapshot.github)
+      .map((snapshot) => ({
+        projectId: snapshot.projectId,
+        github: snapshot.github!
+      })),
+    gitSnapshots: args.projectSnapshots.map((snapshot) => ({
+      projectId: snapshot.projectId,
+      git: snapshot.git
+    })),
+    ingestRunId: args.ingestRunId,
+    messages: args.batch.messages,
+    outputArtifacts: args.batch.outputArtifacts,
+    projects: args.batch.projects,
+    runAuditSnapshots: args.derivedSessions
+      .filter((session) => session.audit)
+      .map((session) => ({
+        sessionId: session.sessionId,
+        audit: session.audit!
+      })),
+    sessions: args.batch.sessions,
+    shellCommands: args.batch.shellCommands,
+    sourceId: args.sourceId,
+    toolCalls: args.batch.toolCalls,
+    verificationSnapshots: args.derivedSessions
+      .filter((session) => session.verification)
+      .map((session) => ({
+        sessionId: session.sessionId,
+        verification: session.verification!
+      }))
+  });
+}
+
+async function writeChunkedEntityBatch(
+  entityStore: WorkbenchEntityStore & EntityWriter,
+  batch: EntityWriteBatch
+): Promise<void> {
+  const arrayEntries = Object.entries(batch).filter(([, value]) => Array.isArray(value)) as Array<
+    [keyof EntityWriteBatch, unknown[]]
+  >;
+  const maxLength = arrayEntries.reduce((current, [, value]) => Math.max(current, value.length), 0);
+
+  if (maxLength === 0) {
+    await entityStore.writeBatch(batch);
+    return;
+  }
+
+  for (let index = 0; index < maxLength; index += 1_000) {
+    const chunk: EntityWriteBatch = {
+      ingestRunId: batch.ingestRunId,
+      adapterId: batch.adapterId,
+      sourceId: batch.sourceId
+    };
+
+    for (const [key, value] of arrayEntries) {
+      const nextItems = value.slice(index, index + 1_000);
+
+      if (nextItems.length > 0) {
+        (chunk as unknown as Record<string, unknown>)[key] = nextItems;
+      }
+    }
+
+    await entityStore.writeBatch(chunk);
+  }
+}
+
+function buildStreamingCompatibilityRecord(args: {
+  adapterId: string;
+  capabilitySnapshots: AdapterCapabilitySnapshots | undefined;
+  diagnostics: Diagnostic[];
+  gitSnapshots: Map<string, NonNullable<NormalizedCacheRecord["gitSnapshots"]>["projects"][number]>;
+  githubSnapshots: Map<string, NonNullable<NormalizedCacheRecord["githubSnapshots"]>["projects"][number]>;
+  outputArtifacts: OutputArtifact[];
+  projects: Project[];
+  rawArtifactEntries: ReturnType<typeof createRawArtifactIndexEntries>;
+  runAudits: Map<string, NonNullable<NormalizedCacheRecord["runAudits"]>["sessions"][number]>;
+  sessions: Session[];
+  sourceId: string;
+  verificationResults: Map<
+    string,
+    NonNullable<NormalizedCacheRecord["verificationResults"]>["sessions"][number]
+  >;
+}): NormalizedCacheRecord {
+  const now = new Date().toISOString();
+
+  return {
+    cacheKey: `streamed-${args.sourceId}-${now}`,
+    adapterId: args.adapterId,
+    sourceId: args.sourceId,
+    artifactFingerprint: fingerprintEntries(args.rawArtifactEntries),
+    createdAt: now,
+    updatedAt: now,
+    normalized: {
+      adapterId: args.adapterId,
+      sourceId: args.sourceId,
+      capabilities:
+        args.capabilitySnapshots ?? {
+          adapter: { adapterId: args.adapterId, capabilities: {} as AdapterCapabilitySnapshots["adapter"]["capabilities"] },
+          source: {
+            adapterId: args.adapterId,
+            sourceId: args.sourceId,
+            capabilities: {} as AdapterCapabilitySnapshots["source"]["capabilities"]
+          },
+          sessions: []
+        },
+      projects: args.projects,
+      sessions: args.sessions,
+      events: [],
+      messages: [],
+      toolCalls: [],
+      shellCommands: [],
+      outputArtifacts: args.outputArtifacts,
+      fileMutations: [],
+      diagnostics: args.diagnostics
+    },
+    verificationResults: {
+      sessions: [...args.verificationResults.values()]
+    },
+    runAudits: {
+      sessions: [...args.runAudits.values()]
+    },
+    gitSnapshots: {
+      projects: [...args.gitSnapshots.values()]
+    },
+    githubSnapshots: {
+      projects: [...args.githubSnapshots.values()]
+    },
+    diagnostics: {
+      entries: args.diagnostics
+    },
+    rawArtifactIndex: {
+      entries: args.rawArtifactEntries
+    },
+    ...(args.capabilitySnapshots ? { capabilitySnapshots: args.capabilitySnapshots } : {}),
+    derived: {
+      sessions: buildDerivedSessionsCompatibility(
+        new Map(),
+        args.verificationResults,
+        args.runAudits
+      ),
+      ...(buildDerivedProjectsCompatibility(args.gitSnapshots, args.githubSnapshots).length > 0
+        ? {
+            projects: buildDerivedProjectsCompatibility(args.gitSnapshots, args.githubSnapshots)
+          }
+        : {})
+    }
+  };
+}
+
+function collectSessionModelNames(messages: AdapterNormalizationResult["messages"], sessionId: string): string[] {
+  const seen = new Set<string>();
+  const modelNames: string[] = [];
+
+  for (const message of messages) {
+    if (message.sessionId !== sessionId || typeof message.modelName !== "string") {
+      continue;
+    }
+
+    const modelName = message.modelName.replace(/\s+/gu, " ").trim();
+
+    if (modelName.length === 0 || seen.has(modelName)) {
+      continue;
+    }
+
+    seen.add(modelName);
+    modelNames.push(modelName);
+  }
+
+  return modelNames;
+}
+
+function rebaseNormalizedResultSourceId(
+  normalized: AdapterNormalizationResult,
+  sourceId: string
+): AdapterNormalizationResult {
+  return {
+    ...normalized,
+    sourceId,
+    capabilities: {
+      ...normalized.capabilities,
+      source: {
+        ...normalized.capabilities.source,
+        sourceId
+      },
+      sessions: normalized.capabilities.sessions.map((session) => ({
+        ...session,
+        sourceId
+      }))
+    },
+    projects: normalized.projects.map((project) => ({
+      ...project,
+      sourceId,
+      ...(project.harnessRefs
+        ? {
+            harnessRefs: project.harnessRefs.map((ref) => ({
+              ...ref,
+              sourceId,
+              rawArtifactRefs: ref.rawArtifactRefs.map((artifact) =>
+                toModelRawArtifactRef(rebaseRawArtifactSourceId(artifact, sourceId))
+              )
+            }))
+          }
+        : {})
+    })),
+    sessions: normalized.sessions.map((session) => ({
+      ...session,
+      sourceId,
+      ...(session.rawArtifactRefs
+        ? {
+            rawArtifactRefs: session.rawArtifactRefs.map((artifact) =>
+              toModelRawArtifactRef(rebaseRawArtifactSourceId(artifact, sourceId))
+            )
+          }
+        : {})
+    })),
+    events: normalized.events.map((event) => ({
+      ...event,
+      sourceId
+    })),
+    messages: normalized.messages.map((message) => ({
+      ...message,
+      sourceId
+    })),
+    toolCalls: normalized.toolCalls.map((toolCall) => ({
+      ...toolCall,
+      sourceId
+    })),
+    shellCommands: normalized.shellCommands.map((shellCommand) => ({
+      ...shellCommand,
+      sourceId
+    })),
+    outputArtifacts: normalized.outputArtifacts.map((artifact) => ({
+      ...artifact,
+      sourceId,
+      ...(artifact.ref ? { ref: { ...artifact.ref, sourceId } } : {})
+    })),
+    fileMutations: normalized.fileMutations.map((fileMutation) => ({
+      ...fileMutation,
+      sourceId
+    })),
+    diagnostics: normalized.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      sourceId
+    }))
+  };
+}
+
+function rebaseRawArtifactSourceId(artifact: RawArtifactRef, sourceId: string): RawArtifactRef {
+  return {
+    ...artifact,
+    sourceId
+  };
+}
+
+function toModelRawArtifactRef(artifact: RawArtifactRef): ModelRawArtifactRef {
+  return {
+    id: artifact.id,
+    adapterId: artifact.adapterId,
+    sourceId: artifact.sourceId,
+    artifactKind: artifact.artifactKind ?? "unknown",
+    ...(artifact.path ? { path: artifact.path } : {}),
+    ...(artifact.nativeRef ? { nativeRef: artifact.nativeRef } : {}),
+    ...(artifact.sizeBytes !== undefined ? { sizeBytes: artifact.sizeBytes } : {}),
+    ...(artifact.mtime ? { mtime: artifact.mtime } : {}),
+    ...(typeof artifact.inode === "string" ? { inode: artifact.inode } : {}),
+    ...(artifact.parseStrategy ? { parseStrategy: artifact.parseStrategy } : {})
+  };
 }
 
 export function applySafeArtifactMetadata<
@@ -721,13 +1470,69 @@ function createDiagnosticsHash(diagnostics: Array<{ code: string; message: strin
   return createHash("sha256").update(stable).digest("hex");
 }
 
+async function listPersistedRawArtifactEntriesForSource(args: {
+  entityStore: WorkbenchEntityStore;
+  rawArtifactIndex: RawArtifactIndex;
+  source: SourceRecord;
+}): Promise<RawArtifactIndexEntry[]> {
+  if (args.source.cache.cacheKey) {
+    return args.rawArtifactIndex.listSourceEntries(args.source.sourceId);
+  }
+
+  const metadata = await args.entityStore.listRawArtifactMetadata({
+    sourceId: args.source.sourceId
+  });
+  const entityEntries = metadata.flatMap((record) => (record.entry ? [record.entry] : []));
+
+  if (entityEntries.length > 0) {
+    return entityEntries;
+  }
+
+  return args.rawArtifactIndex.listSourceEntries(args.source.sourceId);
+}
+
+async function comparePersistedRawArtifactEntriesForSource(args: {
+  entityStore: WorkbenchEntityStore;
+  nextEntries: RawArtifactIndexEntry[];
+  rawArtifactIndex: RawArtifactIndex;
+  source: SourceRecord;
+}): Promise<{
+  changed: boolean;
+  previousFingerprint?: string;
+  nextFingerprint: string;
+  comparison: RawArtifactIndexComparison;
+}> {
+  const previousEntries = await listPersistedRawArtifactEntriesForSource({
+    entityStore: args.entityStore,
+    rawArtifactIndex: args.rawArtifactIndex,
+    source: args.source
+  });
+  const previousFingerprint =
+    previousEntries.length > 0 ? fingerprintEntries(previousEntries) : undefined;
+  const nextFingerprint = fingerprintEntries(args.nextEntries);
+  const comparison = compareRawArtifactIndexEntries(previousEntries, args.nextEntries);
+
+  return {
+    changed: previousFingerprint !== nextFingerprint,
+    ...(previousFingerprint ? { previousFingerprint } : {}),
+    nextFingerprint,
+    comparison
+  };
+}
+
 async function getChangedArtifactFallbackReasonForSource(args: {
   adapter: SessionSourceAdapter;
+  entityStore: WorkbenchEntityStore;
   rawArtifactEntries: ReturnType<typeof createRawArtifactIndexEntries>;
   rawArtifactIndex: RawArtifactIndex;
-  sourceId: string;
+  source: SourceRecord;
 }): Promise<string | undefined> {
-  const change = await args.rawArtifactIndex.hasSourceChanged(args.sourceId, args.rawArtifactEntries);
+  const change = await comparePersistedRawArtifactEntriesForSource({
+    entityStore: args.entityStore,
+    nextEntries: args.rawArtifactEntries,
+    rawArtifactIndex: args.rawArtifactIndex,
+    source: args.source
+  });
 
   if (!change.changed || !change.previousFingerprint) {
     return undefined;

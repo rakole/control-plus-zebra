@@ -12,8 +12,13 @@ import type { SessionDetailViewModelService } from "../../../src/main/app/sessio
 import type { ThemeService } from "../../../src/main/theme/theme-service.js";
 import type { TriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import {
+  PaginationValidationError,
+  encodeOpaqueCursor
+} from "../../../src/main/core/store/index.js";
+import {
   createArchiveResponseSchema,
   dashboardStatsResponseSchema,
+  getOverviewActivityHeatmapResponseSchema,
   getSessionResponseSchema,
   sessionTimelineResponseSchema,
   getRunAuditResponseSchema,
@@ -50,6 +55,7 @@ describe("ipc handlers", () => {
       IPC_CHANNELS.createArchive,
       IPC_CHANNELS.openArchive,
       IPC_CHANNELS.getDashboardStats,
+      IPC_CHANNELS.getOverviewActivityHeatmap,
       IPC_CHANNELS.listProjects,
       IPC_CHANNELS.getProject,
       IPC_CHANNELS.listSessions,
@@ -60,7 +66,6 @@ describe("ipc handlers", () => {
       IPC_CHANNELS.getShellCommands,
       IPC_CHANNELS.getOutputArtifactPreview,
       IPC_CHANNELS.loadOutputArtifact,
-      IPC_CHANNELS.getRunAudit,
       IPC_CHANNELS.getAuditRunAudit,
       IPC_CHANNELS.getGitSnapshot,
       IPC_CHANNELS.getGitHubSnapshot,
@@ -87,6 +92,125 @@ describe("ipc handlers", () => {
     expect(JSON.stringify(result)).not.toMatch(/stack|\/Users|adapter|rawEvents/u);
   });
 
+  it("returns sanitized invalid-request errors for invalid pagination cursors", async () => {
+    const collector = createIpcCollector();
+    const services = createFakeServices();
+
+    services.sessionService.listSessionsPage = async () => {
+      throw new PaginationValidationError("invalid-cursor");
+    };
+    services.sessionDetailService.getSessionTimeline = async () => {
+      throw new PaginationValidationError("invalid-cursor");
+    };
+    registerIpcHandlers(collector, services);
+
+    const list = await collector.invoke(IPC_CHANNELS.listSessions, {
+      cursor: "bad-cursor"
+    });
+    const timeline = await collector.invoke(IPC_CHANNELS.getSessionTimeline, {
+      sessionId: "session_1",
+      cursor: "bad-cursor"
+    });
+
+    expect(list).toEqual({
+      ok: false,
+      error: {
+        code: "invalid-request",
+        message: "Request payload is not valid for this operation."
+      }
+    });
+    expect(timeline).toEqual({
+      ok: false,
+      error: {
+        code: "invalid-request",
+        message: "Request payload is not valid for this operation."
+      }
+    });
+  });
+
+  it("accepts opaque list and timeline cursors at IPC boundaries", async () => {
+    const collector = createIpcCollector();
+    const services = createFakeServices();
+    const requestCursor = encodeOpaqueCursor({
+      adapterId: "fake-test",
+      fallbackIndex: 0,
+      nextCursorBySourceIdJson: "{}"
+    });
+    const responseCursor = encodeOpaqueCursor({
+      adapterId: "fake-test",
+      fallbackIndex: 1,
+      nextCursorBySourceIdJson: "{}"
+    });
+    const requests: unknown[] = [];
+    const timelineRequests: unknown[] = [];
+
+    services.sessionService.listSessionsPage = async (request = {}) => {
+      requests.push(request);
+      return {
+        sessions: await services.sessionService.listSessions(),
+        pageInfo: {
+          hasMore: true,
+          nextCursor: responseCursor,
+          totalCount: 1
+        }
+      };
+    };
+    services.sessionDetailService.getSessionTimeline = async (request) => {
+      timelineRequests.push(request);
+      return {
+        timeline: [],
+        pageInfo: {
+          hasMore: true,
+          nextCursor: responseCursor,
+          totalCount: 51
+        }
+      };
+    };
+    registerIpcHandlers(collector, services);
+
+    const list = await collector.invoke(IPC_CHANNELS.listSessions, {
+      adapterId: "fake-test",
+      cursor: requestCursor,
+      limit: 25
+    });
+    const timeline = await collector.invoke(IPC_CHANNELS.getSessionTimeline, {
+      sessionId: "session_1",
+      cursor: requestCursor
+    });
+
+    expect(requests).toEqual([
+      {
+        adapterId: "fake-test",
+        cursor: requestCursor,
+        limit: 25
+      }
+    ]);
+    expect(() => listSessionsResponseSchema.parse(list)).not.toThrow();
+    expect(list).toMatchObject({
+      ok: true,
+      pageInfo: {
+        hasMore: true,
+        nextCursor: responseCursor,
+        totalCount: 1
+      }
+    });
+    expect(timelineRequests).toEqual([
+      {
+        sessionId: "session_1",
+        cursor: requestCursor
+      }
+    ]);
+    expect(timeline).toEqual({
+      ok: true,
+      timeline: [],
+      pageInfo: {
+        hasMore: true,
+        nextCursor: responseCursor,
+        totalCount: 51
+      }
+    });
+  });
+
   it("returns schema-valid DTOs for shell, list, and get handlers", async () => {
     const collector = createIpcCollector();
 
@@ -99,6 +223,7 @@ describe("ipc handlers", () => {
       privacyWarningAcknowledged: true
     });
     const overview = await collector.invoke(IPC_CHANNELS.getDashboardStats);
+    const heatmap = await collector.invoke(IPC_CHANNELS.getOverviewActivityHeatmap);
     const projects = await collector.invoke(IPC_CHANNELS.listProjects);
     const list = await collector.invoke(IPC_CHANNELS.listSessions);
     const get = await collector.invoke(IPC_CHANNELS.getSession, { sessionId: "session_1" });
@@ -113,15 +238,17 @@ describe("ipc handlers", () => {
       sessionId: "session_1",
       outputArtifactId: "output-artifact_1"
     });
-    const runAudit = await collector.invoke(IPC_CHANNELS.getRunAudit, {
+    const runAudit = await collector.invoke(IPC_CHANNELS.getAuditRunAudit, {
       sessionId: "session_1"
     });
     const diagnostics = await collector.invoke(IPC_CHANNELS.listDiagnostics);
     const sources = await collector.invoke(IPC_CHANNELS.listSources);
+    const scanner = await collector.invoke(IPC_CHANNELS.getScannerStatus);
 
     expect(() => shellStateViewModelSchema.parse(shell)).not.toThrow();
     expect(() => createArchiveResponseSchema.parse(archive)).not.toThrow();
     expect(() => dashboardStatsResponseSchema.parse(overview)).not.toThrow();
+    expect(() => getOverviewActivityHeatmapResponseSchema.parse(heatmap)).not.toThrow();
     expect(() => listProjectsResponseSchema.parse(projects)).not.toThrow();
     expect(() => listSessionsResponseSchema.parse(list)).not.toThrow();
     expect(() => getSessionResponseSchema.parse(get)).not.toThrow();
@@ -131,6 +258,52 @@ describe("ipc handlers", () => {
     expect(() => getRunAuditResponseSchema.parse(runAudit)).not.toThrow();
     expect(() => listDiagnosticsResponseSchema.parse(diagnostics)).not.toThrow();
     expect(() => sourcesResponseSchema.parse(sources)).not.toThrow();
+    expect(scanner).toMatchObject({
+      ok: true,
+      scanner: {
+        queuedScans: 0,
+        activeBackgroundScans: 0,
+        coalescingSources: 0,
+        watchingSources: 0
+      }
+    });
+  });
+
+  it("routes the dedicated overview heatmap request through the triage service", async () => {
+    const collector = createIpcCollector();
+    const services = createFakeServices();
+    const requests: unknown[] = [];
+
+    services.triageService.getOverviewActivityHeatmap = async (request) => {
+      requests.push(request ?? {});
+      return {
+        buckets: Array.from({ length: 30 }, (_, index) => ({
+          day: `2026-05-${String(index + 1).padStart(2, "0")}`,
+          sessionCount: index === 29 ? 1 : 0,
+          needsAttentionCount: index === 29 ? 1 : 0
+        })),
+        coverageState: {
+          label: "Available",
+          tone: "info"
+        }
+      };
+    };
+    registerIpcHandlers(collector, services);
+
+    const response = await collector.invoke(IPC_CHANNELS.getOverviewActivityHeatmap, {
+      adapterId: "fake-test"
+    });
+
+    expect(requests).toEqual([{ adapterId: "fake-test" }]);
+    expect(() => getOverviewActivityHeatmapResponseSchema.parse(response)).not.toThrow();
+  });
+
+  it("does not register the retired sessions run-audit alias", () => {
+    const collector = createIpcCollector();
+
+    registerIpcHandlers(collector, createFakeServices());
+
+    expect(collector.handlers.has("sessions:getRunAudit")).toBe(false);
   });
 });
 
@@ -279,11 +452,12 @@ function createFakeServices(): {
           IPC_CHANNELS.createArchive,
           IPC_CHANNELS.openArchive,
           IPC_CHANNELS.getDashboardStats,
+          IPC_CHANNELS.getOverviewActivityHeatmap,
           IPC_CHANNELS.listProjects,
           IPC_CHANNELS.listSessions,
           IPC_CHANNELS.getSession,
           IPC_CHANNELS.getSessionTimeline,
-          IPC_CHANNELS.getRunAudit,
+          IPC_CHANNELS.getAuditRunAudit,
           IPC_CHANNELS.listDiagnostics,
           IPC_CHANNELS.listSources,
           IPC_CHANNELS.addSource,
@@ -393,6 +567,19 @@ function createFakeServices(): {
         activity: [{ day: "2026-05-23", sessionCount: 1, needsAttentionCount: 1 }]
       };
     },
+    async getOverviewActivityHeatmap() {
+      return {
+        buckets: Array.from({ length: 30 }, (_, index) => ({
+          day: `2026-04-${String(index + 1).padStart(2, "0")}`,
+          sessionCount: index === 29 ? 1 : 0,
+          needsAttentionCount: index === 29 ? 1 : 0
+        })),
+        coverageState: {
+          label: "Available",
+          tone: "info"
+        }
+      };
+    },
     async listProjects() {
       return [
         {
@@ -470,6 +657,19 @@ function createFakeServices(): {
     },
     async scanDataSource() {
       return dataSourcesViewModel;
+    },
+    async getScannerStatus() {
+      return {
+        status: "idle",
+        totalSources: dataSourcesViewModel.sources.length,
+        enabledSources: 0,
+        activeScans: 0,
+        staleSources: 0,
+        queuedScans: 0,
+        activeBackgroundScans: 0,
+        coalescingSources: 0,
+        watchingSources: 0
+      };
     }
   };
   const themeService: ThemeService = {

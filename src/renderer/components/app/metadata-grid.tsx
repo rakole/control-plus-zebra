@@ -2,8 +2,11 @@ import * as React from "react";
 
 import { cn } from "../../lib/utils.js";
 
+type MetadataTone = "danger" | "info" | "neutral" | "positive" | "warning";
+
 export interface MetadataItem {
   label: React.ReactNode;
+  tone?: MetadataTone;
   value: React.ReactNode;
 }
 
@@ -23,7 +26,10 @@ export function MetadataGrid({
       {items.map((item, index) => (
         <div
           key={typeof item.label === "string" ? item.label : index}
-          className="space-y-1 rounded-md border border-border bg-muted/20 px-3 py-2"
+          className={cn(
+            "space-y-1 rounded-md border px-3 py-2",
+            getMetadataToneClassName(item.tone)
+          )}
         >
           <dt className="text-[0.6875rem] font-medium uppercase text-muted-foreground">
             {item.label}
@@ -48,4 +54,20 @@ export function MetadataGrid({
       {content}
     </section>
   );
+}
+
+function getMetadataToneClassName(tone?: MetadataTone): string {
+  switch (tone) {
+    case "danger":
+      return "border-red-500/40 bg-red-500/8";
+    case "warning":
+      return "border-amber-500/40 bg-amber-500/8";
+    case "positive":
+      return "border-emerald-500/40 bg-emerald-500/8";
+    case "info":
+      return "border-sky-500/40 bg-sky-500/8";
+    case "neutral":
+    default:
+      return "border-border bg-muted/20";
+  }
 }

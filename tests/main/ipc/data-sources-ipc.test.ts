@@ -143,6 +143,17 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
     setDataSourceEnabled: vi.fn(async () => dataSourcesViewModel),
     validateDataSource: vi.fn(async () => dataSourcesViewModel),
     scanDataSource: vi.fn(async () => dataSourcesViewModel),
+    getScannerStatus: vi.fn(async () => ({
+      status: "idle" as const,
+      totalSources: 0,
+      enabledSources: 0,
+      activeScans: 0,
+      staleSources: 0,
+      queuedScans: 0,
+      activeBackgroundScans: 0,
+      coalescingSources: 0,
+      watchingSources: 0
+    })),
     ...overrides
   };
 
@@ -173,7 +184,7 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
         IPC_CHANNELS.listSessions,
         IPC_CHANNELS.getSession,
         IPC_CHANNELS.getSessionTimeline,
-        IPC_CHANNELS.getRunAudit,
+        IPC_CHANNELS.getAuditRunAudit,
         IPC_CHANNELS.listDiagnostics,
         IPC_CHANNELS.listSources,
         IPC_CHANNELS.addSource,
@@ -223,6 +234,17 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
       },
       harnessFilters: [],
       activity: []
+    })),
+    getOverviewActivityHeatmap: vi.fn(async () => ({
+      buckets: Array.from({ length: 30 }, (_, index) => ({
+        day: `2026-04-${String(index + 1).padStart(2, "0")}`,
+        sessionCount: 0,
+        needsAttentionCount: 0
+      })),
+      coverageState: {
+        label: "Available" as const,
+        tone: "info" as const
+      }
     })),
     listProjects: vi.fn(async () => [])
   };

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createSessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
+import { syncLatestSourceCacheRecordToEntityStore } from "../../../src/main/app/workbench-entity-store-sync.js";
 import {
   cleanupTempDirs,
   createScannedRuntime
@@ -82,6 +83,7 @@ describe("session detail view model service", () => {
     };
     record.normalized.outputArtifacts.push(firstArtifact, secondArtifact);
     await runtime.cacheStore.save(records);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, record.sourceId);
 
     const service = createSessionDetailViewModelService({ runtime });
     const detail = await service.getSessionDetail({ sessionId: session.id });
@@ -118,5 +120,243 @@ describe("session detail view model service", () => {
       })
     );
     expect(metadataEvent?.summary).not.toContain("Unknown evidence marker");
+  });
+
+  it("falls back to safe non-empty copy when timeline events expose whitespace-only title or text", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const records = await runtime.cacheStore.load();
+    const record = records.find((candidate) => candidate.normalized.sessions[0]);
+    const session = record?.normalized.sessions[0];
+
+    expect(record).toBeDefined();
+    expect(session).toBeDefined();
+    if (!record || !session) {
+      throw new Error("Expected a cached session.");
+    }
+
+    record.normalized.events.push({
+      id: "event-empty-lifecycle",
+      entityType: "session-event",
+      adapterId: record.adapterId,
+      sourceId: record.sourceId,
+      sessionId: session.id,
+      kind: "lifecycle",
+      title: "   ",
+      text: "   ",
+      orderKey: "zz-empty-lifecycle",
+      diagnostics: [],
+      diagnosticIds: []
+    });
+    await runtime.cacheStore.save(records);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, record.sourceId);
+
+    const service = createSessionDetailViewModelService({ runtime });
+    const detail = await service.getSessionDetail({ sessionId: session.id });
+    const lifecycleEvent = detail?.timeline.find((event) => event.id === "event-empty-lifecycle");
+
+    expect(lifecycleEvent).toEqual(
+      expect.objectContaining({
+        kind: "lifecycle",
+        title: "Lifecycle event",
+        summary: "Chronological lifecycle evidence"
+      })
+    );
+  });
+
+  it("pages timeline records with opaque store cursors", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const records = await runtime.cacheStore.load();
+    const record = records.find((candidate) => candidate.normalized.sessions[0]);
+    const session = record?.normalized.sessions[0];
+
+    expect(record).toBeDefined();
+    expect(session).toBeDefined();
+    if (!record || !session) {
+      throw new Error("Expected a cached session.");
+    }
+
+    for (let index = 0; index < 55; index += 1) {
+      record.normalized.events.push({
+        id: `event-opaque-cursor-${index}`,
+        entityType: "session-event",
+        adapterId: record.adapterId,
+        sourceId: record.sourceId,
+        sessionId: session.id,
+        kind: "lifecycle",
+        title: `Paged lifecycle ${index}`,
+        text: `Paged timeline evidence ${index}`,
+        orderKey: `zz-opaque-cursor-${String(index).padStart(2, "0")}`,
+        diagnostics: [],
+        diagnosticIds: []
+      });
+    }
+    await runtime.cacheStore.save(records);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, record.sourceId);
+
+    const service = createSessionDetailViewModelService({ runtime });
+    const firstPage = await service.getSessionTimeline?.({
+      sessionId: session.id,
+      limit: 50
+    });
+
+    expect(firstPage?.pageInfo.hasMore).toBe(true);
+    expect(firstPage?.pageInfo.nextCursor).toEqual(expect.any(String));
+    expect(firstPage?.pageInfo.nextCursor).not.toMatch(/^\d+$/u);
+
+    const secondPage = await service.getSessionTimeline?.({
+      sessionId: session.id,
+      cursor: firstPage?.pageInfo.nextCursor,
+      limit: 50
+    });
+
+    expect(secondPage?.timeline?.length).toBeGreaterThan(0);
+  });
+
+  it("bounds oversized shell command timeline summaries", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const records = await runtime.cacheStore.load();
+    const record = records.find((candidate) => candidate.normalized.sessions[0]);
+    const session = record?.normalized.sessions[0];
+
+    expect(record).toBeDefined();
+    expect(session).toBeDefined();
+    if (!record || !session) {
+      throw new Error("Expected a cached session.");
+    }
+
+    const eventId = "event-oversized-shell-output";
+    record.normalized.events.push({
+      id: eventId,
+      entityType: "session-event",
+      adapterId: record.adapterId,
+      sourceId: record.sourceId,
+      sessionId: session.id,
+      kind: "shell-command",
+      title: "npm test oversized",
+      text: "Shell output is available.",
+      orderKey: "zz-oversized-shell-output",
+      diagnostics: [],
+      diagnosticIds: []
+    });
+    record.normalized.shellCommands.push({
+      id: "shell-command-oversized-output",
+      entityType: "shell-command-evidence",
+      adapterId: record.adapterId,
+      sourceId: record.sourceId,
+      sessionId: session.id,
+      kind: "shell-command",
+      command: "npm test oversized",
+      outputInline: "x".repeat(5_000),
+      outputArtifactIds: [],
+      source: { eventId },
+      confidence: "confirmed"
+    });
+    await runtime.cacheStore.save(records);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, record.sourceId);
+
+    const service = createSessionDetailViewModelService({ runtime });
+    const detail = await service.getSessionDetail({ sessionId: session.id });
+    const shellEvent = detail?.timeline.find((event) => event.id === eventId);
+
+    expect(shellEvent?.summary).toHaveLength(2_000);
+    expect(shellEvent?.summary).toMatch(/\.\.\.$/u);
+  });
+
+  it("uses parsed shell command metadata in session details", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const records = await runtime.cacheStore.load();
+    const record = records.find((candidate) => candidate.normalized.sessions[0]);
+    const session = record?.normalized.sessions[0];
+
+    expect(record).toBeDefined();
+    expect(session).toBeDefined();
+    if (!record || !session) {
+      throw new Error("Expected a cached session.");
+    }
+
+    const eventId = "event-shell-command-parsed-metadata";
+    record.normalized.events.push({
+      id: eventId,
+      entityType: "session-event",
+      adapterId: record.adapterId,
+      sourceId: record.sourceId,
+      sessionId: session.id,
+      kind: "shell-command",
+      title: "npm run typecheck",
+      text: "Typecheck command completed.",
+      orderKey: "zz-shell-command-parsed-metadata",
+      diagnostics: [],
+      diagnosticIds: []
+    });
+    record.normalized.shellCommands.push({
+      id: "shell-command-parsed-metadata",
+      entityType: "shell-command-evidence",
+      adapterId: record.adapterId,
+      sourceId: record.sourceId,
+      sessionId: session.id,
+      kind: "shell-command",
+      command: "npm run typecheck",
+      outputInline: "TypeScript checks passed.\nExit code: 0",
+      outputArtifactIds: [],
+      source: { eventId },
+      confidence: "confirmed"
+    });
+    const existingShellCommandSession = record.shellCommands?.sessions.find(
+      (entry) => entry.sessionId === session.id
+    );
+
+    if (existingShellCommandSession) {
+      existingShellCommandSession.shellCommands.push({
+        shellCommandId: "shell-command-parsed-metadata",
+        command: "npm run typecheck",
+        intent: "typecheck",
+        result: "passed",
+        outputSource: "combined",
+        outputTextSource: "summary",
+        exitCode: 0,
+        exitCodeSource: "summary",
+        failureMarkers: [],
+        confidence: {
+          level: "high",
+          normalizedLevel: "confirmed"
+        }
+      });
+    } else {
+      record.shellCommands = {
+        version: 1,
+        sessions: [{
+          sessionId: session.id,
+          shellCommands: [{
+            shellCommandId: "shell-command-parsed-metadata",
+            command: "npm run typecheck",
+            intent: "typecheck",
+            result: "passed",
+            outputSource: "combined",
+            outputTextSource: "summary",
+            exitCode: 0,
+            exitCodeSource: "summary",
+            failureMarkers: [],
+            confidence: {
+              level: "high",
+              normalizedLevel: "confirmed"
+            }
+          }]
+        }]
+      };
+    }
+    await runtime.cacheStore.save(records);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, record.sourceId);
+
+    const service = createSessionDetailViewModelService({ runtime });
+    const detail = await service.getSessionDetail({ sessionId: session.id });
+    const shellEvent = detail?.timeline.find((event) => event.id === eventId);
+
+    expect(shellEvent?.metadata).toEqual(
+      expect.arrayContaining([
+        { label: "Intent", value: "Typecheck" },
+        { label: "Result", value: "Succeeded" },
+        { label: "Exit Code", value: "0" }
+      ])
+    );
   });
 });

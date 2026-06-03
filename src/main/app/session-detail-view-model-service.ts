@@ -8,17 +8,22 @@ import {
   type GetSessionTimelineRequest,
   type SessionDetailViewModel
 } from "../ipc/view-models.js";
-import type { OutputArtifact } from "../core/model/entities.js";
-import {
-  buildSessionPreviewViewModel,
-  getDerivedSession,
-  loadTriageData
-} from "./triage-view-model-service.js";
+import type { ParsedShellCommand } from "../core/shell/types.js";
+import type { WorkbenchTimelineRecord } from "../core/store/workbench-entity-store.js";
+import { getCommandDisplayStatus } from "./command-status-view-models.js";
 import {
   createWorkbenchRuntime,
   type WorkbenchRuntime,
   type WorkbenchRuntimeOptions
 } from "./workbench-runtime.js";
+import { createSessionViewModelService } from "./session-view-model-service.js";
+import {
+  collectAllSessionTimelineRecords,
+  collectSessionTimelineRecords,
+  findStoreSessionLocation
+} from "./store-session-query.js";
+
+const TIMELINE_SUMMARY_MAX_LENGTH = 2_000;
 
 export interface SessionDetailViewModelService {
   getSessionDetail(
@@ -38,31 +43,40 @@ export function createSessionDetailViewModelService(
   options: SessionDetailViewModelServiceOptions = {}
 ): SessionDetailViewModelService {
   const runtime = options.runtime ?? createWorkbenchRuntime(options);
+  const sessionService = createSessionViewModelService({ runtime });
 
   return {
     async getSessionDetail(request) {
       const parsed = getSessionByIdRequestSchema.parse(request);
-      const data = await loadTriageData(runtime);
-      const session = data.sessionsById.get(parsed.sessionId);
+      const location = await findStoreSessionLocation(runtime, parsed.sessionId);
 
-      if (!session) {
+      if (!location) {
         return null;
       }
 
-      const detail = {
-        session: buildSessionPreviewViewModel(data, session),
-        timeline: buildTimelineEvents(data, session)
-      };
+      const [preview, timelineRecords] = await Promise.all([
+        sessionService.getSessionById({ sessionId: parsed.sessionId }),
+        collectAllSessionTimelineRecords(runtime, location.source.sourceId, parsed.sessionId)
+      ]);
 
-      return sessionDetailViewModelSchema.parse(detail);
+      if (!preview) {
+        return null;
+      }
+
+      return sessionDetailViewModelSchema.parse({
+        session: preview,
+        timeline: buildTimelineEventsFromStore(
+          timelineRecords,
+          location.session.parsedShellCommands
+        )
+      });
     },
 
     async getSessionTimeline(request) {
       const parsed = getSessionTimelineRequestSchema.parse(request);
-      const data = await loadTriageData(runtime);
-      const session = data.sessionsById.get(parsed.sessionId);
+      const location = await findStoreSessionLocation(runtime, parsed.sessionId);
 
-      if (!session) {
+      if (!location) {
         return {
           timeline: null,
           pageInfo: {
@@ -72,64 +86,43 @@ export function createSessionDetailViewModelService(
         };
       }
 
-      const offset = Number.parseInt(parsed.cursor ?? "0", 10);
-      const limit = parsed.limit ?? 100;
-      const sortedEvents = getSortedSessionEvents(data, session);
-      const pageEvents = sortedEvents.slice(offset, offset + limit);
-      const nextOffset = offset + pageEvents.length;
+      const page = await collectSessionTimelineRecords(runtime, {
+        sourceId: location.source.sourceId,
+        sessionId: parsed.sessionId,
+        ...(parsed.cursor ? { cursor: parsed.cursor } : {}),
+        ...(parsed.limit !== undefined ? { limit: parsed.limit } : {})
+      });
 
       return {
-        timeline: buildTimelineEvents(data, session, pageEvents),
+        timeline: buildTimelineEventsFromStore(page.items, location.session.parsedShellCommands),
         pageInfo: {
-          hasMore: nextOffset < sortedEvents.length,
-          ...(nextOffset < sortedEvents.length ? { nextCursor: String(nextOffset) } : {}),
-          totalCount: sortedEvents.length
+          hasMore: page.pageInfo.hasMore,
+          ...(page.pageInfo.nextCursor ? { nextCursor: page.pageInfo.nextCursor } : {}),
+          totalCount: page.pageInfo.totalCount ?? page.items.length
         }
       };
     }
   };
 }
 
-function getSortedSessionEvents(
-  data: Awaited<ReturnType<typeof loadTriageData>>,
-  session: { id: string }
-) {
-  return (data.eventsBySessionId.get(session.id) ?? [])
-    .slice()
-    .sort(compareEventsForTimeline);
-}
-
-function buildTimelineEvents(
-  data: Awaited<ReturnType<typeof loadTriageData>>,
-  session: { id: string },
-  events: ReturnType<typeof getSortedSessionEvents> = getSortedSessionEvents(data, session)
+export function buildTimelineEventsFromStore(
+  records: WorkbenchTimelineRecord[],
+  parsedShellCommands: ParsedShellCommand[] = []
 ): SessionDetailViewModel["timeline"] {
-  const sessionMessages = data.messagesBySessionId.get(session.id) ?? [];
-  const sessionToolCalls = data.toolCallsBySessionId.get(session.id) ?? [];
-  const sessionShellCommands = data.shellCommandsBySessionId.get(session.id) ?? [];
-  const sessionOutputArtifacts = data.outputArtifactsBySessionId.get(session.id) ?? [];
-  const sessionFileMutations = data.fileMutationsBySessionId.get(session.id) ?? [];
-  const messagesByEventId = buildEntityByEventId(sessionMessages, (message) => message.eventIds ?? []);
-  const toolCallsByEventId = buildFirstEntityBySourceEventId(sessionToolCalls);
-  const shellCommandsByEventId = buildFirstEntityBySourceEventId(sessionShellCommands);
-  const outputArtifactsByEventId = buildEntitiesBySourceEventId(sessionOutputArtifacts);
-  const fileMutationsByEventId = buildFirstEntityBySourceEventId(sessionFileMutations);
+  const parsedShellCommandsById = new Map(
+    parsedShellCommands.map((command) => [command.shellCommandId, command] as const)
+  );
 
-  return events.flatMap<SessionDetailViewModel["timeline"][number]>((event) => {
-    const message = messagesByEventId.get(event.id);
-    const toolCall = toolCallsByEventId.get(event.id);
-    const shellCommand = shellCommandsByEventId.get(event.id);
-    const derivedCommand = shellCommand
-      ? getDerivedSession(data, session.id)?.shellCommands.find(
-          (candidate) => candidate.shellCommandId === shellCommand.id
-        )
+  return records.flatMap<SessionDetailViewModel["timeline"][number]>((record) => {
+    const event = record.event;
+    const message = record.message;
+    const toolCall = record.toolCall;
+    const shellCommand = record.shellCommand;
+    const parsedShellCommand = shellCommand
+      ? parsedShellCommandsById.get(shellCommand.id)
       : undefined;
-    const outputArtifacts = getOutputArtifactsForEvent(
-      sessionOutputArtifacts,
-      outputArtifactsByEventId,
-      event
-    );
-    const fileMutation = fileMutationsByEventId.get(event.id);
+    const outputArtifacts = record.outputArtifacts ?? [];
+    const fileMutation = record.fileMutation;
 
     switch (event.kind) {
       case "message":
@@ -138,7 +131,9 @@ function buildTimelineEvents(
           kind: "message" as const,
           timestamp: event.timestamp,
           title: `${humanizeMessageRole(message?.role)} message`,
-          summary: truncate(message?.text ?? event.text ?? event.title ?? "", 220),
+          ...(truncateNonEmpty(message?.text, event.text, event.title, 220)
+            ? { summary: truncateNonEmpty(message?.text, event.text, event.title, 220) }
+            : {}),
           metadata: [
             { label: "Role", value: humanizeMessageRole(message?.role) },
             { label: "Order Key", value: event.orderKey ?? "Unknown" }
@@ -149,8 +144,8 @@ function buildTimelineEvents(
           id: event.id,
           kind: "lifecycle" as const,
           timestamp: event.timestamp,
-          title: event.title ?? "Lifecycle event",
-          summary: event.text ?? "Chronological lifecycle evidence",
+          title: firstNonEmpty(event.title) ?? "Lifecycle event",
+          summary: firstNonEmpty(event.text) ?? "Chronological lifecycle evidence",
           metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
         }];
       case "tool-call":
@@ -158,29 +153,53 @@ function buildTimelineEvents(
           id: event.id,
           kind: "tool-call" as const,
           timestamp: event.timestamp,
-          title: toolCall?.name ?? event.title ?? "Tool call",
-          summary: toolCall?.resultPreview ?? toolCall?.argsPreview ?? event.text,
+          title: firstNonEmpty(toolCall?.name, event.title) ?? "Tool call",
+          ...(firstNonEmpty(toolCall?.resultPreview, toolCall?.argsPreview, event.text)
+            ? {
+                summary: truncateNonEmpty(
+                  toolCall?.resultPreview,
+                  toolCall?.argsPreview,
+                  event.text,
+                  TIMELINE_SUMMARY_MAX_LENGTH
+                )
+              }
+            : {}),
           metadata: [
             { label: "Status", value: humanizeToolCallStatus(toolCall) },
             { label: "Artifacts", value: String(toolCall?.outputArtifactIds?.length ?? 0) }
           ]
         }];
       case "shell-command":
+        const commandDisplayStatus = getCommandDisplayStatus({
+          ...(parsedShellCommand ? { parsedShellCommand } : {}),
+          ...(shellCommand ? { shellCommand } : {})
+        });
         return [{
           id: event.id,
           kind: "shell-command" as const,
           timestamp: event.timestamp,
-          title: shellCommand?.command ?? event.title ?? "Shell command",
-          summary: shellCommand?.outputInline ?? event.text,
+          title: firstNonEmpty(shellCommand?.command, event.title) ?? "Shell command",
+          ...(firstNonEmpty(shellCommand?.outputInline, event.text)
+            ? {
+                summary: truncateNonEmpty(
+                  shellCommand?.outputInline,
+                  event.text,
+                  undefined,
+                  TIMELINE_SUMMARY_MAX_LENGTH
+                )
+              }
+            : {}),
           metadata: [
-            { label: "Intent", value: humanizeIntent(derivedCommand?.intent) },
-            { label: "Result", value: humanizeCommandResult(derivedCommand?.result) },
+            { label: "Intent", value: humanizeShellCommandIntent(parsedShellCommand?.intent) },
+            { label: "Result", value: commandDisplayStatus.label },
             {
               label: "Exit Code",
               value:
-                shellCommand?.rawExitCode !== undefined
-                  ? String(shellCommand.rawExitCode)
-                  : "Unknown"
+                parsedShellCommand?.exitCode !== undefined
+                  ? String(parsedShellCommand.exitCode)
+                  : shellCommand?.rawExitCode !== undefined
+                    ? String(shellCommand.rawExitCode)
+                    : "Unknown"
             }
           ]
         }];
@@ -191,10 +210,10 @@ function buildTimelineEvents(
             kind: "output-artifact" as const,
             timestamp: event.timestamp,
             title: "Output artifact",
-            summary: event.text ?? "Output artifact",
+            summary: firstNonEmpty(event.text) ?? "Output artifact",
             metadata: [
               { label: "Kind", value: "unknown" },
-              { label: "Reference", value: event.text ?? event.title ?? "Unknown" }
+              { label: "Reference", value: firstNonEmpty(event.text, event.title) ?? "Unknown" }
             ]
           }];
         }
@@ -204,10 +223,10 @@ function buildTimelineEvents(
           kind: "output-artifact" as const,
           timestamp: event.timestamp,
           title: "Output artifact",
-          summary: summarizeArtifact(artifact) ?? event.text ?? "Output artifact",
+          summary: firstNonEmpty(summarizeArtifact(artifact), event.text) ?? "Output artifact",
           metadata: [
             { label: "Kind", value: summarizeArtifactKind(artifact) },
-            { label: "Reference", value: summarizeArtifact(artifact) ?? "Unknown" }
+            { label: "Reference", value: firstNonEmpty(summarizeArtifact(artifact)) ?? "Unknown" }
           ]
         }));
       case "file-event":
@@ -216,7 +235,9 @@ function buildTimelineEvents(
           kind: "file-mutation" as const,
           timestamp: event.timestamp,
           title: summarizeFileMutation(fileMutation),
-          summary: fileMutation?.path ?? event.text,
+          ...(firstNonEmpty(fileMutation?.path, event.text)
+            ? { summary: firstNonEmpty(fileMutation?.path, event.text) }
+            : {}),
           metadata: [
             { label: "Mutation", value: humanizeMutationKind(fileMutation?.mutationKind) }
           ]
@@ -227,10 +248,7 @@ function buildTimelineEvents(
           kind: "metadata" as const,
           timestamp: event.timestamp,
           title: "Session metadata",
-          summary:
-            event.text ??
-            event.title ??
-            "Session metadata is available as a safe marker.",
+          summary: firstNonEmpty(event.text, event.title) ?? "Session metadata is available as a safe marker.",
           metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
         }];
       default:
@@ -238,31 +256,22 @@ function buildTimelineEvents(
           id: event.id,
           kind: "unknown" as const,
           timestamp: event.timestamp,
-          title: event.title ?? "Unknown evidence marker",
-          summary: event.text ?? "Timeline evidence is available as a safe marker.",
+          title: firstNonEmpty(event.title) ?? "Unknown evidence marker",
+          summary: firstNonEmpty(event.text) ?? "Timeline evidence is available as a safe marker.",
           metadata: [{ label: "Order Key", value: event.orderKey ?? "Unknown" }]
         }];
     }
   });
 }
 
-function humanizeCommandResult(result?: string): string {
-  switch (result) {
-    case "passed":
-      return "Passed";
-    case "failed":
-      return "Failed";
-    default:
-      return "Unknown";
-  }
-}
-
-function humanizeIntent(intent?: string): string {
-  if (!intent) {
-    return "Unknown";
+function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    if (value && value.trim().length > 0) {
+      return value;
+    }
   }
 
-  return intent.replace(/^./u, (letter) => letter.toUpperCase());
+  return undefined;
 }
 
 function humanizeMessageRole(role?: string): string {
@@ -294,6 +303,27 @@ function humanizeToolCallStatus(
   }
 
   return status.replace(/-/gu, " ").replace(/^./u, (letter) => letter.toUpperCase());
+}
+
+function humanizeShellCommandIntent(intent?: ParsedShellCommand["intent"]): string {
+  switch (intent) {
+    case "test":
+      return "Test";
+    case "build":
+      return "Build";
+    case "typecheck":
+      return "Typecheck";
+    case "lint":
+      return "Lint";
+    case "install":
+      return "Install";
+    case "git":
+      return "Git";
+    case "other":
+      return "Other";
+    default:
+      return "Unknown";
+  }
 }
 
 function summarizeArtifact(
@@ -343,155 +373,15 @@ function truncate(value: string, limit: number): string {
     return collapsed;
   }
 
-  return `${collapsed.slice(0, limit - 1)}...`;
+  return `${collapsed.slice(0, Math.max(0, limit - 3))}...`;
 }
 
-function compareEventsForTimeline(
-  left: { orderKey?: string; timestamp?: string },
-  right: { orderKey?: string; timestamp?: string }
-): number {
-  const leftOrder = left.orderKey ?? "";
-  const rightOrder = right.orderKey ?? "";
-
-  if (leftOrder !== rightOrder) {
-    return leftOrder.localeCompare(rightOrder);
-  }
-
-  return (left.timestamp ?? "").localeCompare(right.timestamp ?? "");
-}
-
-function buildEntityByEventId<TItem extends { id: string }>(
-  items: readonly TItem[],
-  selectEventIds: (item: TItem) => readonly string[]
-): Map<string, TItem> {
-  const map = new Map<string, TItem>();
-
-  for (const item of items) {
-    for (const eventId of selectEventIds(item)) {
-      if (!map.has(eventId)) {
-        map.set(eventId, item);
-      }
-    }
-  }
-
-  return map;
-}
-
-function buildFirstEntityBySourceEventId<
-  TItem extends {
-    source?:
-      | { eventId?: string | undefined; rawEvent?: { eventId?: string | undefined } | undefined }
-      | undefined;
-  }
->(
-  items: readonly TItem[]
-): Map<string, TItem> {
-  const map = new Map<string, TItem>();
-
-  for (const item of items) {
-    const eventId = item.source?.eventId ?? item.source?.rawEvent?.eventId;
-
-    if (eventId && !map.has(eventId)) {
-      map.set(eventId, item);
-    }
-  }
-
-  return map;
-}
-
-function buildEntitiesBySourceEventId<
-  TItem extends {
-    source?:
-      | { eventId?: string | undefined; rawEvent?: { eventId?: string | undefined } | undefined }
-      | undefined;
-  }
->(
-  items: readonly TItem[]
-): Map<string, TItem[]> {
-  const map = new Map<string, TItem[]>();
-
-  for (const item of items) {
-    const eventId = item.source?.eventId ?? item.source?.rawEvent?.eventId;
-
-    if (!eventId) {
-      continue;
-    }
-
-    const current = map.get(eventId) ?? [];
-
-    current.push(item);
-    map.set(eventId, current);
-  }
-
-  return map;
-}
-
-function getOutputArtifactsForEvent(
-  artifacts: readonly OutputArtifact[],
-  artifactsByEventId: Map<string, readonly OutputArtifact[]>,
-  event: {
-    id: string;
-    nativeId?: string;
-    title?: string;
-    text?: string;
-  }
-): readonly OutputArtifact[] {
-  const directMatches = artifactsByEventId.get(event.id) ?? [];
-
-  if (directMatches.length > 0) {
-    return directMatches;
-  }
-
-  const eventReferences = new Set(
-    [event.id, event.nativeId, event.title, event.text]
-      .flatMap((value) => normalizeArtifactReference(value))
-  );
-
-  if (eventReferences.size === 0) {
-    return [];
-  }
-
-  return artifacts.filter((artifact) =>
-    [artifact.nativeRef, artifact.nativeId, artifact.path]
-      .flatMap((value) => normalizeArtifactReference(value))
-      .some((reference) => eventReferences.has(reference))
-  );
-}
-
-function normalizeArtifactReference(value?: string): string[] {
-  if (!value) {
-    return [];
-  }
-
-  const trimmed = value.trim();
-
-  if (trimmed.length === 0) {
-    return [];
-  }
-
-  const normalizedValues = new Set<string>();
-  const prefixes = ["session-event:", "artifact:"];
-  const queue = [trimmed];
-
-  while (queue.length > 0) {
-    const current = queue.pop();
-
-    if (!current) {
-      continue;
-    }
-
-    const normalized = path.normalize(current).replace(/\\/gu, "/");
-
-    if (normalized.length > 0) {
-      normalizedValues.add(normalized);
-    }
-
-    for (const prefix of prefixes) {
-      if (current.startsWith(prefix)) {
-        queue.push(current.slice(prefix.length));
-      }
-    }
-  }
-
-  return [...normalizedValues];
+function truncateNonEmpty(
+  first: string | undefined,
+  second: string | undefined,
+  third: string | undefined,
+  limit: number
+): string | undefined {
+  const value = firstNonEmpty(first, second, third);
+  return value ? truncate(value, limit) : undefined;
 }

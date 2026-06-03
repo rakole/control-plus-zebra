@@ -7,6 +7,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createTriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
 import { createSessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import { createWorkbenchRuntime } from "../../../src/main/app/workbench-runtime.js";
+import {
+  PaginationValidationError,
+  encodeOpaqueCursor
+} from "../../../src/main/core/store/index.js";
+import {
+  syncAllLatestCacheRecordsToEntityStore,
+  syncLatestSourceCacheRecordToEntityStore
+} from "../../../src/main/app/workbench-entity-store-sync.js";
 import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter.js";
 import { ArchiveImporter } from "../../../src/main/core/archive/archive-importer.js";
 
@@ -84,6 +92,162 @@ describe("session view model service", () => {
     await expect(service.getSessionById({ sessionId: "missing-session" })).resolves.toBeNull();
   });
 
+  it("restores cache-backed sessions after restart without manual sync", async () => {
+    const runtime = await createTempRuntime(tempDirs);
+    const source = await runtime.sourceRegistry.createSource({
+      adapterId: "fake-test",
+      displayName: "Fixture Source",
+      rootPath: fakeFixturePath
+    });
+    const validated = await runtime.scanner.validateSource(source.sourceId);
+
+    await runtime.scanner.scanSource(validated.source.sourceId);
+
+    const restartedRuntime = createWorkbenchRuntime({
+      appDataDir: runtime.appDataDir,
+      projectDir: process.cwd()
+    });
+    const restartedService = createSessionViewModelService({
+      runtime: restartedRuntime
+    });
+    const firstRestartSessions = await restartedService.listSessions();
+
+    expect(firstRestartSessions.length).toBeGreaterThan(0);
+
+    const secondRestartRuntime = createWorkbenchRuntime({
+      appDataDir: runtime.appDataDir,
+      projectDir: process.cwd()
+    });
+    const secondRestartService = createSessionViewModelService({
+      runtime: secondRestartRuntime
+    });
+    const secondRestartSessions = await secondRestartService.listSessions();
+
+    expect(secondRestartSessions).toHaveLength(firstRestartSessions.length);
+    expect(
+      secondRestartSessions.map((session) => session.sessionId).sort()
+    ).toEqual(
+      firstRestartSessions.map((session) => session.sessionId).sort()
+    );
+  });
+
+  it("keeps newly scanned sources visible after hydration state is cached", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const initialHydrationState = await runtime.getEntityStoreHydrationState();
+    const geminiRoot = path.join(runtime.appDataDir, "gemini-root-post-hydration");
+
+    await cp(geminiFixtureRoot, geminiRoot, { recursive: true });
+
+    const source = await runtime.sourceRegistry.createSource({
+      adapterId: "gemini-cli",
+      displayName: "Gemini Fixture Root",
+      rootPath: geminiRoot
+    });
+    const validated = await runtime.scanner.validateSource(source.sourceId);
+
+    await runtime.scanner.scanSource(validated.source.sourceId);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, validated.source.sourceId);
+
+    expect(initialHydrationState.sourceStates.length).toBeGreaterThan(0);
+    expect(
+      (await runtime.getEntityStoreHydrationState()).sourceStates.some(
+        (state) => state.sourceId === validated.source.sourceId
+      )
+    ).toBe(false);
+
+    const service = createSessionViewModelService({ runtime });
+    const sessions = await service.listSessions();
+    const geminiSession = sessions.find(
+      (session) => session.sourceId === validated.source.sourceId
+    );
+    const page = await service.listSessionsPage?.();
+
+    expect(geminiSession).toBeDefined();
+    expect(geminiSession?.adapterDisplayName).toBe("Gemini CLI");
+    expect(page).toBeDefined();
+    expect(
+      page?.sessions.some((session) => session.sourceId === validated.source.sourceId)
+    ).toBe(true);
+    await expect(
+      service.getSessionById({ sessionId: geminiSession?.sessionId ?? "missing-session" })
+    ).resolves.toMatchObject({
+      sessionId: geminiSession?.sessionId
+    });
+  });
+
+  it("uses the current source identity for degraded cacheKey fallback sessions after source replacement", async () => {
+    const runtime = await createTempRuntime(tempDirs);
+    const source = await runtime.sourceRegistry.createSource({
+      adapterId: "fake-test",
+      displayName: "Fixture Source",
+      rootPath: fakeFixturePath
+    });
+    const validated = await runtime.scanner.validateSource(source.sourceId);
+
+    await runtime.scanner.scanSource(validated.source.sourceId);
+
+    const scannedSource = await runtime.sourceRegistry.getSource(validated.source.sourceId);
+
+    expect(scannedSource?.cache.cacheKey).toBeTruthy();
+    if (!scannedSource?.cache.cacheKey) {
+      throw new Error("Expected scanned source to persist a cache key.");
+    }
+
+    const replacementSourceId = `${validated.source.sourceId}-replacement`;
+
+    await runtime.sourceRegistry.replaceSourceIdentity(
+      validated.source.sourceId,
+      replacementSourceId
+    );
+
+    runtime.getEntityStoreHydrationState = async () => ({
+      failedSourceIds: [replacementSourceId],
+      sourceStates: [
+        {
+          sourceId: replacementSourceId,
+          status: "cache-fallback",
+          reason: "Latest cached session data remains available because entity-store hydration failed for this source."
+        }
+      ]
+    });
+
+    const service = createSessionViewModelService({ runtime });
+
+    if (!service.listSessionsPage) {
+      throw new Error("Expected listSessionsPage to be available.");
+    }
+
+    const page = await service.listSessionsPage();
+    const degradedSession = page.sessions[0];
+
+    expect(degradedSession).toBeDefined();
+    expect(degradedSession?.sourceId).toBe(replacementSourceId);
+
+    await expect(
+      service.getSessionById({ sessionId: degradedSession?.sessionId ?? "missing-session" })
+    ).resolves.toMatchObject({
+      sessionId: degradedSession?.sessionId,
+      sourceId: replacementSourceId
+    });
+  });
+
+  it("rejects stale opaque listSessions cursors", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const service = createSessionViewModelService({ runtime });
+
+    await expect(
+      service.listSessionsPage?.({
+        cursor: encodeOpaqueCursor({
+          adapterId: "gemini-cli",
+          fallbackIndex: 0,
+          nextCursorBySourceIdJson: "{}"
+        })
+      })
+    ).rejects.toMatchObject({
+      code: "invalid-cursor"
+    } satisfies Pick<PaginationValidationError, "code">);
+  });
+
   it("renders Gemini-backed sessions through the existing sanitized session service", async () => {
     const runtime = await createTempRuntime(tempDirs);
     const geminiRoot = path.join(runtime.appDataDir, "gemini-root");
@@ -98,6 +262,7 @@ describe("session view model service", () => {
     const validated = await runtime.scanner.validateSource(source.sourceId);
 
     await runtime.scanner.scanSource(validated.source.sourceId);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, validated.source.sourceId);
 
     const service = createSessionViewModelService({ runtime });
     const sessions = await service.listSessions();
@@ -170,6 +335,7 @@ describe("session view model service", () => {
     const validated = await runtime.scanner.validateSource(source.sourceId);
 
     await runtime.scanner.scanSource(validated.source.sourceId);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, validated.source.sourceId);
 
     const service = createSessionViewModelService({ runtime });
     const sessions = await service.listSessions();
@@ -217,6 +383,7 @@ describe("session view model service", () => {
     });
 
     await importer.importArchive({ archivePath });
+    await syncAllLatestCacheRecordsToEntityStore(importRuntime);
 
     const service = createSessionViewModelService({ runtime: importRuntime });
     const sessions = await service.listSessions();
@@ -239,6 +406,7 @@ async function createScannedRuntime(tempDirs: string[]) {
   const validated = await runtime.scanner.validateSource(source.sourceId);
 
   await runtime.scanner.scanSource(validated.source.sourceId);
+  await syncLatestSourceCacheRecordToEntityStore(runtime, validated.source.sourceId);
   return runtime;
 }
 

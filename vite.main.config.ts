@@ -4,10 +4,10 @@ export default defineConfig({
   build: {
     target: "node24",
     sourcemap: true,
-    lib: {
-      entry: "src/main/electron-main.ts",
-      formats: ["cjs"],
-      fileName: () => "electron-main.cjs"
+    rollupOptions: {
+      output: {
+        entryFileNames: (chunkInfo) => `${chunkInfo.name}.cjs`
+      }
     }
   }
 });

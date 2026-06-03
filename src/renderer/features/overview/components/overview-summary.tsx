@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router";
 
 import { MetricCard } from "../../../components/app/metric-card.js";
@@ -10,11 +11,16 @@ type OverviewResponse = Awaited<ReturnType<Window["agentWorkbench"]["getDashboar
 type OverviewView = Extract<OverviewResponse, { ok: true }>["stats"];
 
 interface OverviewSummaryProps {
+  activityPanel: ReactNode;
   overview: OverviewView;
   selectedAdapterId?: string;
 }
 
-export function OverviewSummary({ overview, selectedAdapterId = "all" }: OverviewSummaryProps) {
+export function OverviewSummary({
+  activityPanel,
+  overview,
+  selectedAdapterId = "all"
+}: OverviewSummaryProps) {
   const adapterQuery =
     selectedAdapterId === "all"
       ? ""
@@ -23,21 +29,48 @@ export function OverviewSummary({ overview, selectedAdapterId = "all" }: Overvie
   return (
     <>
       <MetricGrid aria-label="Overview metrics">
-        <MetricCard label="Projects" value={overview.metrics.totalProjects.displayValue} />
-        <MetricCard label="Sessions" value={overview.metrics.totalSessions.displayValue} />
         <MetricCard
+          customSize
+          glowColor="blue"
+          label="Projects"
+          value={overview.metrics.totalProjects.displayValue}
+          variant="glow"
+        />
+        <MetricCard
+          customSize
+          glowColor="green"
+          label="Sessions"
+          value={overview.metrics.totalSessions.displayValue}
+          variant="glow"
+        />
+        <MetricCard
+          customSize
+          glowColor="orange"
           label="Active / Recent"
           value={overview.metrics.activeOrRecentSessions.displayValue}
+          variant="glow"
         />
         <MetricCard
+          customSize
+          glowColor="red"
           label="Failed Verification"
           value={overview.metrics.failedVerification.displayValue}
+          variant="glow"
         />
         <MetricCard
+          customSize
+          glowColor="purple"
           label="Needs Attention"
           value={overview.metrics.needsAttentionSessions.displayValue}
+          variant="glow"
         />
-        <MetricCard label="Tool Activity" value={overview.metrics.toolActivity.displayValue} />
+        <MetricCard
+          customSize
+          glowColor="blue"
+          label="Tool Activity"
+          value={overview.metrics.toolActivity.displayValue}
+          variant="glow"
+        />
       </MetricGrid>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -54,39 +87,16 @@ export function OverviewSummary({ overview, selectedAdapterId = "all" }: Overvie
               }))}
             />
             <div className="flex flex-wrap justify-end gap-2">
-              <Button asChild variant="outline">
+              <Button asChild>
                 <Link to={`/projects${adapterQuery}`}>Open Projects</Link>
               </Button>
-              <Button asChild variant="outline">
+              <Button asChild>
                 <Link to={`/sessions${adapterQuery}`}>Open Sessions</Link>
               </Button>
             </div>
           </SectionCard>
         </section>
-
-        <section aria-label="Recent Activity">
-          <SectionCard
-            title={<h2>Recent Activity</h2>}
-            description="Track recent session volume and explicit attention counts over time."
-          >
-            <MetadataGrid
-              items={
-                overview.activity.length > 0
-                  ? overview.activity.flatMap((point) => [
-                      {
-                        label: point.day,
-                        value: formatCount(point.sessionCount, "session")
-                      },
-                      {
-                        label: `${point.day} Needs Attention`,
-                        value: `${point.needsAttentionCount} need attention`
-                      }
-                    ])
-                  : [{ label: "Activity", value: "No recent session activity" }]
-              }
-            />
-          </SectionCard>
-        </section>
+        {activityPanel}
       </div>
     </>
   );

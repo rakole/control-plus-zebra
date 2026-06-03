@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type {
+  AdapterBatchStreamingNormalizationInput,
   AdapterNormalizationInput,
   AdapterNormalizationResult,
   RawArtifactRef
@@ -19,6 +20,7 @@ import {
 } from "../../core/model/identifiers.js";
 import { geminiCliDescriptor } from "./descriptor.js";
 import { extractTranscriptText, type GeminiRawEvent } from "./parse.js";
+import { extractGeminiToolCallResultEnvelope } from "./tool-output.js";
 import type {
   GeminiLogsEntry,
   GeminiSessionHeader,
@@ -48,6 +50,7 @@ type SessionAccumulator = {
   }>;
   sidecars: Array<{
     artifactId: string;
+    exitCode?: number;
     format: "json" | "text" | "unknown";
     locator: EventLocator;
     mediaType?: string;
@@ -187,15 +190,6 @@ function buildCapabilityEnvelope(sourceId?: string, sessionId?: string) {
   };
 }
 
-export interface GeminiOutputArtifactBinding {
-  path: string;
-  rawArtifactId: string;
-}
-
-export interface GeminiNormalizationExtras {
-  outputArtifactBindings: Map<string, GeminiOutputArtifactBinding>;
-}
-
 function buildOrderKey(order: number, nativeId: string): string {
   return `${String(order).padStart(6, "0")}:${nativeId}`;
 }
@@ -284,6 +278,26 @@ function optionalString(summary: string | undefined): string | undefined {
   return summary && summary.trim().length > 0 ? summary : undefined;
 }
 
+function buildToolCallOccurrenceNativeId(rawToolCallId: string, occurrence: number): string {
+  return occurrence === 1 ? rawToolCallId : `${rawToolCallId}:occurrence:${occurrence}`;
+}
+
+function extractToolCallOutputEnvelope(toolCallRecord: GeminiToolCallRecord): {
+  exitCode?: number;
+  text?: string;
+} {
+  const resultDisplay =
+    toolCallRecord.resultDisplay !== undefined
+      ? optionalString(summarizeUnknown(toolCallRecord.resultDisplay))
+      : undefined;
+  const resultEnvelope = extractGeminiToolCallResultEnvelope(toolCallRecord.result);
+
+  return {
+    ...(resultDisplay ? { text: resultDisplay } : resultEnvelope.text ? { text: resultEnvelope.text } : {}),
+    ...(resultEnvelope.exitCode !== undefined ? { exitCode: resultEnvelope.exitCode } : {})
+  };
+}
+
 function mapArtifactShape(sidecar: { format: "json" | "text" | "unknown"; mediaType?: string }) {
   if (sidecar.format === "json" || sidecar.mediaType === "application/json") {
     return {
@@ -314,47 +328,193 @@ function mapArtifactShape(sidecar: { format: "json" | "text" | "unknown"; mediaT
 
 export async function normalizeGeminiCliEvents(
   input: AdapterNormalizationInput<GeminiRawEvent>
-): Promise<AdapterNormalizationResult & { extras: GeminiNormalizationExtras }> {
+): Promise<AdapterNormalizationResult> {
   const adapterId = geminiCliDescriptor.id;
   const sourceId = input.source.id;
-  const parseDiagnostics = input.rawEvents
-    .filter(
-      (event): event is GeminiRawEvent & { payload: { kind: "parse-diagnostic" } } =>
-        event.payload.kind === "parse-diagnostic"
-    )
-    .map((event) =>
-      buildDiagnostic(
-        adapterId,
-        event.payload.diagnostic.code,
-        event.payload.diagnostic.message,
-        event.payload.diagnostic.severity,
-        "artifact",
-        HIGH_CONFIDENCE,
-        {
-          sourceId,
-          nativeId: event.payload.diagnostic.nativeId ?? event.payload.diagnostic.code,
-          ...(event.payload.diagnostic.sessionId
-            ? { metadata: { sessionId: event.payload.diagnostic.sessionId } }
-            : {})
-        }
-      )
-    );
+  const accumulated = createGeminiNormalizationAccumulator();
 
-  const projectRootPayload = input.rawEvents.find(
-    (event): event is GeminiRawEvent & { payload: { kind: "project-root"; repoRootPath: string } } =>
-      event.payload.kind === "project-root"
-  );
-  const projectRootPath = projectRootPayload?.payload.repoRootPath ?? input.source.rootPath;
-  const projectNativeId = path.basename(projectRootPath || input.source.displayName);
+  for (const event of input.rawEvents) {
+    accumulateGeminiCliEvent(accumulated, event, {
+      adapterId,
+      sourceId
+    });
+  }
+
+  return buildNormalizedGeminiCliResult({
+    adapterId,
+    artifacts: input.artifacts,
+    inputSource: input.source,
+    parseDiagnostics: accumulated.parseDiagnostics,
+    projectRootPath: accumulated.projectRootPath ?? input.source.rootPath,
+    sessionData: accumulated.sessions,
+    sourceId
+  });
+}
+
+export async function* normalizeGeminiCliEventBatches(
+  input: AdapterBatchStreamingNormalizationInput<GeminiRawEvent>
+): AsyncIterable<AdapterNormalizationResult> {
+  const adapterId = geminiCliDescriptor.id;
+  const sourceId = input.source.id;
+  const accumulated = createGeminiNormalizationAccumulator();
+
+  for await (const event of input.rawEvents) {
+    accumulateGeminiCliEvent(accumulated, event, {
+      adapterId,
+      sourceId
+    });
+  }
+
+  yield buildNormalizedGeminiCliResult({
+    adapterId,
+    artifacts: input.artifacts,
+    inputSource: input.source,
+    projectRootPath: accumulated.projectRootPath ?? input.source.rootPath,
+    sessionData: accumulated.sessions,
+    parseDiagnostics: accumulated.parseDiagnostics,
+    sourceId
+  });
+}
+
+function buildOutputArtifactBinding(
+  sessionId: string,
+  sidecar: SessionAccumulator["sidecars"][number],
+  matchingArtifact?: RawArtifactRef
+) {
+  if (!matchingArtifact?.path) {
+    return undefined;
+  }
+
+  const shape = mapArtifactShape(sidecar);
+
+  return {
+    id: matchingArtifact.id,
+    adapterId: geminiCliDescriptor.id,
+    sourceId: matchingArtifact.sourceId,
+    sessionId,
+    nativeRef: sidecar.relativePath,
+    nativeId: sidecar.relativePath,
+    path: matchingArtifact.path,
+    ...(sidecar.mediaType ? { mediaType: sidecar.mediaType } : {}),
+    kind: shape.kind,
+    contentKind: shape.contentKind,
+    artifactKind: matchingArtifact.artifactKind ?? "output-artifact"
+  };
+}
+
+interface GeminiNormalizationAccumulator {
+  parseDiagnostics: ReturnType<typeof buildDiagnostic>[];
+  projectRootPath?: string;
+  sessions: Map<string, SessionAccumulator>;
+}
+
+function createGeminiNormalizationAccumulator(): GeminiNormalizationAccumulator {
+  return {
+    parseDiagnostics: [],
+    sessions: new Map()
+  };
+}
+
+function accumulateGeminiCliEvent(
+  accumulator: GeminiNormalizationAccumulator,
+  event: GeminiRawEvent,
+  context: {
+    adapterId: string;
+    sourceId: string;
+  }
+): void {
+  switch (event.payload.kind) {
+    case "parse-diagnostic":
+      accumulator.parseDiagnostics.push(
+        buildDiagnostic(
+          context.adapterId,
+          event.payload.diagnostic.code,
+          event.payload.diagnostic.message,
+          event.payload.diagnostic.severity,
+          "artifact",
+          HIGH_CONFIDENCE,
+          {
+            sourceId: context.sourceId,
+            nativeId: event.payload.diagnostic.nativeId ?? event.payload.diagnostic.code,
+            ...(event.payload.diagnostic.sessionId
+              ? { metadata: { sessionId: event.payload.diagnostic.sessionId } }
+              : {})
+          }
+        )
+      );
+      return;
+    case "project-root":
+      accumulator.projectRootPath = event.payload.repoRootPath;
+      return;
+    case "session-header": {
+      const entry = getOrCreateSessionAccumulator(accumulator.sessions, event.payload.sessionId);
+      entry.header = event.payload.header;
+      entry.headerLocator = toEventLocator(event);
+      return;
+    }
+    case "metadata-patch": {
+      const entry = getOrCreateSessionAccumulator(accumulator.sessions, event.payload.sessionId);
+      if (typeof event.payload.patch.lastUpdated === "string") {
+        entry.lastUpdated = event.payload.patch.lastUpdated;
+      }
+      return;
+    }
+    case "logs-entry": {
+      const entry = getOrCreateSessionAccumulator(accumulator.sessions, event.payload.entry.sessionId);
+      entry.logEntries.push({
+        entry: event.payload.entry,
+        locator: toEventLocator(event)
+      });
+      return;
+    }
+    case "transcript-record": {
+      const entry = getOrCreateSessionAccumulator(accumulator.sessions, event.payload.sessionId);
+      entry.transcriptRecords.push({
+        record: event.payload.record,
+        locator: toEventLocator(event)
+      });
+      return;
+    }
+    case "tool-output-sidecar": {
+      const entry = getOrCreateSessionAccumulator(accumulator.sessions, event.payload.sessionId);
+      entry.sidecars.push({
+        artifactId: event.artifactId ?? event.id ?? event.payload.relativePath,
+        ...(event.payload.exitCode !== undefined ? { exitCode: event.payload.exitCode } : {}),
+        format: event.payload.format,
+        locator: toEventLocator(event),
+        relativePath: event.payload.relativePath,
+        sessionId: event.payload.sessionId,
+        ...(event.payload.mediaType ? { mediaType: event.payload.mediaType } : {}),
+        ...(event.payload.textPreview ? { textPreview: event.payload.textPreview } : {}),
+        ...(event.payload.toolCallId ? { toolCallId: event.payload.toolCallId } : {}),
+        ...(event.payload.toolName ? { toolName: event.payload.toolName } : {})
+      });
+      return;
+    }
+  }
+}
+
+function buildNormalizedGeminiCliResult(args: {
+  adapterId: string;
+  artifacts: RawArtifactRef[];
+  inputSource: AdapterNormalizationInput<GeminiRawEvent>["source"];
+  parseDiagnostics: ReturnType<typeof buildDiagnostic>[];
+  projectRootPath: string;
+  sessionData: Map<string, SessionAccumulator>;
+  sourceId: string;
+}): AdapterNormalizationResult {
+  const adapterId = args.adapterId;
+  const sourceId = args.sourceId;
+  const projectRootPath = args.projectRootPath;
+  const projectNativeId = path.basename(projectRootPath || args.inputSource.displayName);
   const projectId = createProjectId({
     adapterId,
     sourceId,
     nativeId: projectNativeId
   });
-  const sessionData = collectSessionData(input.rawEvents);
-  const rawArtifactsById = new Map(input.artifacts.map((artifact) => [artifact.id, artifact]));
-  const outputArtifactBindings = new Map<string, GeminiOutputArtifactBinding>();
-  const diagnostics = [...parseDiagnostics];
+  const sessionData = args.sessionData;
+  const rawArtifactsById = new Map(args.artifacts.map((artifact) => [artifact.id, artifact]));
+  const diagnostics = [...args.parseDiagnostics];
 
   const sessions: Record<string, unknown>[] = [];
   const events: NormalizedEvent[] = [];
@@ -365,7 +525,7 @@ export async function normalizeGeminiCliEvents(
   const fileMutations: NormalizedFileMutation[] = [];
   const sessionCapabilitySnapshots: Array<Record<string, unknown>> = [];
   const projectRawArtifactRefs = uniqueRawArtifactRefs(
-    input.artifacts
+    args.artifacts
       .filter(
         (artifact) =>
           artifact.artifactKind !== "output-artifact" && artifact.artifactKind !== "session-log"
@@ -387,6 +547,7 @@ export async function normalizeGeminiCliEvents(
       nativeId: sessionNativeId
     });
     const timeline = buildTimeline(session);
+    const toolCallCounts = countToolCallOccurrences(timeline);
     const lifecycle = deriveLifecycle(timeline);
     const sessionOutputArtifacts = new Map<string, NormalizedOutputArtifact>();
     const sessionToolCalls = new Map<string, NormalizedToolCall>();
@@ -394,6 +555,8 @@ export async function normalizeGeminiCliEvents(
     const sessionFileMutations = new Map<string, NormalizedFileMutation>();
     const sessionMessages: NormalizedMessage[] = [];
     const sessionEvents: NormalizedEvent[] = [];
+    const toolCallOccurrences = new Map<string, number>();
+    const warnedAmbiguousSidecars = new Set<string>();
     let ordinal = 1;
 
     if (lifecycle.conflictMessage) {
@@ -420,15 +583,15 @@ export async function normalizeGeminiCliEvents(
       sourceId,
       nativeId: lifecycleEventNativeId
     });
-	    sessionEvents.push({
-	      id: lifecycleEventId,
-	      sessionId,
-	      adapterId,
-	      sourceId,
-	      nativeId: lifecycleEventNativeId,
-	      kind: "lifecycle",
+    sessionEvents.push({
+      id: lifecycleEventId,
+      sessionId,
+      adapterId,
+      sourceId,
+      nativeId: lifecycleEventNativeId,
+      kind: "lifecycle",
       ...(lifecycle.timestamp ? { timestamp: lifecycle.timestamp } : {}),
-	      orderKey: buildOrderKey(ordinal, lifecycleEventNativeId),
+      orderKey: buildOrderKey(ordinal, lifecycleEventNativeId),
       actor: "harness",
       title: lifecycle.summary,
       text: lifecycle.summary,
@@ -445,15 +608,15 @@ export async function normalizeGeminiCliEvents(
         nativeId: metadataNativeId
       });
       const summary = `Project hash ${session.header.projectHash}`;
-	      sessionEvents.push({
-	        id: metadataEventId,
-	        sessionId,
-	        adapterId,
-	        sourceId,
-	        nativeId: metadataNativeId,
-	        kind: "metadata",
+      sessionEvents.push({
+        id: metadataEventId,
+        sessionId,
+        adapterId,
+        sourceId,
+        nativeId: metadataNativeId,
+        kind: "metadata",
         ...(session.header.startTime ? { timestamp: session.header.startTime } : {}),
-	        orderKey: buildOrderKey(ordinal, metadataNativeId),
+        orderKey: buildOrderKey(ordinal, metadataNativeId),
         actor: "harness",
         title: summary,
         text: summary,
@@ -483,16 +646,16 @@ export async function normalizeGeminiCliEvents(
         const summary = `${role} message`;
 
         const message: NormalizedMessage = {
-	          id: messageId,
-	          sessionId,
-	          adapterId,
-	          sourceId,
-	          nativeId: messageNativeId,
-	          kind: "session-message",
-	          role,
+          id: messageId,
+          sessionId,
+          adapterId,
+          sourceId,
+          nativeId: messageNativeId,
+          kind: "session-message",
+          role,
           ...(record.record.timestamp ? { timestamp: record.record.timestamp } : {}),
           text: recordText,
-          ...(record.record.model ? { modelName: record.record.model } : {}),
+          ...(record.record.model ? { modelName: resolveModelName(record.record.model) } : {}),
           ...(record.record.tokens ? { usage: toUsageSummary(record.record.tokens) } : {}),
           toolCallIds: [],
           eventIds: [messageEventId],
@@ -501,15 +664,15 @@ export async function normalizeGeminiCliEvents(
         };
 
         sessionMessages.push(message);
-	        sessionEvents.push({
-	          id: messageEventId,
-	          sessionId,
-	          adapterId,
-	          sourceId,
-	          nativeId: eventNativeId,
-	          kind: "message",
-	          ...(record.record.timestamp ? { timestamp: record.record.timestamp } : {}),
-	          orderKey: buildOrderKey(ordinal, eventNativeId),
+        sessionEvents.push({
+          id: messageEventId,
+          sessionId,
+          adapterId,
+          sourceId,
+          nativeId: eventNativeId,
+          kind: "message",
+          ...(record.record.timestamp ? { timestamp: record.record.timestamp } : {}),
+          orderKey: buildOrderKey(ordinal, eventNativeId),
           actor: role,
           title: summary,
           text: summary,
@@ -520,12 +683,19 @@ export async function normalizeGeminiCliEvents(
       }
 
       for (const [toolIndex, toolCallRecord] of (record.record.toolCalls ?? []).entries()) {
+        const toolCallOccurrence = (toolCallOccurrences.get(toolCallRecord.id) ?? 0) + 1;
+        toolCallOccurrences.set(toolCallRecord.id, toolCallOccurrence);
+        const toolCallNativeId = buildToolCallOccurrenceNativeId(
+          toolCallRecord.id,
+          toolCallOccurrence
+        );
+        const toolCallOutput = extractToolCallOutputEnvelope(toolCallRecord);
         const toolCallId = createToolCallId({
           adapterId,
           sourceId,
-          nativeId: toolCallRecord.id
+          nativeId: toolCallNativeId
         });
-        const eventNativeId = `${toolCallRecord.id}:${record.locator.lineNumber ?? toolIndex + 1}`;
+        const eventNativeId = `${toolCallNativeId}:${record.locator.lineNumber ?? toolIndex + 1}`;
         const toolCallEventId = createSessionEventId({
           adapterId,
           sourceId,
@@ -534,7 +704,35 @@ export async function normalizeGeminiCliEvents(
         const matchingSidecars = session.sidecars.filter(
           (sidecar) => sidecar.toolCallId === toolCallRecord.id
         );
-        const outputArtifactIds = matchingSidecars.flatMap((sidecar) => {
+        const duplicateToolCallCount = toolCallCounts.get(toolCallRecord.id) ?? 0;
+        const sidecarLinkageIsAmbiguous =
+          duplicateToolCallCount > 1 && matchingSidecars.length > 0;
+        const linkedSidecars = sidecarLinkageIsAmbiguous ? [] : matchingSidecars;
+
+        if (sidecarLinkageIsAmbiguous && !warnedAmbiguousSidecars.has(toolCallRecord.id)) {
+          diagnostics.push(
+            buildDiagnostic(
+              adapterId,
+              "gemini-cli.normalize.ambiguous-sidecar",
+              `Gemini tool call '${toolCallRecord.id}' reused a native tool-call ID across ${duplicateToolCallCount} occurrences, so discovered sidecars remain unlinked to avoid ambiguous attribution.`,
+              "warning",
+              "tool-call",
+              MEDIUM_CONFIDENCE,
+              {
+                sourceId,
+                nativeId: `${toolCallRecord.id}:ambiguous-sidecar`,
+                relatedEntityIds: [sessionId, toolCallId],
+                metadata: {
+                  duplicateOccurrences: duplicateToolCallCount,
+                  sidecarCount: matchingSidecars.length
+                }
+              }
+            )
+          );
+          warnedAmbiguousSidecars.add(toolCallRecord.id);
+        }
+
+        const outputArtifactIds = linkedSidecars.flatMap((sidecar) => {
           const matchingArtifact = rawArtifactsById.get(sidecar.artifactId);
           const outputArtifactId = createOutputArtifactId({
             adapterId,
@@ -544,18 +742,18 @@ export async function normalizeGeminiCliEvents(
 
           if (!sessionOutputArtifacts.has(outputArtifactId)) {
             const shape = mapArtifactShape(sidecar);
-	            sessionOutputArtifacts.set(outputArtifactId, {
-	              id: outputArtifactId,
-	              adapterId,
-	              sourceId,
-	              sessionId,
-	              nativeId: sidecar.relativePath,
-	              nativeRef: sidecar.relativePath,
-	              path: sidecar.relativePath,
-	              kind: shape.kind,
-	              contentKind: shape.contentKind,
-	              ...(sidecar.mediaType ? { mediaType: sidecar.mediaType } : {}),
-	              ...(matchingArtifact?.sizeBytes !== undefined
+            sessionOutputArtifacts.set(outputArtifactId, {
+              id: outputArtifactId,
+              adapterId,
+              sourceId,
+              sessionId,
+              nativeId: sidecar.relativePath,
+              nativeRef: sidecar.relativePath,
+              path: sidecar.relativePath,
+              kind: shape.kind,
+              contentKind: shape.contentKind,
+              ...(sidecar.mediaType ? { mediaType: sidecar.mediaType } : {}),
+              ...(matchingArtifact?.sizeBytes !== undefined
                 ? { sizeBytes: matchingArtifact.sizeBytes }
                 : matchingArtifact?.byteLength !== undefined
                   ? { sizeBytes: matchingArtifact.byteLength }
@@ -563,18 +761,12 @@ export async function normalizeGeminiCliEvents(
               ...(matchingArtifact?.mtime ? { mtime: matchingArtifact.mtime } : {}),
               ...(sidecar.textPreview ? { preview: sidecar.textPreview } : {}),
               loaded: false,
-              source: buildRawPointer(
-                sidecar.locator,
-                `artifact:${sidecar.relativePath}`
-              ),
+              ...(() => {
+                const binding = buildOutputArtifactBinding(sessionId, sidecar, matchingArtifact);
+                return binding ? { ref: binding } : {};
+              })(),
+              source: buildRawPointer(sidecar.locator, `artifact:${sidecar.relativePath}`),
               diagnostics: []
-            });
-          }
-
-          if (matchingArtifact?.path) {
-            outputArtifactBindings.set(outputArtifactId, {
-              path: matchingArtifact.path,
-              rawArtifactId: matchingArtifact.id
             });
           }
 
@@ -586,10 +778,11 @@ export async function normalizeGeminiCliEvents(
           sessionId,
           sourceId,
           toolCallId,
+          toolCallNativeId,
           toolCallRecord,
           locator: record.locator
         });
-        const shellEventNativeId = `shell:${toolCallRecord.id}`;
+        const shellEventNativeId = `shell:${toolCallNativeId}`;
         const shellEventId = createSessionEventId({
           adapterId,
           sourceId,
@@ -597,59 +790,56 @@ export async function normalizeGeminiCliEvents(
         });
         const shellCommand = buildShellCommandForToolCall({
           adapterId,
+          linkedSidecars,
           outputArtifactIds,
           sessionId,
           sourceEventId: shellEventId,
           sourceId,
           toolCallId,
+          toolCallNativeId,
           toolCallRecord,
           locator: record.locator
         });
 
-	        sessionToolCalls.set(toolCallId, {
-	          id: toolCallId,
-	          sessionId,
-	          adapterId,
-	          sourceId,
-	          nativeId: toolCallRecord.id,
-	          kind: "tool-call",
-	          nativeToolCallId: toolCallRecord.id,
-	          name: toolCallRecord.name,
-	          normalizedKind: mapToolKind(toolCallRecord.name),
-	          ...(toolCallRecord.status ? { statusRaw: toolCallRecord.status } : {}),
-	          ...(toolCallRecord.status ? { statusNormalized: mapToolStatus(toolCallRecord.status) } : {}),
-	          ...(toolCallRecord.args
-	            ? (() => {
-	                const argsPreview = optionalString(summarizeArgs(toolCallRecord.args));
-	                return argsPreview ? { argsPreview } : {};
-	              })()
-	            : {}),
-	          ...(toolCallRecord.resultDisplay !== undefined
-	            ? (() => {
-	                const resultPreview = optionalString(summarizeUnknown(toolCallRecord.resultDisplay));
-	                return resultPreview ? { resultPreview } : {};
-	              })()
-	            : {}),
-	          outputArtifactIds,
-	          ...(fileMutationId ? { fileMutationId } : {}),
-	          ...(shellCommand ? { shellCommandId: shellCommand.id } : {}),
-          source: buildRawPointer(record.locator, `tool:${toolCallRecord.id}`, toolCallEventId),
+        sessionToolCalls.set(toolCallId, {
+          id: toolCallId,
+          sessionId,
+          adapterId,
+          sourceId,
+          nativeId: toolCallNativeId,
+          kind: "tool-call",
+          nativeToolCallId: toolCallRecord.id,
+          name: toolCallRecord.name,
+          normalizedKind: mapToolKind(toolCallRecord.name),
+          ...(toolCallRecord.status ? { statusRaw: toolCallRecord.status } : {}),
+          ...(toolCallRecord.status ? { statusNormalized: mapToolStatus(toolCallRecord.status) } : {}),
+          ...(toolCallRecord.args
+            ? (() => {
+                const argsPreview = optionalString(summarizeArgs(toolCallRecord.args));
+                return argsPreview ? { argsPreview } : {};
+              })()
+            : {}),
+          ...(toolCallOutput.text ? { resultPreview: toolCallOutput.text } : {}),
+          outputArtifactIds,
+          ...(fileMutationId ? { fileMutationId } : {}),
+          ...(shellCommand ? { shellCommandId: shellCommand.id } : {}),
+          source: buildRawPointer(record.locator, `tool:${toolCallNativeId}`, toolCallEventId),
           confidence: CONFIRMED,
           diagnostics: []
         });
 
         const toolSummary = `${toolCallRecord.name} ${toolCallRecord.status ?? "unknown"}`;
-	        sessionEvents.push({
-	          id: toolCallEventId,
-	          sessionId,
-	          adapterId,
-	          sourceId,
-	          nativeId: eventNativeId,
-	          kind: "tool-call",
+        sessionEvents.push({
+          id: toolCallEventId,
+          sessionId,
+          adapterId,
+          sourceId,
+          nativeId: eventNativeId,
+          kind: "tool-call",
           ...(toolCallRecord.timestamp ?? record.record.timestamp
             ? { timestamp: toolCallRecord.timestamp ?? record.record.timestamp }
             : {}),
-	          orderKey: buildOrderKey(ordinal, eventNativeId),
+          orderKey: buildOrderKey(ordinal, eventNativeId),
           actor: "tool",
           title: toolSummary,
           text: toolSummary,
@@ -661,17 +851,17 @@ export async function normalizeGeminiCliEvents(
         if (shellCommand) {
           sessionShellCommands.set(shellCommand.id, shellCommand);
           const shellSummary = shellCommand.command ?? "run_shell_command";
-	          sessionEvents.push({
-	            id: shellEventId,
-	            sessionId,
-	            adapterId,
-	            sourceId,
-	            nativeId: shellEventNativeId,
-	            kind: "shell-command",
+          sessionEvents.push({
+            id: shellEventId,
+            sessionId,
+            adapterId,
+            sourceId,
+            nativeId: shellEventNativeId,
+            kind: "shell-command",
             ...(toolCallRecord.timestamp ?? record.record.timestamp
               ? { timestamp: toolCallRecord.timestamp ?? record.record.timestamp }
               : {}),
-	            orderKey: buildOrderKey(ordinal, shellEventNativeId),
+            orderKey: buildOrderKey(ordinal, shellEventNativeId),
             actor: "harness",
             title: shellSummary,
             text: shellSummary,
@@ -681,7 +871,7 @@ export async function normalizeGeminiCliEvents(
           ordinal += 1;
         }
 
-        if (shouldWarnMissingSidecar(toolCallRecord, matchingSidecars.length)) {
+        if (shouldWarnMissingSidecar(toolCallRecord, linkedSidecars.length)) {
           diagnostics.push(
             buildDiagnostic(
               adapterId,
@@ -763,17 +953,17 @@ export async function normalizeGeminiCliEvents(
 
       if (!sessionOutputArtifacts.has(outputArtifactId)) {
         const shape = mapArtifactShape(sidecar);
-	        sessionOutputArtifacts.set(outputArtifactId, {
-	          id: outputArtifactId,
-	          adapterId,
-	          sourceId,
-	          sessionId,
-	          nativeId: sidecar.relativePath,
-	          nativeRef: sidecar.relativePath,
-	          path: sidecar.relativePath,
-	          kind: shape.kind,
-	          contentKind: shape.contentKind,
-	          ...(sidecar.mediaType ? { mediaType: sidecar.mediaType } : {}),
+        sessionOutputArtifacts.set(outputArtifactId, {
+          id: outputArtifactId,
+          adapterId,
+          sourceId,
+          sessionId,
+          nativeId: sidecar.relativePath,
+          nativeRef: sidecar.relativePath,
+          path: sidecar.relativePath,
+          kind: shape.kind,
+          contentKind: shape.contentKind,
+          ...(sidecar.mediaType ? { mediaType: sidecar.mediaType } : {}),
           ...(matchingArtifact?.sizeBytes !== undefined
             ? { sizeBytes: matchingArtifact.sizeBytes }
             : matchingArtifact?.byteLength !== undefined
@@ -782,26 +972,23 @@ export async function normalizeGeminiCliEvents(
           ...(matchingArtifact?.mtime ? { mtime: matchingArtifact.mtime } : {}),
           ...(sidecar.textPreview ? { preview: sidecar.textPreview } : {}),
           loaded: false,
+          ...(() => {
+            const binding = buildOutputArtifactBinding(sessionId, sidecar, matchingArtifact);
+            return binding ? { ref: binding } : {};
+          })(),
           source: buildRawPointer(sidecar.locator, `artifact:${sidecar.relativePath}`),
           diagnostics: []
         });
       }
 
-      if (matchingArtifact?.path) {
-        outputArtifactBindings.set(outputArtifactId, {
-          path: matchingArtifact.path,
-          rawArtifactId: matchingArtifact.id
-        });
-      }
-
-	      sessionEvents.push({
-	        id: outputArtifactEventId,
-	        sessionId,
-	        adapterId,
-	        sourceId,
-	        nativeId: outputArtifactEventNativeId,
-	        kind: "tool-result",
-	        orderKey: buildOrderKey(ordinal, outputArtifactEventNativeId),
+      sessionEvents.push({
+        id: outputArtifactEventId,
+        sessionId,
+        adapterId,
+        sourceId,
+        nativeId: outputArtifactEventNativeId,
+        kind: "tool-result",
+        orderKey: buildOrderKey(ordinal, outputArtifactEventNativeId),
         actor: "harness",
         title: sidecar.relativePath,
         text: sidecar.relativePath,
@@ -843,14 +1030,14 @@ export async function normalizeGeminiCliEvents(
         .filter((artifact): artifact is RawArtifactRef => Boolean(artifact))
         .map((artifact) => toRawArtifactRef(artifact))
     );
-	    sessions.push({
-	      id: sessionId,
-	      adapterId,
-	      sourceId,
-	      nativeId: sessionNativeId,
-	      nativeSessionId: sessionNativeId,
-	      kind: "session",
-	      projectId,
+    sessions.push({
+      id: sessionId,
+      adapterId,
+      sourceId,
+      nativeId: sessionNativeId,
+      nativeSessionId: sessionNativeId,
+      kind: "session",
+      projectId,
       ...(buildSessionTitle(session) ? { title: buildSessionTitle(session) } : {}),
       ...(firstUserPrompt ? { firstUserPrompt } : {}),
       ...(latestUserPrompt ? { latestUserPrompt } : {}),
@@ -859,7 +1046,7 @@ export async function normalizeGeminiCliEvents(
       ...(startedAt && lastUpdatedAt
         ? { durationMs: Math.max(0, Date.parse(lastUpdatedAt) - Date.parse(startedAt)) }
         : {}),
-	      lifecycleStatus: lifecycle.state,
+      lifecycleStatus: lifecycle.state,
       capabilities: geminiCliDescriptor.capabilities,
       parseConfidence: timeline.length > 0 || session.logEntries.length > 0 ? CONFIRMED : UNKNOWN,
       messageIds: sessionMessages.map((message) => message.id),
@@ -868,7 +1055,7 @@ export async function normalizeGeminiCliEvents(
       fileMutationIds: [...sessionFileMutations.values()].map((mutation) => mutation.id),
       shellCommandIds: [...sessionShellCommands.values()].map((command) => command.id),
       outputArtifactIds: [...sessionOutputArtifacts.values()].map((artifact) => artifact.id),
-	      usage: buildSessionUsage(timeline.map((record) => record.record)),
+      usage: buildSessionUsage(timeline.map((record) => record.record)),
       rawArtifactRefs: sessionRawArtifactRefs,
       diagnostics: []
     });
@@ -889,16 +1076,16 @@ export async function normalizeGeminiCliEvents(
   const latestSessionSummary = [...sessionSummaries]
     .filter((summary) => summary.latestActivityAt)
     .sort((left, right) => (right.latestActivityAt ?? "").localeCompare(left.latestActivityAt ?? ""))[0];
-	  const project = {
-	    id: projectId,
-	    adapterId,
-	    sourceId,
-	    nativeId: projectNativeId,
-	    kind: "project",
-	    displayName: path.basename(projectRootPath || input.source.displayName),
-	    name: path.basename(projectRootPath || input.source.displayName),
-	    ...(projectRootPath ? { primaryRootPath: projectRootPath } : {}),
-	    ...(projectRootPath ? { rootPath: projectRootPath } : {}),
+  const project = {
+    id: projectId,
+    adapterId,
+    sourceId,
+    nativeId: projectNativeId,
+    kind: "project",
+    displayName: path.basename(projectRootPath || args.inputSource.displayName),
+    name: path.basename(projectRootPath || args.inputSource.displayName),
+    ...(projectRootPath ? { primaryRootPath: projectRootPath } : {}),
+    ...(projectRootPath ? { rootPath: projectRootPath } : {}),
     rootConfidence: projectRootPath ? CONFIRMED : INFERRED,
     harnessRefs: [
       {
@@ -935,69 +1122,8 @@ export async function normalizeGeminiCliEvents(
     shellCommands,
     outputArtifacts,
     fileMutations,
-    diagnostics,
-    extras: {
-      outputArtifactBindings
-    }
-  } as unknown as AdapterNormalizationResult & { extras: GeminiNormalizationExtras };
-}
-
-function collectSessionData(rawEvents: GeminiRawEvent[]): Map<string, SessionAccumulator> {
-  const sessions = new Map<string, SessionAccumulator>();
-
-  for (const event of rawEvents) {
-    switch (event.payload.kind) {
-      case "session-header": {
-        const entry = getOrCreateSessionAccumulator(sessions, event.payload.sessionId);
-        entry.header = event.payload.header;
-        entry.headerLocator = toEventLocator(event);
-        break;
-      }
-      case "metadata-patch": {
-        const entry = getOrCreateSessionAccumulator(sessions, event.payload.sessionId);
-        if (typeof event.payload.patch.lastUpdated === "string") {
-          entry.lastUpdated = event.payload.patch.lastUpdated;
-        }
-        break;
-      }
-      case "logs-entry": {
-        const entry = getOrCreateSessionAccumulator(sessions, event.payload.entry.sessionId);
-        entry.logEntries.push({
-          entry: event.payload.entry,
-          locator: toEventLocator(event)
-        });
-        break;
-      }
-      case "transcript-record": {
-        const entry = getOrCreateSessionAccumulator(sessions, event.payload.sessionId);
-        entry.transcriptRecords.push({
-          record: event.payload.record,
-          locator: toEventLocator(event)
-        });
-        break;
-      }
-      case "tool-output-sidecar": {
-        const entry = getOrCreateSessionAccumulator(sessions, event.payload.sessionId);
-        entry.sidecars.push({
-          artifactId: event.artifactId ?? event.id ?? event.payload.relativePath,
-          format: event.payload.format,
-          locator: toEventLocator(event),
-          relativePath: event.payload.relativePath,
-          sessionId: event.payload.sessionId,
-          ...(event.payload.mediaType ? { mediaType: event.payload.mediaType } : {}),
-          ...(event.payload.textPreview ? { textPreview: event.payload.textPreview } : {}),
-          ...(event.payload.toolCallId ? { toolCallId: event.payload.toolCallId } : {}),
-          ...(event.payload.toolName ? { toolName: event.payload.toolName } : {})
-        });
-        break;
-      }
-      case "project-root":
-      case "parse-diagnostic":
-        break;
-    }
-  }
-
-  return sessions;
+    diagnostics
+  } as unknown as AdapterNormalizationResult;
 }
 
 function getOrCreateSessionAccumulator(
@@ -1039,6 +1165,18 @@ function buildTimeline(session: SessionAccumulator) {
   });
 }
 
+function countToolCallOccurrences(timeline: ReturnType<typeof buildTimeline>): Map<string, number> {
+  const counts = new Map<string, number>();
+
+  for (const record of timeline) {
+    for (const toolCallRecord of record.record.toolCalls ?? []) {
+      counts.set(toolCallRecord.id, (counts.get(toolCallRecord.id) ?? 0) + 1);
+    }
+  }
+
+  return counts;
+}
+
 function shouldWarnMissingSidecar(
   toolCallRecord: GeminiToolCallRecord,
   sidecarCount: number
@@ -1047,14 +1185,8 @@ function shouldWarnMissingSidecar(
 }
 
 function hasInlineToolResult(toolCallRecord: GeminiToolCallRecord): boolean {
-  if (
-    toolCallRecord.resultDisplay !== undefined &&
-    optionalString(summarizeUnknown(toolCallRecord.resultDisplay))
-  ) {
-    return true;
-  }
-
-  return Array.isArray(toolCallRecord.result) && toolCallRecord.result.length > 0;
+  const resultEnvelope = extractToolCallOutputEnvelope(toolCallRecord);
+  return Boolean(resultEnvelope.text || resultEnvelope.exitCode !== undefined);
 }
 
 function toUsageSummary(
@@ -1215,16 +1347,27 @@ function buildSessionTitle(session: SessionAccumulator): string {
   return firstLog?.entry.message.slice(0, 80) ?? "Gemini CLI session";
 }
 
+const TABNINE_MODEL_ALISES: Readonly<Record<string, string>> = {
+    "d5ff943b-972a-45e7-9242-a3367c907078": "Claude 4.6 Sonnet",
+    "01a524ea-36d3-4ebd-a78a-ff5ed37b1533": "GPT-5.4"
+}
+
+function resolveModelName(model: string): string {
+    return TABNINE_MODEL_ALISES[model] ?? model;
+}
+
 function toMessageRole(type: string): "user" | "assistant" | "system" | "tool" | "unknown" {
   switch (type) {
     case "user":
       return "user";
     case "gemini":
+    case "tabnine":
       return "assistant";
     case "tool":
       return "tool";
     case "system":
     case "info":
+    case "error":
       return "system";
     default:
       return "unknown";
@@ -1233,12 +1376,14 @@ function toMessageRole(type: string): "user" | "assistant" | "system" | "tool" |
 
 function buildShellCommandForToolCall(args: {
   adapterId: string;
+  linkedSidecars: SessionAccumulator["sidecars"];
   locator: EventLocator;
   outputArtifactIds: string[];
   sessionId: string;
   sourceEventId: string;
   sourceId: string;
   toolCallId: string;
+  toolCallNativeId: string;
   toolCallRecord: GeminiToolCallRecord;
 }): NormalizedShellCommand | null {
   if (args.toolCallRecord.name !== "run_shell_command") {
@@ -1252,34 +1397,35 @@ function buildShellCommandForToolCall(args: {
   const shellCommandId = createShellCommandEvidenceId({
     adapterId: args.adapterId,
     sourceId: args.sourceId,
-    nativeId: `shell:${args.toolCallRecord.id}`
+    nativeId: `shell:${args.toolCallNativeId}`
   });
-  const outputInline =
-    args.toolCallRecord.resultDisplay !== undefined
-      ? optionalString(summarizeUnknown(args.toolCallRecord.resultDisplay))
-      : undefined;
+  const toolCallOutput = extractToolCallOutputEnvelope(args.toolCallRecord);
+  const sidecarExitCode =
+    args.linkedSidecars.length === 1 ? args.linkedSidecars[0]?.exitCode : undefined;
+  const rawExitCode = toolCallOutput.exitCode ?? sidecarExitCode;
 
-	  return {
-	    id: shellCommandId,
-	    sessionId: args.sessionId,
-	    adapterId: args.adapterId,
-	    sourceId: args.sourceId,
-	    nativeId: `shell:${args.toolCallRecord.id}`,
-	    kind: "shell-command",
-	    toolCallId: args.toolCallId,
-	    command,
+  return {
+    id: shellCommandId,
+    sessionId: args.sessionId,
+    adapterId: args.adapterId,
+    sourceId: args.sourceId,
+    nativeId: `shell:${args.toolCallNativeId}`,
+    kind: "shell-command",
+    toolCallId: args.toolCallId,
+    command,
     ...(typeof args.toolCallRecord.args?.cwd === "string"
       ? { cwd: args.toolCallRecord.args.cwd }
       : {}),
-	    ...(outputInline ? { outputInline } : {}),
-	    outputArtifactIds: args.outputArtifactIds,
-	    ...(args.toolCallRecord.status ? { rawStatus: args.toolCallRecord.status } : {}),
-	    source: buildRawPointer(
+    ...(toolCallOutput.text ? { outputInline: toolCallOutput.text } : {}),
+    outputArtifactIds: args.outputArtifactIds,
+    ...(args.toolCallRecord.status ? { rawStatus: args.toolCallRecord.status } : {}),
+    ...(rawExitCode !== undefined ? { rawExitCode } : {}),
+    source: buildRawPointer(
       args.locator,
-      `shell:${args.toolCallRecord.id}`,
+      `shell:${args.toolCallNativeId}`,
       args.sourceEventId
     ),
-	    confidence: CONFIRMED
+    confidence: CONFIRMED
   };
 }
 
@@ -1290,6 +1436,7 @@ function buildFileMutationForToolCall(args: {
   sessionId: string;
   sourceId: string;
   toolCallId: string;
+  toolCallNativeId: string;
   toolCallRecord: GeminiToolCallRecord;
 }): string | undefined {
   const mutationKind = mapFileMutationKind(args.toolCallRecord.name);
@@ -1302,21 +1449,21 @@ function buildFileMutationForToolCall(args: {
   const mutationId = createFileMutationEvidenceId({
     adapterId: args.adapterId,
     sourceId: args.sourceId,
-    nativeId: `${args.toolCallRecord.id}:${filePath}`
+    nativeId: `${args.toolCallNativeId}:${filePath}`
   });
 
   if (!args.fileMutationMap.has(mutationId)) {
-	    args.fileMutationMap.set(mutationId, {
-	      id: mutationId,
-	      sessionId: args.sessionId,
-	      adapterId: args.adapterId,
-	      sourceId: args.sourceId,
-	      nativeId: `${args.toolCallRecord.id}:${filePath}`,
-	      kind: "file-mutation",
-	      path: filePath,
-	      mutationKind,
-	      toolCallId: args.toolCallId,
-      source: buildRawPointer(args.locator, `file:${args.toolCallRecord.id}:${filePath}`),
+    args.fileMutationMap.set(mutationId, {
+      id: mutationId,
+      sessionId: args.sessionId,
+      adapterId: args.adapterId,
+      sourceId: args.sourceId,
+      nativeId: `${args.toolCallNativeId}:${filePath}`,
+      kind: "file-mutation",
+      path: filePath,
+      mutationKind,
+      toolCallId: args.toolCallId,
+      source: buildRawPointer(args.locator, `file:${args.toolCallNativeId}:${filePath}`),
       confidence: CONFIRMED,
       diagnostics: []
     });

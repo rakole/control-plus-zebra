@@ -6,8 +6,15 @@ import { createBundledAdapterRegistry } from "../core/registry/register-bundled-
 import { SourceRegistry } from "../core/registry/source-registry.js";
 import { FileBackedSourceRegistryStore } from "../core/registry/source-registry-store.js";
 import { RawArtifactIndex } from "../core/ingestion/raw-artifact-index.js";
+import { SQLiteWorkbenchEntityStore } from "../core/store/index.js";
 import { Scanner } from "../core/ingestion/scanner.js";
 import { WatchOrchestrator } from "../core/watcher/watch-orchestrator.js";
+import { createInProcessScanJobRunner, type ScanJobRunner } from "./scan-job-runner.js";
+import { BackgroundScanScheduler } from "./background-scan-scheduler.js";
+import {
+  syncLatestSourceCacheRecordToEntityStore,
+  syncMissingCurrentRunsFromCacheToEntityStore
+} from "./workbench-entity-store-sync.js";
 
 export interface WorkbenchRuntimeOptions {
   appDataDir?: string;
@@ -17,11 +24,28 @@ export interface WorkbenchRuntimeOptions {
 export interface WorkbenchRuntime {
   appDataDir: string;
   adapterRegistry: AdapterRegistry;
+  backgroundScanScheduler: BackgroundScanScheduler;
   cacheStore: FileBackedCacheStore;
+  entityStore: SQLiteWorkbenchEntityStore;
+  ensureEntityStoreReady(): Promise<void>;
+  getEntityStoreHydrationState(): Promise<WorkbenchEntityStoreHydrationState>;
+  projectDir: string;
   rawArtifactIndex: RawArtifactIndex;
+  scanJobRunner: ScanJobRunner;
   scanner: Scanner;
   sourceRegistry: SourceRegistry;
   watchOrchestrator: WatchOrchestrator;
+}
+
+export interface WorkbenchSourceHydrationState {
+  sourceId: string;
+  status: "cache-fallback" | "store-ready";
+  reason?: string;
+}
+
+export interface WorkbenchEntityStoreHydrationState {
+  failedSourceIds: string[];
+  sourceStates: WorkbenchSourceHydrationState[];
 }
 
 export function createWorkbenchRuntime(
@@ -40,6 +64,11 @@ export function createWorkbenchRuntime(
   const cacheStore = new FileBackedCacheStore(
     path.join(appDataDir, "normalized-cache.json")
   );
+  const entityStore = new SQLiteWorkbenchEntityStore({
+    artifactBlobRootDir: path.join(appDataDir, "artifact-blobs"),
+    databasePath: path.join(appDataDir, "workbench.sqlite")
+  });
+  let backgroundScanScheduler: BackgroundScanScheduler | undefined;
   const watchOrchestrator = new WatchOrchestrator({
     async onSourceCacheStale(event) {
       const source = await sourceRegistry.getSource(event.sourceId);
@@ -61,24 +90,92 @@ export function createWorkbenchRuntime(
         diagnostics: source.scan.diagnostics,
         reason
       });
+    },
+    onSourceUpdateSignaled(event) {
+      backgroundScanScheduler?.handleWatchUpdateSignal(event);
     }
   });
   const scanner = new Scanner({
     adapterRegistry,
     cacheStore,
+    entityStore,
     projectDir,
     rawArtifactIndex,
     sourceRegistry,
     watchOrchestrator
   });
 
-  return {
+  const runtime = {
     appDataDir,
     adapterRegistry,
+    backgroundScanScheduler: undefined as unknown as BackgroundScanScheduler,
     cacheStore,
+    entityStore,
+    ensureEntityStoreReady: undefined as unknown as () => Promise<void>,
+    getEntityStoreHydrationState: undefined as unknown as () => Promise<WorkbenchEntityStoreHydrationState>,
+    projectDir,
     rawArtifactIndex,
+    scanJobRunner: undefined as unknown as ScanJobRunner,
     scanner,
     sourceRegistry,
     watchOrchestrator
   };
+
+  runtime.scanJobRunner = createInProcessScanJobRunner({
+    getScanner: () => runtime.scanner
+  });
+  backgroundScanScheduler = new BackgroundScanScheduler({
+    scanner: runtime.scanner,
+    getScanJobRunner: () => runtime.scanJobRunner,
+    sourceRegistry: runtime.sourceRegistry,
+    watchOrchestrator: runtime.watchOrchestrator,
+    onScanComplete(sourceId) {
+      return syncLatestSourceCacheRecordToEntityStore(runtime, sourceId);
+    }
+  });
+  runtime.backgroundScanScheduler = backgroundScanScheduler;
+  let entityStoreReady = false;
+  let entityStoreHydrationState: WorkbenchEntityStoreHydrationState = {
+    failedSourceIds: [],
+    sourceStates: []
+  };
+  let entityStoreReadyPromise:
+    | Promise<Awaited<ReturnType<typeof syncMissingCurrentRunsFromCacheToEntityStore>>>
+    | undefined;
+
+  runtime.ensureEntityStoreReady = async () => {
+    if (entityStoreReady) {
+      return;
+    }
+
+    const hydrationPromise =
+      entityStoreReadyPromise ??= syncMissingCurrentRunsFromCacheToEntityStore(runtime);
+
+    try {
+      const result = await hydrationPromise;
+
+      entityStoreHydrationState = {
+        failedSourceIds: [...result.failedSourceIds],
+        sourceStates: result.sourceStates.map((state) => ({ ...state }))
+      };
+
+      if (result.failedSourceIds.length === 0) {
+        entityStoreReady = true;
+      }
+    } finally {
+      if (entityStoreReadyPromise === hydrationPromise) {
+        entityStoreReadyPromise = undefined;
+      }
+    }
+  };
+  runtime.getEntityStoreHydrationState = async () => {
+    await runtime.ensureEntityStoreReady();
+
+    return {
+      failedSourceIds: [...entityStoreHydrationState.failedSourceIds],
+      sourceStates: entityStoreHydrationState.sourceStates.map((state) => ({ ...state }))
+    };
+  };
+
+  return runtime;
 }

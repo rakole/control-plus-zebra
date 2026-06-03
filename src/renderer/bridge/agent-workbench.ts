@@ -26,6 +26,12 @@ export function getDashboardStats(
   return getAgentWorkbenchBridge().getDashboardStats(request);
 }
 
+export function getOverviewActivityHeatmap(
+  request?: Parameters<Window["agentWorkbench"]["getOverviewActivityHeatmap"]>[0]
+) {
+  return getAgentWorkbenchBridge().getOverviewActivityHeatmap(request);
+}
+
 export function listProjects(
   request?: Parameters<Window["agentWorkbench"]["listProjects"]>[0]
 ) {

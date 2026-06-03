@@ -148,7 +148,7 @@ export function ProjectsRoute() {
         title="Projects"
         description="Keep shared git, GitHub, and archive-export truth visible across observed project summaries."
         actions={
-          <Toolbar ariaLabel="Projects filters" className="justify-end">
+          <div className="flex flex-wrap items-end justify-end gap-3">
             <label className="grid gap-1 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">Harness</span>
               <NativeSelect
@@ -167,7 +167,7 @@ export function ProjectsRoute() {
             <Button onClick={() => void loadProjects()} type="button" variant="outline">
               Reload Triage Data
             </Button>
-          </Toolbar>
+          </div>
         }
       />
 
