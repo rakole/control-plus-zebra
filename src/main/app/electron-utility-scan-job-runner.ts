@@ -10,10 +10,6 @@ import type {
   ScanSourceWorkerResponse
 } from "./scan-job-runner.js";
 
-const DEFAULT_WORKER_SCRIPT_PATH = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "scan-source-worker.js"
-);
 const MAX_FAILURE_MESSAGE_LENGTH = 512;
 const MAX_STDERR_PREVIEW_LENGTH = 512;
 
@@ -78,7 +74,7 @@ async function runWorkerScanJob(
     sourceId
   };
   const child = options.forkUtilityProcess(
-    options.workerScriptPath ?? DEFAULT_WORKER_SCRIPT_PATH,
+    options.workerScriptPath ?? getDefaultWorkerScriptPath(),
     [JSON.stringify(request)],
     { stdio: "pipe" }
   );
@@ -144,6 +140,15 @@ async function runWorkerScanJob(
   });
 
   return completion;
+}
+
+function getDefaultWorkerScriptPath(): string {
+  const moduleDirectory =
+    typeof __dirname === "string"
+      ? __dirname
+      : path.dirname(fileURLToPath(import.meta.url));
+
+  return path.join(moduleDirectory, "scan-source-worker.js");
 }
 
 function parseWorkerResponse(message: unknown): ScanSourceWorkerResponse | undefined {
