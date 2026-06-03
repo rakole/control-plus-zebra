@@ -14,6 +14,7 @@ import {
   normalizeGeminiCliEvents
 } from "./normalize.js";
 import { parseGeminiCliArtifact, type GeminiRawEvent } from "./parse.js";
+import { extractGeminiJsonOutputEnvelope } from "./tool-output.js";
 
 export const geminiCliAdapter: SessionSourceAdapter<GeminiRawEvent> = {
   descriptor: geminiCliDescriptor,
@@ -48,7 +49,7 @@ export const geminiCliAdapter: SessionSourceAdapter<GeminiRawEvent> = {
     if (mediaType === "application/json") {
       try {
         const parsed = JSON.parse(rawText) as Record<string, unknown>;
-        const text = extractJsonWrappedOutputText(parsed) ?? rawText;
+        const text = extractGeminiJsonOutputEnvelope(parsed).text ?? rawText;
 
         return {
           artifact,
@@ -81,19 +82,6 @@ export const geminiCliAdapter: SessionSourceAdapter<GeminiRawEvent> = {
     };
   }
 };
-
-function extractJsonWrappedOutputText(candidate: Record<string, unknown>): string | undefined {
-  const directTextKeys = ["content", "output", "text", "result"] as const;
-
-  for (const key of directTextKeys) {
-    const value = candidate[key];
-    if (typeof value === "string" && value.length > 0) {
-      return value;
-    }
-  }
-
-  return undefined;
-}
 
 export { geminiCliDescriptor } from "./descriptor.js";
 export type { GeminiRawEvent } from "./parse.js";

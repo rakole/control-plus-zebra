@@ -23,6 +23,7 @@ import {
   type GeminiArtifactOrigin,
   type GeminiParsedPayload
 } from "./types.js";
+import { extractGeminiJsonOutputEnvelope } from "./tool-output.js";
 
 export type GeminiRawEvent = RawHarnessEvent<GeminiParsedPayload>;
 
@@ -526,6 +527,7 @@ function* parseToolOutputArtifact(
   let format: "json" | "text" | "unknown" = "text";
   let mediaType = artifact.mediaType ?? "text/plain";
   let textPreview = artifactText.slice(0, 240);
+  let exitCode: number | undefined;
 
   const trimmed = artifactText.trim();
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
@@ -534,9 +536,12 @@ function* parseToolOutputArtifact(
       format = "json";
       mediaType = "application/json";
 
-      const extractedText = extractJsonWrappedOutputText(parsed);
-      if (extractedText) {
-        textPreview = extractedText.slice(0, 240);
+      const envelope = extractGeminiJsonOutputEnvelope(parsed);
+      if (envelope.text) {
+        textPreview = envelope.text.slice(0, 240);
+      }
+      if (envelope.exitCode !== undefined) {
+        exitCode = envelope.exitCode;
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invalid JSON";
@@ -573,6 +578,7 @@ function* parseToolOutputArtifact(
       relativePath,
       format,
       textPreview,
+      ...(exitCode !== undefined ? { exitCode } : {}),
       mediaType,
       origin: buildOrigin(artifact.nativeId)
     }
@@ -754,19 +760,6 @@ function deriveRepeatedPrefixToolCallId(candidate: string): string | undefined {
 
     if (rest.startsWith(`${prefix}_`) && /.+_\d+_\d+$/u.test(rest)) {
       return rest;
-    }
-  }
-
-  return undefined;
-}
-
-function extractJsonWrappedOutputText(candidate: Record<string, unknown>): string | undefined {
-  const directTextKeys = ["content", "output", "text", "result"] as const;
-
-  for (const key of directTextKeys) {
-    const value = candidate[key];
-    if (typeof value === "string" && value.length > 0) {
-      return value;
     }
   }
 

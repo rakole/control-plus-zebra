@@ -8,7 +8,9 @@ import {
   type GetSessionTimelineRequest,
   type SessionDetailViewModel
 } from "../ipc/view-models.js";
+import type { ParsedShellCommand } from "../core/shell/types.js";
 import type { WorkbenchTimelineRecord } from "../core/store/workbench-entity-store.js";
+import { getCommandDisplayStatus } from "./command-status-view-models.js";
 import {
   createWorkbenchRuntime,
   type WorkbenchRuntime,
@@ -63,7 +65,10 @@ export function createSessionDetailViewModelService(
 
       return sessionDetailViewModelSchema.parse({
         session: preview,
-        timeline: buildTimelineEventsFromStore(timelineRecords)
+        timeline: buildTimelineEventsFromStore(
+          timelineRecords,
+          location.session.parsedShellCommands
+        )
       });
     },
 
@@ -89,7 +94,7 @@ export function createSessionDetailViewModelService(
       });
 
       return {
-        timeline: buildTimelineEventsFromStore(page.items),
+        timeline: buildTimelineEventsFromStore(page.items, location.session.parsedShellCommands),
         pageInfo: {
           hasMore: page.pageInfo.hasMore,
           ...(page.pageInfo.nextCursor ? { nextCursor: page.pageInfo.nextCursor } : {}),
@@ -101,13 +106,21 @@ export function createSessionDetailViewModelService(
 }
 
 export function buildTimelineEventsFromStore(
-  records: WorkbenchTimelineRecord[]
+  records: WorkbenchTimelineRecord[],
+  parsedShellCommands: ParsedShellCommand[] = []
 ): SessionDetailViewModel["timeline"] {
+  const parsedShellCommandsById = new Map(
+    parsedShellCommands.map((command) => [command.shellCommandId, command] as const)
+  );
+
   return records.flatMap<SessionDetailViewModel["timeline"][number]>((record) => {
     const event = record.event;
     const message = record.message;
     const toolCall = record.toolCall;
     const shellCommand = record.shellCommand;
+    const parsedShellCommand = shellCommand
+      ? parsedShellCommandsById.get(shellCommand.id)
+      : undefined;
     const outputArtifacts = record.outputArtifacts ?? [];
     const fileMutation = record.fileMutation;
 
@@ -157,6 +170,10 @@ export function buildTimelineEventsFromStore(
           ]
         }];
       case "shell-command":
+        const commandDisplayStatus = getCommandDisplayStatus({
+          ...(parsedShellCommand ? { parsedShellCommand } : {}),
+          ...(shellCommand ? { shellCommand } : {})
+        });
         return [{
           id: event.id,
           kind: "shell-command" as const,
@@ -173,14 +190,16 @@ export function buildTimelineEventsFromStore(
               }
             : {}),
           metadata: [
-            { label: "Intent", value: "Unknown" },
-            { label: "Result", value: "Unknown" },
+            { label: "Intent", value: humanizeShellCommandIntent(parsedShellCommand?.intent) },
+            { label: "Result", value: commandDisplayStatus.label },
             {
               label: "Exit Code",
               value:
-                shellCommand?.rawExitCode !== undefined
-                  ? String(shellCommand.rawExitCode)
-                  : "Unknown"
+                parsedShellCommand?.exitCode !== undefined
+                  ? String(parsedShellCommand.exitCode)
+                  : shellCommand?.rawExitCode !== undefined
+                    ? String(shellCommand.rawExitCode)
+                    : "Unknown"
             }
           ]
         }];
@@ -284,6 +303,27 @@ function humanizeToolCallStatus(
   }
 
   return status.replace(/-/gu, " ").replace(/^./u, (letter) => letter.toUpperCase());
+}
+
+function humanizeShellCommandIntent(intent?: ParsedShellCommand["intent"]): string {
+  switch (intent) {
+    case "test":
+      return "Test";
+    case "build":
+      return "Build";
+    case "typecheck":
+      return "Typecheck";
+    case "lint":
+      return "Lint";
+    case "install":
+      return "Install";
+    case "git":
+      return "Git";
+    case "other":
+      return "Other";
+    default:
+      return "Unknown";
+  }
 }
 
 function summarizeArtifact(

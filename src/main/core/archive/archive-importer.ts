@@ -3098,6 +3098,18 @@ function rebaseSession(
     );
   }
 
+  if (session.parsedShellCommands) {
+    rebasedSession.parsedShellCommands = session.parsedShellCommands.map((command) =>
+      rebaseParsedShellCommand(
+        command,
+        diagnosticIds,
+        idMaps.outputArtifactIds,
+        idMaps.shellCommandIds,
+        idMaps.toolCallIds
+      )
+    );
+  }
+
   if (session.outputArtifactIds) {
     rebasedSession.outputArtifactIds = mapIds(
       session.outputArtifactIds,

@@ -42,6 +42,17 @@ function getMetricLabel(value: string, singular: string, plural = `${singular}s`
   return value === "1" ? singular : plural;
 }
 
+function shouldRenderFailedCommandBadge(
+  metric: SessionSummary["triageMetrics"]["failedCommands"]
+): boolean {
+  const numericValue =
+    typeof metric.numericValue === "number" && Number.isFinite(metric.numericValue)
+      ? metric.numericValue
+      : Number.parseInt(metric.displayValue, 10);
+
+  return metric.status === "value" && Number.isFinite(numericValue) && numericValue > 0;
+}
+
 export function SessionList({
   sessions,
   selectedSessionId,
@@ -163,7 +174,7 @@ export function SessionList({
                           "diag"
                         )}
                       </Badge>
-                      {session.triageMetrics.failedCommands.displayValue !== "0" ? (
+                      {shouldRenderFailedCommandBadge(session.triageMetrics.failedCommands) ? (
                         <Badge variant="outline">
                           {session.triageMetrics.failedCommands.displayValue} failed
                         </Badge>

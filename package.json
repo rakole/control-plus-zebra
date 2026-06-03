@@ -1,11 +1,12 @@
 {
   "name": "control-plus-zebra",
+  "productName": "Control + Zebra",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": ".vite/build/electron-main.cjs",
   "scripts": {
-    "postinstall": "patch-package",
+    "postinstall": "patch-package && node scripts/patch-dev-electron-macos.mjs",
     "lint": "eslint .",
     "start": "electron-forge start",
     "package": "electron-forge package",

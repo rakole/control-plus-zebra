@@ -17,6 +17,10 @@ import { createThemePreferenceStore } from "./theme/theme-preference-store.js";
 import { createThemeService } from "./theme/theme-service.js";
 import { createMainWindow } from "./window.js";
 
+const APP_DISPLAY_NAME = "Control + Zebra";
+
+app.setName(APP_DISPLAY_NAME);
+
 async function bootstrap(): Promise<void> {
   await app.whenReady();
   applyDockIcon();

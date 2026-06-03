@@ -942,6 +942,26 @@ describe("ArchiveImporter", () => {
     session.fileMutationIds = [fileMutation.id];
     session.shellCommandIds = [shellCommand.id];
     session.outputArtifactIds = [outputArtifact.id];
+    session.parsedShellCommands = [
+      {
+        shellCommandId: shellCommand.id,
+        command: String(shellCommand.command ?? "npm run typecheck"),
+        intent: "typecheck",
+        result: "failed",
+        outputSource: "combined",
+        outputTextSource: "summary",
+        exitCode: 1,
+        exitCodeSource: "evidence",
+        rawToolStatus: "failed",
+        toolCallId: toolCall.id,
+        artifactIds: [outputArtifact.id],
+        failureMarkers: ["command failed"],
+        confidence: {
+          level: "high",
+          normalizedLevel: "confirmed"
+        }
+      }
+    ];
     session.verification = {
       state: "failed",
       commandsRun: 1,
@@ -1105,6 +1125,11 @@ describe("ArchiveImporter", () => {
     expect(importedSession?.verification).toMatchObject({
       failedCommandIds: [expectedShellCommandId],
       passedCommandIds: [expectedShellCommandId]
+    });
+    expect(importedSession?.parsedShellCommands?.[0]).toMatchObject({
+      shellCommandId: expectedShellCommandId,
+      toolCallId: expectedToolCallId,
+      artifactIds: [expectedOutputArtifactId]
     });
     expect(importedSession?.runAudit).toMatchObject({
       sessionId: expectedSessionId

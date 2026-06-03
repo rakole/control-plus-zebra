@@ -108,12 +108,42 @@ describe("Sessions route", () => {
 
     await screen.findByRole("button", { name: /Sparse evidence session/u });
 
-    expect(screen.getByText("No failed commands were recorded.")).toBeInTheDocument();
     expect(
       screen.getByText("No diagnostics were exposed for this session preview.")
     ).toBeInTheDocument();
     expect(screen.getByText("No file mutations were recorded.")).toBeInTheDocument();
     expect(screen.getByText("No artifact evidence exposed.")).toBeInTheDocument();
+  });
+
+  it("keeps unknown failed-command states explicit instead of coercing them to zero or failure copy", async () => {
+    const sessionWithUnknownFailures = buildSessionSummary({
+      sessionId: "session-unknown-failures",
+      nativeSessionId: "native-unknown-failures",
+      title: "Unknown command status session",
+      triageMetrics: {
+        toolCalls: { status: "value", displayValue: "1", numericValue: 1 },
+        fileMutations: { status: "value", displayValue: "0", numericValue: 0 },
+        commands: { status: "unknown", displayValue: "Unknown" },
+        failedCommands: { status: "unknown", displayValue: "Unknown" },
+        tokenCount: { status: "value", displayValue: "42", numericValue: 42 }
+      }
+    });
+
+    installBridgeMocks({
+      firstSession: sessionWithUnknownFailures,
+      firstPreview: buildSessionPreview({
+        ...sessionWithUnknownFailures,
+        diagnostics: []
+      }),
+      sessions: [sessionWithUnknownFailures]
+    });
+    render(<App />);
+
+    await screen.findByRole("button", { name: /Unknown command status session/u });
+
+    expect(screen.queryByText("Unknown failed")).not.toBeInTheDocument();
+    expect(screen.getByText("Unknown")).toBeInTheDocument();
+    expect(screen.getByText("No failed command detail was exposed for this session.")).toBeInTheDocument();
   });
 
   it("supports keyboard focus movement and selection in the sessions list", async () => {

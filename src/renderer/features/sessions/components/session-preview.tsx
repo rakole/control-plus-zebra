@@ -71,7 +71,7 @@ function getMetricNumericValue(metric: EvidenceMetric | TriageMetric): number {
   }
 
   const parsed = Number.parseInt(metric.displayValue, 10);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
 }
 
 function getMetricDisplay(metric: EvidenceMetric, emptyLabel: string): string {
@@ -320,9 +320,15 @@ export function SessionPreview({
               <TerminalSquare className="size-4" />
               <span className="text-xs font-medium uppercase">Failed Commands</span>
             </div>
-            <p className="text-lg font-semibold text-foreground">{failedCommandCount}</p>
+            <p className="text-lg font-semibold text-foreground">
+              {failedCommandMetric.status === "value" && Number.isFinite(failedCommandCount)
+                ? failedCommandCount
+                : failedCommandMetric.displayValue}
+            </p>
             <p className="text-sm text-muted-foreground">
-              {failedCommandMetric.status === "value" && failedCommandCount > 0
+              {failedCommandMetric.status === "value" &&
+              Number.isFinite(failedCommandCount) &&
+              failedCommandCount > 0
                 ? "Command names and exit details are not exposed here. Open Run Audit for the deeper route."
                 : failedCommandMetric.status === "value"
                   ? "No failed commands were recorded."
@@ -372,9 +378,15 @@ export function SessionPreview({
             <FileCode2 className="size-4" />
             <span className="text-xs font-medium uppercase">Files and Mutations</span>
           </div>
-          <p className="mt-2 text-lg font-semibold text-foreground">{fileMutationCount}</p>
+          <p className="mt-2 text-lg font-semibold text-foreground">
+            {fileMutationMetric.status === "value" && Number.isFinite(fileMutationCount)
+              ? fileMutationCount
+              : fileMutationMetric.displayValue}
+          </p>
           <p className="text-sm text-muted-foreground">
-            {fileMutationMetric.status === "value" && fileMutationCount > 0
+            {fileMutationMetric.status === "value" &&
+            Number.isFinite(fileMutationCount) &&
+            fileMutationCount > 0
               ? "File mutations were recorded, but this preview does not expose touched paths or diff detail."
               : fileMutationMetric.status === "value"
                 ? "No file mutations were recorded."

@@ -596,6 +596,198 @@ describe("gemini-cli normalization", () => {
     expect(normalized.shellCommands[0]?.rawExitCode).toBeUndefined();
   });
 
+  it("qualifies duplicate Gemini shell tool-call IDs so both commands survive normalization", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const chatPath = path.join(
+        rootPath,
+        "alpha-project",
+        "chats",
+        "session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+      );
+      const sourceText = await readFile(chatPath, "utf8");
+      const appendedRecord = JSON.stringify({
+        id: "assistant-tools-duplicate-111",
+        timestamp: "2026-05-23T09:12:41.497Z",
+        type: "gemini",
+        content: "",
+        toolCalls: [
+          {
+            id: "run_shell_command_1700000001000_1",
+            name: "run_shell_command",
+            args: {
+              command: "npm run typecheck -- --pretty false",
+              cwd: "/workspaces/alpha-project"
+            },
+            result: [
+              {
+                functionResponse: {
+                  id: "run_shell_command_1700000001000_1",
+                  name: "run_shell_command",
+                  response: { output: "Typecheck passed again" }
+                }
+              }
+            ],
+            status: "success",
+            timestamp: "2026-05-23T09:12:41.497Z",
+            resultDisplay: "Typecheck passed again",
+            description: "Run typecheck again",
+            displayName: "Shell",
+            renderOutputAsMarkdown: false
+          }
+        ]
+      });
+
+      await writeFile(chatPath, `${sourceText.trimEnd()}\n${appendedRecord}\n`, "utf8");
+
+      const alphaSource = await requireGeminiSource(rootPath, "alpha-project");
+      const artifacts = await collectGeminiArtifacts(alphaSource);
+      const rawEvents = (
+        await Promise.all(
+          artifacts.map((artifact) =>
+            collectAsync(
+              geminiCliAdapter.parseArtifact(
+                artifact,
+                createGeminiAdapterContext(alphaSource.rootPath)
+              )
+            )
+          )
+        )
+      ).flat();
+      const normalized = await geminiCliAdapter.normalize(
+        {
+          source: alphaSource,
+          artifacts,
+          rawEvents
+        },
+        createGeminiAdapterContext(alphaSource.rootPath)
+      );
+      const duplicateToolCalls = normalized.toolCalls.filter(
+        (toolCall) => toolCall.nativeToolCallId === "run_shell_command_1700000001000_1"
+      );
+      const duplicateShellCommands = normalized.shellCommands.filter((shellCommand) =>
+        shellCommand.nativeId?.startsWith("shell:run_shell_command_1700000001000_1")
+      );
+
+      expect(duplicateToolCalls).toHaveLength(2);
+      expect(new Set(duplicateToolCalls.map((toolCall) => toolCall.id)).size).toBe(2);
+      expect(new Set(duplicateToolCalls.map((toolCall) => toolCall.nativeId)).size).toBe(2);
+      expect(duplicateShellCommands).toHaveLength(2);
+      expect(duplicateShellCommands.map((shellCommand) => shellCommand.command)).toEqual([
+        "npm run typecheck",
+        "npm run typecheck -- --pretty false"
+      ]);
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
+  });
+
+  it("uses inline Gemini tool results when resultDisplay is blank", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const chatPath = path.join(
+        rootPath,
+        "alpha-project",
+        "chats",
+        "session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+      );
+      const sourceText = await readFile(chatPath, "utf8");
+
+      await writeFile(
+        chatPath,
+        sourceText.replace('"resultDisplay":"Typecheck passed"', '"resultDisplay":""'),
+        "utf8"
+      );
+
+      const alphaSource = await requireGeminiSource(rootPath, "alpha-project");
+      const artifacts = await collectGeminiArtifacts(alphaSource);
+      const rawEvents = (
+        await Promise.all(
+          artifacts.map((artifact) =>
+            collectAsync(
+              geminiCliAdapter.parseArtifact(
+                artifact,
+                createGeminiAdapterContext(alphaSource.rootPath)
+              )
+            )
+          )
+        )
+      ).flat();
+      const normalized = await geminiCliAdapter.normalize(
+        {
+          source: alphaSource,
+          artifacts,
+          rawEvents
+        },
+        createGeminiAdapterContext(alphaSource.rootPath)
+      );
+      const shellCommand = normalized.shellCommands.find(
+        (candidate) => candidate.command === "npm run typecheck"
+      );
+      const toolCall = normalized.toolCalls.find(
+        (candidate) => candidate.nativeToolCallId === "run_shell_command_1700000001000_1"
+      );
+
+      expect(shellCommand?.outputInline).toBe("Typecheck passed");
+      expect(toolCall?.resultPreview).toBe("Typecheck passed");
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
+  });
+
+  it("hydrates explicit exit-code evidence from structured Gemini JSON sidecars", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const sidecarPath = path.join(
+        rootPath,
+        "gamma-project",
+        "tool-outputs",
+        "session-44444444-4444-4444-8444-444444444444",
+        "run_shell_command_1700000006000_0.json"
+      );
+
+      await writeFile(
+        sidecarPath,
+        `${JSON.stringify({ output: "1 test passed", exitCode: 0 })}\n`,
+        "utf8"
+      );
+
+      const gammaSource = await requireGeminiSource(rootPath, "gamma-project");
+      const artifacts = await collectGeminiArtifacts(gammaSource);
+      const rawEvents = (
+        await Promise.all(
+          artifacts.map((artifact) =>
+            collectAsync(
+              geminiCliAdapter.parseArtifact(
+                artifact,
+                createGeminiAdapterContext(gammaSource.rootPath)
+              )
+            )
+          )
+        )
+      ).flat();
+      const normalized = await geminiCliAdapter.normalize(
+        {
+          source: gammaSource,
+          artifacts,
+          rawEvents
+        },
+        createGeminiAdapterContext(gammaSource.rootPath)
+      );
+
+      expect(normalized.shellCommands[0]).toMatchObject({
+        command: "npm run test -- tests/main/core/scanner-cache.test.ts",
+        outputInline: "1 test passed",
+        rawExitCode: 0
+      });
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
+  });
+
   it("omits blank tool output summaries so cache persistence accepts live Gemini sessions", async () => {
     const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
 
@@ -643,7 +835,7 @@ describe("gemini-cli normalization", () => {
       expect(toolCall).toMatchObject({
         name: "read_file"
       });
-      expect(toolCall?.resultPreview).toBeUndefined();
+      expect(toolCall?.resultPreview).toBe("contract types...");
     } finally {
       await cleanupTempGeminiFixtureRoot(tempDir);
     }

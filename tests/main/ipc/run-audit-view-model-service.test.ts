@@ -65,7 +65,7 @@ describe("run audit view model service", () => {
           commands: expect.arrayContaining([
             expect.objectContaining({
               command: "npm run typecheck",
-              result: "Passed"
+              result: "Succeeded"
             })
           ])
         })

@@ -1107,13 +1107,22 @@ function buildSessionBaseViewModel(
   const toolCallCount =
     data.toolCallsBySessionId.get(session.id)?.length ?? session.toolCallIds?.length ?? 0;
   const shellCommandCount = parsedShellCommands.length;
+  const rawShellCommandCount =
+    data.shellCommandsBySessionId.get(session.id)?.length ?? session.shellCommandIds?.length ?? 0;
   const outputArtifactCount =
     data.outputArtifactsBySessionId.get(session.id)?.length ?? session.outputArtifactIds?.length ?? 0;
   const fileMutationCount =
     data.fileMutationsBySessionId.get(session.id)?.length ?? session.fileMutationIds?.length ?? 0;
   const diagnosticCount = diagnostics.length;
   const toolCallMetric = toCapabilityCountMetric(toolCallCount, toolCallCapability);
-  const shellCommandMetric = toCapabilityCountMetric(shellCommandCount, shellCapability);
+  const shellCommandMetric =
+    shellCapability?.status === "supported" && rawShellCommandCount > 0 && shellCommandCount === 0
+      ? toMetricState(
+          "unknown",
+          "Unknown",
+          "Shell command evidence was captured, but parsed command truth was unavailable."
+        )
+      : toCapabilityCountMetric(shellCommandCount, shellCapability);
   const outputArtifactMetric = toCapabilityCountMetric(
     outputArtifactCount,
     outputArtifactCapability
@@ -1164,10 +1173,16 @@ function buildSessionBaseViewModel(
       fileMutations: fileMutationMetric,
       commands: shellCommandMetric,
       failedCommands:
-        shellCapability?.status === "supported"
-          ? toMetricValue(
-              parsedShellCommands.filter((command) => command.result === "failed").length
+        shellCapability?.status === "supported" && rawShellCommandCount > 0 && shellCommandCount === 0
+          ? toMetricState(
+              "unknown",
+              "Unknown",
+              "Shell command evidence was captured, but parsed command truth was unavailable."
             )
+          : shellCapability?.status === "supported"
+            ? toMetricValue(
+                parsedShellCommands.filter((command) => command.result === "failed").length
+              )
           : toMetricStateFromCapability(shellCapability),
       tokenCount: toTokenCountMetric(session, tokenCountCapability)
     }

@@ -107,6 +107,7 @@ export const toolOutputSidecarPayloadSchema = z.object({
   relativePath: z.string(),
   format: z.enum(["json", "text", "unknown"]),
   textPreview: z.string().optional(),
+  exitCode: z.number().int().optional(),
   mediaType: z.string().optional(),
   origin: artifactOriginSchema
 });
@@ -163,6 +164,7 @@ export interface GeminiToolOutputSidecarEventPayload {
   relativePath: string;
   format: "json" | "text" | "unknown";
   textPreview?: string;
+  exitCode?: number;
   mediaType?: string;
   origin: GeminiArtifactOrigin;
 }

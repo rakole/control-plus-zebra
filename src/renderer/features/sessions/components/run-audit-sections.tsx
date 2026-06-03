@@ -51,6 +51,7 @@ export function RunAuditSections({ sections }: RunAuditSectionsProps) {
           <MetadataGrid
             items={section.items.map((item) => ({
               label: item.label,
+              ...(item.tone ? { tone: item.tone } : {}),
               value: renderRunAuditItemValue(item)
             }))}
           />
@@ -176,8 +177,12 @@ function getCommandResultBadgeClassName(result: string) {
   switch (result) {
     case "Failed":
       return "inline-flex items-center rounded-full border border-red-500/40 bg-red-500/12 px-2 py-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-red-200";
-    case "Passed":
+    case "Succeeded":
       return "inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/12 px-2 py-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-emerald-200";
+    case "Running":
+      return "inline-flex items-center rounded-full border border-sky-500/40 bg-sky-500/12 px-2 py-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-sky-200";
+    case "Cancelled":
+      return "inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/12 px-2 py-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-amber-200";
     default:
       return "inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground";
   }

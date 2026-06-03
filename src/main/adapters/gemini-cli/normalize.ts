@@ -20,6 +20,7 @@ import {
 } from "../../core/model/identifiers.js";
 import { geminiCliDescriptor } from "./descriptor.js";
 import { extractTranscriptText, type GeminiRawEvent } from "./parse.js";
+import { extractGeminiToolCallResultEnvelope } from "./tool-output.js";
 import type {
   GeminiLogsEntry,
   GeminiSessionHeader,
@@ -49,6 +50,7 @@ type SessionAccumulator = {
   }>;
   sidecars: Array<{
     artifactId: string;
+    exitCode?: number;
     format: "json" | "text" | "unknown";
     locator: EventLocator;
     mediaType?: string;
@@ -276,6 +278,26 @@ function optionalString(summary: string | undefined): string | undefined {
   return summary && summary.trim().length > 0 ? summary : undefined;
 }
 
+function buildToolCallOccurrenceNativeId(rawToolCallId: string, occurrence: number): string {
+  return occurrence === 1 ? rawToolCallId : `${rawToolCallId}:occurrence:${occurrence}`;
+}
+
+function extractToolCallOutputEnvelope(toolCallRecord: GeminiToolCallRecord): {
+  exitCode?: number;
+  text?: string;
+} {
+  const resultDisplay =
+    toolCallRecord.resultDisplay !== undefined
+      ? optionalString(summarizeUnknown(toolCallRecord.resultDisplay))
+      : undefined;
+  const resultEnvelope = extractGeminiToolCallResultEnvelope(toolCallRecord.result);
+
+  return {
+    ...(resultDisplay ? { text: resultDisplay } : resultEnvelope.text ? { text: resultEnvelope.text } : {}),
+    ...(resultEnvelope.exitCode !== undefined ? { exitCode: resultEnvelope.exitCode } : {})
+  };
+}
+
 function mapArtifactShape(sidecar: { format: "json" | "text" | "unknown"; mediaType?: string }) {
   if (sidecar.format === "json" || sidecar.mediaType === "application/json") {
     return {
@@ -457,6 +479,7 @@ function accumulateGeminiCliEvent(
       const entry = getOrCreateSessionAccumulator(accumulator.sessions, event.payload.sessionId);
       entry.sidecars.push({
         artifactId: event.artifactId ?? event.id ?? event.payload.relativePath,
+        ...(event.payload.exitCode !== undefined ? { exitCode: event.payload.exitCode } : {}),
         format: event.payload.format,
         locator: toEventLocator(event),
         relativePath: event.payload.relativePath,
@@ -532,6 +555,7 @@ function buildNormalizedGeminiCliResult(args: {
     const sessionFileMutations = new Map<string, NormalizedFileMutation>();
     const sessionMessages: NormalizedMessage[] = [];
     const sessionEvents: NormalizedEvent[] = [];
+    const toolCallOccurrences = new Map<string, number>();
     const warnedAmbiguousSidecars = new Set<string>();
     let ordinal = 1;
 
@@ -659,12 +683,19 @@ function buildNormalizedGeminiCliResult(args: {
       }
 
       for (const [toolIndex, toolCallRecord] of (record.record.toolCalls ?? []).entries()) {
+        const toolCallOccurrence = (toolCallOccurrences.get(toolCallRecord.id) ?? 0) + 1;
+        toolCallOccurrences.set(toolCallRecord.id, toolCallOccurrence);
+        const toolCallNativeId = buildToolCallOccurrenceNativeId(
+          toolCallRecord.id,
+          toolCallOccurrence
+        );
+        const toolCallOutput = extractToolCallOutputEnvelope(toolCallRecord);
         const toolCallId = createToolCallId({
           adapterId,
           sourceId,
-          nativeId: toolCallRecord.id
+          nativeId: toolCallNativeId
         });
-        const eventNativeId = `${toolCallRecord.id}:${record.locator.lineNumber ?? toolIndex + 1}`;
+        const eventNativeId = `${toolCallNativeId}:${record.locator.lineNumber ?? toolIndex + 1}`;
         const toolCallEventId = createSessionEventId({
           adapterId,
           sourceId,
@@ -747,10 +778,11 @@ function buildNormalizedGeminiCliResult(args: {
           sessionId,
           sourceId,
           toolCallId,
+          toolCallNativeId,
           toolCallRecord,
           locator: record.locator
         });
-        const shellEventNativeId = `shell:${toolCallRecord.id}`;
+        const shellEventNativeId = `shell:${toolCallNativeId}`;
         const shellEventId = createSessionEventId({
           adapterId,
           sourceId,
@@ -758,11 +790,13 @@ function buildNormalizedGeminiCliResult(args: {
         });
         const shellCommand = buildShellCommandForToolCall({
           adapterId,
+          linkedSidecars,
           outputArtifactIds,
           sessionId,
           sourceEventId: shellEventId,
           sourceId,
           toolCallId,
+          toolCallNativeId,
           toolCallRecord,
           locator: record.locator
         });
@@ -772,7 +806,7 @@ function buildNormalizedGeminiCliResult(args: {
           sessionId,
           adapterId,
           sourceId,
-          nativeId: toolCallRecord.id,
+          nativeId: toolCallNativeId,
           kind: "tool-call",
           nativeToolCallId: toolCallRecord.id,
           name: toolCallRecord.name,
@@ -785,16 +819,11 @@ function buildNormalizedGeminiCliResult(args: {
                 return argsPreview ? { argsPreview } : {};
               })()
             : {}),
-          ...(toolCallRecord.resultDisplay !== undefined
-            ? (() => {
-                const resultPreview = optionalString(summarizeUnknown(toolCallRecord.resultDisplay));
-                return resultPreview ? { resultPreview } : {};
-              })()
-            : {}),
+          ...(toolCallOutput.text ? { resultPreview: toolCallOutput.text } : {}),
           outputArtifactIds,
           ...(fileMutationId ? { fileMutationId } : {}),
           ...(shellCommand ? { shellCommandId: shellCommand.id } : {}),
-          source: buildRawPointer(record.locator, `tool:${toolCallRecord.id}`, toolCallEventId),
+          source: buildRawPointer(record.locator, `tool:${toolCallNativeId}`, toolCallEventId),
           confidence: CONFIRMED,
           diagnostics: []
         });
@@ -1156,14 +1185,8 @@ function shouldWarnMissingSidecar(
 }
 
 function hasInlineToolResult(toolCallRecord: GeminiToolCallRecord): boolean {
-  if (
-    toolCallRecord.resultDisplay !== undefined &&
-    optionalString(summarizeUnknown(toolCallRecord.resultDisplay))
-  ) {
-    return true;
-  }
-
-  return Array.isArray(toolCallRecord.result) && toolCallRecord.result.length > 0;
+  const resultEnvelope = extractToolCallOutputEnvelope(toolCallRecord);
+  return Boolean(resultEnvelope.text || resultEnvelope.exitCode !== undefined);
 }
 
 function toUsageSummary(
@@ -1353,12 +1376,14 @@ function toMessageRole(type: string): "user" | "assistant" | "system" | "tool" |
 
 function buildShellCommandForToolCall(args: {
   adapterId: string;
+  linkedSidecars: SessionAccumulator["sidecars"];
   locator: EventLocator;
   outputArtifactIds: string[];
   sessionId: string;
   sourceEventId: string;
   sourceId: string;
   toolCallId: string;
+  toolCallNativeId: string;
   toolCallRecord: GeminiToolCallRecord;
 }): NormalizedShellCommand | null {
   if (args.toolCallRecord.name !== "run_shell_command") {
@@ -1372,34 +1397,35 @@ function buildShellCommandForToolCall(args: {
   const shellCommandId = createShellCommandEvidenceId({
     adapterId: args.adapterId,
     sourceId: args.sourceId,
-    nativeId: `shell:${args.toolCallRecord.id}`
+    nativeId: `shell:${args.toolCallNativeId}`
   });
-  const outputInline =
-    args.toolCallRecord.resultDisplay !== undefined
-      ? optionalString(summarizeUnknown(args.toolCallRecord.resultDisplay))
-      : undefined;
+  const toolCallOutput = extractToolCallOutputEnvelope(args.toolCallRecord);
+  const sidecarExitCode =
+    args.linkedSidecars.length === 1 ? args.linkedSidecars[0]?.exitCode : undefined;
+  const rawExitCode = toolCallOutput.exitCode ?? sidecarExitCode;
 
-	  return {
-	    id: shellCommandId,
-	    sessionId: args.sessionId,
-	    adapterId: args.adapterId,
-	    sourceId: args.sourceId,
-	    nativeId: `shell:${args.toolCallRecord.id}`,
-	    kind: "shell-command",
-	    toolCallId: args.toolCallId,
-	    command,
+  return {
+    id: shellCommandId,
+    sessionId: args.sessionId,
+    adapterId: args.adapterId,
+    sourceId: args.sourceId,
+    nativeId: `shell:${args.toolCallNativeId}`,
+    kind: "shell-command",
+    toolCallId: args.toolCallId,
+    command,
     ...(typeof args.toolCallRecord.args?.cwd === "string"
       ? { cwd: args.toolCallRecord.args.cwd }
       : {}),
-	    ...(outputInline ? { outputInline } : {}),
-	    outputArtifactIds: args.outputArtifactIds,
-	    ...(args.toolCallRecord.status ? { rawStatus: args.toolCallRecord.status } : {}),
-	    source: buildRawPointer(
+    ...(toolCallOutput.text ? { outputInline: toolCallOutput.text } : {}),
+    outputArtifactIds: args.outputArtifactIds,
+    ...(args.toolCallRecord.status ? { rawStatus: args.toolCallRecord.status } : {}),
+    ...(rawExitCode !== undefined ? { rawExitCode } : {}),
+    source: buildRawPointer(
       args.locator,
-      `shell:${args.toolCallRecord.id}`,
+      `shell:${args.toolCallNativeId}`,
       args.sourceEventId
     ),
-	    confidence: CONFIRMED
+    confidence: CONFIRMED
   };
 }
 
@@ -1410,6 +1436,7 @@ function buildFileMutationForToolCall(args: {
   sessionId: string;
   sourceId: string;
   toolCallId: string;
+  toolCallNativeId: string;
   toolCallRecord: GeminiToolCallRecord;
 }): string | undefined {
   const mutationKind = mapFileMutationKind(args.toolCallRecord.name);
@@ -1422,21 +1449,21 @@ function buildFileMutationForToolCall(args: {
   const mutationId = createFileMutationEvidenceId({
     adapterId: args.adapterId,
     sourceId: args.sourceId,
-    nativeId: `${args.toolCallRecord.id}:${filePath}`
+    nativeId: `${args.toolCallNativeId}:${filePath}`
   });
 
   if (!args.fileMutationMap.has(mutationId)) {
-	    args.fileMutationMap.set(mutationId, {
-	      id: mutationId,
-	      sessionId: args.sessionId,
-	      adapterId: args.adapterId,
-	      sourceId: args.sourceId,
-	      nativeId: `${args.toolCallRecord.id}:${filePath}`,
-	      kind: "file-mutation",
-	      path: filePath,
-	      mutationKind,
-	      toolCallId: args.toolCallId,
-      source: buildRawPointer(args.locator, `file:${args.toolCallRecord.id}:${filePath}`),
+    args.fileMutationMap.set(mutationId, {
+      id: mutationId,
+      sessionId: args.sessionId,
+      adapterId: args.adapterId,
+      sourceId: args.sourceId,
+      nativeId: `${args.toolCallNativeId}:${filePath}`,
+      kind: "file-mutation",
+      path: filePath,
+      mutationKind,
+      toolCallId: args.toolCallId,
+      source: buildRawPointer(args.locator, `file:${args.toolCallNativeId}:${filePath}`),
       confidence: CONFIRMED,
       diagnostics: []
     });

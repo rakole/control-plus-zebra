@@ -8,6 +8,8 @@ import {
   type GetSessionByIdRequest,
   type RunAuditViewModel
 } from "../ipc/view-models.js";
+import type { ShellCommandEvidence } from "../core/model/entities.js";
+import type { ParsedShellCommand } from "../core/shell/types.js";
 import {
   buildUnavailableArchiveExport,
   getDerivedSession,
@@ -40,6 +42,7 @@ import {
   findStoreSessionLocation,
   listProjectRollupsBySourceId
 } from "./store-session-query.js";
+import { getCommandDisplayStatus } from "./command-status-view-models.js";
 
 export interface RunAuditViewModelService {
   getRunAudit(request: GetSessionByIdRequest): Promise<RunAuditViewModel | null>;
@@ -98,11 +101,20 @@ export function createRunAuditViewModelService(
         return null;
       }
 
-      const session = location.session;
+      const session = {
+        ...location.session,
+        ...(location.record?.verification ? { verification: location.record.verification } : {}),
+        ...(location.record?.runAudit ? { runAudit: location.record.runAudit } : {})
+      };
       const fileMutations = timelineRecords
         .map((record) => record.fileMutation)
         .filter((mutation): mutation is NonNullable<typeof mutation> => Boolean(mutation));
-      const commands = session.parsedShellCommands ?? [];
+      const commandEntries = buildRunAuditCommandEntries({
+        parsedShellCommands: session.parsedShellCommands ?? [],
+        shellCommands: timelineRecords
+          .map((record) => record.shellCommand)
+          .filter((shellCommand): shellCommand is ShellCommandEvidence => Boolean(shellCommand))
+      });
       const capabilityWarnings = flattenCapabilityGroups(preview.capabilityGroups).filter(
         (badge) => badge.state !== "Supported"
       );
@@ -248,34 +260,28 @@ export function createRunAuditViewModelService(
             items: [
               {
                 label: "Observed Commands",
-                value: preview.triageMetrics.commands.displayValue,
+                value:
+                  commandEntries.length > 0
+                    ? String(commandEntries.length)
+                    : preview.triageMetrics.commands.displayValue,
                 tone: "neutral"
               },
               {
                 label: "Failed Commands",
-                value: preview.triageMetrics.failedCommands.displayValue,
-                tone:
-                  preview.triageMetrics.failedCommands.status === "value" &&
-                  commands.some((command) => command.result === "failed")
-                    ? "danger"
-                    : "positive"
+                value:
+                  commandEntries.length > 0
+                    ? String(commandEntries.filter((command) => command.isFailure).length)
+                    : preview.triageMetrics.failedCommands.displayValue,
+                tone: commandEntries.some((command) => command.isFailure) ? "danger" : "positive"
               },
               {
                 label: "Recent Commands",
-                value:
-                  preview.triageMetrics.commands.status === "value"
-                    ? commands.length > 0
-                      ? "Recent command activity"
-                      : "None"
-                    : preview.triageMetrics.commands.displayValue,
+                value: commandEntries.length > 0 ? "Recent command activity" : "None",
                 kind: "command-list",
-                commands:
-                  preview.triageMetrics.commands.status === "value"
-                    ? commands.map((command) => ({
-                        command: command.command,
-                        result: humanizeResult(command.result)
-                      }))
-                    : [],
+                commands: commandEntries.map((command) => ({
+                  command: command.command,
+                  result: command.result
+                })),
                 tone: "neutral"
               }
             ]
@@ -456,7 +462,10 @@ async function buildCacheFallbackRunAuditViewModel(
 
   const fileMutations = data.fileMutationsBySessionId.get(session.id) ?? [];
   const diagnostics = getDiagnosticsForSession(data, session);
-  const commands = getDerivedSession(data, session.id)?.shellCommands ?? session.parsedShellCommands ?? [];
+  const commandEntries = buildRunAuditCommandEntries({
+    parsedShellCommands: getDerivedSession(data, session.id)?.shellCommands ?? session.parsedShellCommands ?? [],
+    shellCommands: data.shellCommandsBySessionId.get(session.id) ?? []
+  });
   const capabilityWarnings = flattenCapabilityGroups(preview.capabilityGroups).filter(
     (badge) => badge.state !== "Supported"
   );
@@ -585,34 +594,28 @@ async function buildCacheFallbackRunAuditViewModel(
         items: [
           {
             label: "Observed Commands",
-            value: preview.triageMetrics.commands.displayValue,
+            value:
+              commandEntries.length > 0
+                ? String(commandEntries.length)
+                : preview.triageMetrics.commands.displayValue,
             tone: "neutral"
           },
           {
             label: "Failed Commands",
-            value: preview.triageMetrics.failedCommands.displayValue,
-            tone:
-              preview.triageMetrics.failedCommands.status === "value" &&
-              commands.some((command) => command.result === "failed")
-                ? "danger"
-                : "positive"
+            value:
+              commandEntries.length > 0
+                ? String(commandEntries.filter((command) => command.isFailure).length)
+                : preview.triageMetrics.failedCommands.displayValue,
+            tone: commandEntries.some((command) => command.isFailure) ? "danger" : "positive"
           },
           {
             label: "Recent Commands",
-            value:
-              preview.triageMetrics.commands.status === "value"
-                ? commands.length > 0
-                  ? "Recent command activity"
-                  : "None"
-                : preview.triageMetrics.commands.displayValue,
+            value: commandEntries.length > 0 ? "Recent command activity" : "None",
             kind: "command-list",
-            commands:
-              preview.triageMetrics.commands.status === "value"
-                ? commands.map((command) => ({
-                    command: command.command,
-                    result: humanizeResult(command.result)
-                  }))
-                : [],
+            commands: commandEntries.map((command) => ({
+              command: command.command,
+              result: command.result
+            })),
             tone: "neutral"
           }
         ]
@@ -764,6 +767,45 @@ async function buildCacheFallbackRunAuditViewModel(
               ]
       }
     ]
+  });
+}
+
+function buildRunAuditCommandEntries(args: {
+  parsedShellCommands: ParsedShellCommand[];
+  shellCommands: ShellCommandEvidence[];
+}): Array<{ command: string; isFailure: boolean; result: string }> {
+  const parsedById = new Map(
+    args.parsedShellCommands.map((command) => [command.shellCommandId, command] as const)
+  );
+  const commandEntries = args.shellCommands.map((shellCommand) => {
+    const parsedShellCommand = parsedById.get(shellCommand.id);
+    const displayStatus = getCommandDisplayStatus({
+      ...(parsedShellCommand ? { parsedShellCommand } : {}),
+      shellCommand
+    });
+
+    return {
+      command:
+        shellCommand.command ?? parsedShellCommand?.command ?? "run_shell_command",
+      isFailure: displayStatus.isFailure,
+      result: displayStatus.label
+    };
+  });
+
+  if (commandEntries.length > 0) {
+    return commandEntries;
+  }
+
+  return args.parsedShellCommands.map((command) => {
+    const displayStatus = getCommandDisplayStatus({
+      parsedShellCommand: command
+    });
+
+    return {
+      command: command.command,
+      isFailure: displayStatus.isFailure,
+      result: displayStatus.label
+    };
   });
 }
 

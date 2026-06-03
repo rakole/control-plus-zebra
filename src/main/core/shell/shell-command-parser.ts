@@ -168,18 +168,18 @@ function collectFailureMarkers(text?: string): string[] {
     return [];
   }
 
-  const patterns = [
-    /\bfailed\b/iu,
-    /\berror\b/iu,
-    /\bexception\b/iu,
-    /\bnot found\b/iu
+  const patterns: Array<{ marker: string; pattern: RegExp }> = [
+    { marker: "command failed", pattern: /\bcommand failed\b/iu },
+    { marker: "tests failed", pattern: /\b\d+\s+test(?:s)?\s+failed\b/iu },
+    { marker: "test failed", pattern: /\btest(?:s)? failed\b/iu },
+    { marker: "build failed", pattern: /\bbuild failed\b/iu },
+    { marker: "lint failed", pattern: /\blint(?:ing)? failed\b/iu },
+    { marker: "typecheck failed", pattern: /\btypecheck failed\b/iu }
   ];
 
   return patterns
-    .filter((pattern) => pattern.test(text))
-    .map((pattern) => pattern.source.replaceAll("\\b", ""))
-    .map((marker) => marker.replaceAll("\\", ""))
-    .map((marker) => marker.replaceAll("iu", ""));
+    .filter(({ pattern }) => pattern.test(text))
+    .map(({ marker }) => marker);
 }
 
 function determineConfidence(args: {

@@ -23,6 +23,7 @@ import {
   listProjectRollupsBySourceId
 } from "./store-session-query.js";
 import type { Session } from "../core/model/entities.js";
+import type { WorkbenchSessionRecord } from "../core/store/workbench-entity-store.js";
 
 export interface SessionViewModelService {
   getShellState(): ShellStateViewModel;
@@ -93,7 +94,7 @@ export function createSessionViewModelService(
         sessions: await Promise.all(
           page.rows.map((row) => {
             if (!fallbackData || !degradedSourceIds.has(row.session.sourceId)) {
-              return buildStoreSessionSummary(runtime, row.session, row.session.sourceId);
+              return buildStoreSessionSummary(runtime, row, row.session.sourceId);
             }
 
             const fallbackSession = fallbackData.sessionsById.get(row.session.id) ?? row.session;
@@ -130,25 +131,31 @@ export function createSessionViewModelService(
         return buildSessionPreviewViewModel(data, session);
       }
 
-      return buildStoreSessionPreview(runtime, location.session, location.source.sourceId);
+      return buildStoreSessionPreview(
+        runtime,
+        location.record ?? { session: location.session },
+        location.source.sourceId
+      );
     }
   };
 }
 
 async function buildStoreSessionSummary(
   runtime: WorkbenchRuntime,
-  session: Session,
+  record: WorkbenchSessionRecord,
   sourceId: string
 ): Promise<SessionSummaryViewModel> {
+  const session = mergeStoreBackedSession(record);
   const data = await buildStoreSessionData(runtime, session, sourceId);
   return buildSessionSummaryViewModel(data, session);
 }
 
 async function buildStoreSessionPreview(
   runtime: WorkbenchRuntime,
-  session: Session,
+  record: WorkbenchSessionRecord,
   sourceId: string
 ): Promise<SessionPreviewViewModel> {
+  const session = mergeStoreBackedSession(record);
   const data = await buildStoreSessionData(runtime, session, sourceId);
   return buildSessionPreviewViewModel(data, session);
 }
@@ -207,5 +214,13 @@ async function buildStoreSessionData(
         : []
     ),
     sourceHydrationStatesBySourceId: new Map()
+  };
+}
+
+function mergeStoreBackedSession(record: WorkbenchSessionRecord): Session {
+  return {
+    ...record.session,
+    ...(record.verification ? { verification: record.verification } : {}),
+    ...(record.runAudit ? { runAudit: record.runAudit } : {})
   };
 }

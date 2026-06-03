@@ -27,6 +27,7 @@ interface GlobalSessionCursorState {
 }
 
 export interface StoreSessionLocation {
+  record?: WorkbenchSessionRecord;
   session: WorkbenchSessionRecord["session"];
   source: SourceRecord;
 }
@@ -355,6 +356,7 @@ export async function findStoreSessionLocation(
 
     if (rollup?.session) {
       return {
+        record: rollup as WorkbenchSessionRecord,
         source,
         session: rollup.session
       };

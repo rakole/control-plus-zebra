@@ -63,7 +63,7 @@ describe("Run audit route", () => {
                   { command: "wc -l src/mcp/tools/god-review.ts", result: "Unknown" },
                   { command: "touch src/mcp/tools/god-review-types.ts", result: "Unknown" },
                   { command: "npx tsc src/mcp/tools/god-review.ts --noEmit", result: "Failed" },
-                  { command: "git status --short", result: "Passed" }
+                  { command: "git status --short", result: "Succeeded" }
                 ]
               }
             ]

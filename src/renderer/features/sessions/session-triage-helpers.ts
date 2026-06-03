@@ -17,13 +17,17 @@ function getMetricNumericValue(
   metric:
     | SessionSummary["triageMetrics"]["failedCommands"]
     | SessionSummary["triageMetrics"]["fileMutations"]
-): number {
+) : number | undefined {
+  if (metric.status !== "value") {
+    return undefined;
+  }
+
   if (typeof metric.numericValue === "number" && Number.isFinite(metric.numericValue)) {
     return metric.numericValue;
   }
 
   const parsed = Number.parseInt(metric.displayValue, 10);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function getSortTimestamp(session: SessionSummary): number {
@@ -69,7 +73,7 @@ export function getSessionRiskRank(session: SessionSummary): number {
   }
 
   if (
-    getMetricNumericValue(session.triageMetrics.failedCommands) > 0 ||
+    (getMetricNumericValue(session.triageMetrics.failedCommands) ?? 0) > 0 ||
     isVerificationFailure(session) ||
     normalizeLabel(session.runAuditState.label) === "failed verification"
   ) {
@@ -128,7 +132,7 @@ export function getSessionReason(session: SessionSummary): string {
 
   const failedCommands = getMetricNumericValue(session.triageMetrics.failedCommands);
 
-  if (failedCommands > 0) {
+  if ((failedCommands ?? 0) > 0) {
     return `${failedCommands} failed command${failedCommands === 1 ? "" : "s"} recorded`;
   }
 
@@ -183,8 +187,8 @@ export function summarizeVisibleSessionKpis(
   return sessions.reduce<VisibleSessionKpiSummary>(
     (summary, session) => {
       summary.visibleSessions += 1;
-      summary.failedCommands += getMetricNumericValue(session.triageMetrics.failedCommands);
-      summary.filesChanged += getMetricNumericValue(session.triageMetrics.fileMutations);
+      summary.failedCommands += getMetricNumericValue(session.triageMetrics.failedCommands) ?? 0;
+      summary.filesChanged += getMetricNumericValue(session.triageMetrics.fileMutations) ?? 0;
 
       if (isSessionNeedingReview(session)) {
         summary.needsReview += 1;
