@@ -12,6 +12,7 @@ import { createWorkbenchRuntime } from "../../../src/main/app/workbench-runtime.
 const fakeFixturePath = path.resolve(
   "src/main/adapters/fake-test/fixtures/phase1-session.fixture.json"
 );
+const fakeWorkerPath = path.resolve(".vite/build/scan-source-worker.js");
 
 class FakeUtilityChild extends EventEmitter {
   readonly stderr = new EventEmitter();
@@ -62,13 +63,14 @@ describe("electron utility scan job runner", () => {
     runtime.scanJobRunner = createElectronUtilityScanJobRunner({
       appDataDir: runtime.appDataDir,
       forkUtilityProcess(modulePath) {
-        expect(modulePath).toContain("scan-source-worker.js");
+        expect(modulePath).toBe(fakeWorkerPath);
         child = new FakeUtilityChild();
         resolveChildReady?.();
         return child;
       },
       projectDir: runtime.projectDir,
-      sourceRegistry: runtime.sourceRegistry
+      sourceRegistry: runtime.sourceRegistry,
+      workerScriptPath: fakeWorkerPath
     });
 
     const scanPromise = service.scanDataSource({ sourceId: addedSource.sourceId });

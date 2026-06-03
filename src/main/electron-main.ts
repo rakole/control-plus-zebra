@@ -88,7 +88,7 @@ function applyDockIcon(): void {
     return;
   }
 
-  const dockIconPath = path.join(app.getAppPath(), "build", "icons", "zebra-icon.png");
+  const dockIconPath = path.join(app.getAppPath(), "resources", "icons", "zebra-icon.png");
   app.dock.setIcon(dockIconPath);
 }
 

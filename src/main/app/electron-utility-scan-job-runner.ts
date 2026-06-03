@@ -1,3 +1,6 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { buildDiagnostic } from "../core/diagnostics/diagnostic.js";
 import { HIGH_CONFIDENCE } from "../core/model/confidence.js";
 import type { SourceRegistry } from "../core/registry/source-registry.js";
@@ -7,7 +10,10 @@ import type {
   ScanSourceWorkerResponse
 } from "./scan-job-runner.js";
 
-const DEFAULT_WORKER_SCRIPT_PATH = new URL("../workers/scan-source-worker.js", import.meta.url).pathname;
+const DEFAULT_WORKER_SCRIPT_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "scan-source-worker.js"
+);
 const MAX_FAILURE_MESSAGE_LENGTH = 512;
 const MAX_STDERR_PREVIEW_LENGTH = 512;
 
