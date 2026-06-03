@@ -64,7 +64,7 @@ describe("Sessions route", () => {
     expect(capabilityDisclosure).toHaveAttribute("aria-expanded", "true");
     expect(capabilityPanel).toHaveAttribute("aria-hidden", "false");
     expect(capabilityPanel).not.toHaveClass("hidden");
-    expect(within(route).getByLabelText("Git Context: Unsupported")).toBeInTheDocument();
+    expect(within(route).getAllByLabelText("Git Context: Unsupported").length).toBeGreaterThan(0);
     expect(within(route).getAllByText("Unsupported").length).toBeGreaterThan(0);
   });
 
@@ -208,6 +208,38 @@ describe("Sessions route", () => {
 
     expect(await screen.findByText("No sessions available")).toBeInTheDocument();
     expect(screen.queryByText("Visible page totals")).not.toBeInTheDocument();
+  });
+
+  it("adds labeled tooltips to session status, metric, and capability bubbles", async () => {
+    const user = userEvent.setup();
+    installBridgeMocks();
+    render(<App />);
+
+    await screen.findByRole("button", { name: /Fixture session/u });
+
+    const master = screen.getByRole("region", { name: "Session inbox" });
+    const preview = screen.getAllByRole("region", { name: "Selected session preview" })[0]!;
+    const sessionRow = within(master).getByRole("button", { name: /Fixture session/u });
+
+    const runAuditBadge = within(sessionRow).getByTitle("Run audit status: Needs Review");
+    expect(runAuditBadge).toHaveAttribute("title", "Run audit status: Needs Review");
+
+    await user.hover(runAuditBadge);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Run audit status: Needs Review");
+
+    const commandsBadge = within(sessionRow).getByTitle("Commands: 1");
+    expect(commandsBadge).toHaveAttribute("title", "Commands: 1");
+
+    const capabilityBadge = within(preview).getAllByTitle(
+      "Git Context: Unsupported. Git evidence is unavailable."
+    )[0]!;
+    expect(capabilityBadge).toHaveAttribute(
+      "title",
+      "Git Context: Unsupported. Git evidence is unavailable."
+    );
+
+    const lifecycleBadge = within(preview).getByTitle("Session lifecycle: Active");
+    expect(lifecycleBadge).toHaveAttribute("title", "Session lifecycle: Active");
   });
 
   it("opens session detail from the selected preview action", async () => {

@@ -1,8 +1,14 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 
+import { StatusChipTooltip } from "../../../components/app/status-chip-tooltip.js";
+import {
+  getMetricTooltip,
+  getTruthTooltip
+} from "../../../components/app/status-chip-tooltips.js";
+import { TruthStateBadge } from "../../../components/app/truth-state-badge.js";
 import { Badge } from "../../../components/ui/badge.js";
 import { ScrollArea } from "../../../components/ui/scroll-area.js";
-import { TruthStateBadge } from "../../../components/app/truth-state-badge.js";
+import { TooltipProvider } from "../../../components/ui/tooltip.js";
 import { cn } from "../../../lib/utils.js";
 import { formatSessionRange } from "../format.js";
 import {
@@ -10,7 +16,9 @@ import {
   getSessionReason,
   getSessionRiskRank
 } from "../session-triage-helpers.js";
-import type { SessionSummary } from "../types.js";
+import {
+  type SessionSummary
+} from "../types.js";
 
 interface SessionListProps {
   sessions: SessionSummary[];
@@ -98,94 +106,156 @@ export function SessionList({
         </p>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-2 p-3">
-          {sessions.map((session, index) => {
-            const isSelected = session.sessionId === selectedSessionId;
-            const primaryVerdict = getSessionPrimaryVerdict(session);
-            const sessionReason = getSessionReason(session);
+        <TooltipProvider>
+          <div className="space-y-2 p-3">
+            {sessions.map((session, index) => {
+              const isSelected = session.sessionId === selectedSessionId;
+              const primaryVerdict = getSessionPrimaryVerdict(session);
+              const sessionReason = getSessionReason(session);
+              const truthBadges = [
+                { key: "primary-verdict", label: "Primary verdict", state: primaryVerdict },
+                {
+                  key: "verification",
+                  label: "Verification status",
+                  state: session.verificationState
+                },
+                { key: "run-audit", label: "Run audit status", state: session.runAuditState }
+              ];
+              const metricBadges = [
+                {
+                  key: "commands",
+                  label: "Commands",
+                  metric: session.triageMetrics.commands,
+                  content: `${session.triageMetrics.commands.displayValue} ${getMetricLabel(
+                    session.triageMetrics.commands.displayValue,
+                    "cmd"
+                  )}`
+                },
+                {
+                  key: "tools",
+                  label: "Tool calls",
+                  metric: session.triageMetrics.toolCalls,
+                  content: `${session.triageMetrics.toolCalls.displayValue} ${getMetricLabel(
+                    session.triageMetrics.toolCalls.displayValue,
+                    "tool"
+                  )}`
+                },
+                {
+                  key: "files",
+                  label: "File mutations",
+                  metric: session.triageMetrics.fileMutations,
+                  content: `${session.triageMetrics.fileMutations.displayValue} ${getMetricLabel(
+                    session.triageMetrics.fileMutations.displayValue,
+                    "file"
+                  )}`
+                },
+                {
+                  key: "diagnostics",
+                  label: "Diagnostics",
+                  metric: session.evidenceMetrics.diagnostics,
+                  content: `${session.evidenceMetrics.diagnostics.displayValue} ${getMetricLabel(
+                    session.evidenceMetrics.diagnostics.displayValue,
+                    "diag"
+                  )}`
+                }
+              ];
 
-            return (
-              <button
-                key={session.sessionId}
-                ref={(element) => {
-                  rowRefs.current[index] = element;
-                }}
-                type="button"
-                aria-current={isSelected ? "true" : undefined}
-                className={cn(
-                  "w-full rounded-lg border text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30",
-                  isSelected
-                    ? "border-primary bg-primary/5"
-                    : "border-border bg-background hover:bg-muted/30"
-                )}
-                onClick={() => onSelect(session.sessionId)}
-                onFocus={() => onFocusIndexChange(index)}
-              >
-                <div className="flex min-w-0 gap-3 px-3 py-3">
-                  <div
-                    aria-hidden="true"
-                    className={cn(
-                      "w-1 shrink-0 self-stretch rounded-full",
-                      getSeverityRailClassName(session)
-                    )}
-                  />
-                  <div className="min-w-0 flex-1 space-y-3">
-                    <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="min-w-0 space-y-1">
-                        <p className="line-clamp-2 text-sm font-medium text-foreground">
-                          {session.title}
-                        </p>
-                        <p className="line-clamp-1 text-xs/relaxed text-muted-foreground">
-                          {session.firstUserPrompt ?? "No user prompt captured"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {session.adapterDisplayName} · {session.projectDisplayName ?? "Unknown Project"} ·{" "}
-                          {formatSessionRange(session)}
-                        </p>
+              return (
+                <button
+                  key={session.sessionId}
+                  ref={(element) => {
+                    rowRefs.current[index] = element;
+                  }}
+                  type="button"
+                  aria-current={isSelected ? "true" : undefined}
+                  className={cn(
+                    "w-full rounded-lg border text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30",
+                    isSelected
+                      ? "border-primary bg-primary/5"
+                      : "border-border bg-background hover:bg-muted/30"
+                  )}
+                  onClick={() => onSelect(session.sessionId)}
+                  onFocus={() => onFocusIndexChange(index)}
+                >
+                  <div className="flex min-w-0 gap-3 px-3 py-3">
+                    <div
+                      aria-hidden="true"
+                      className={cn(
+                        "w-1 shrink-0 self-stretch rounded-full",
+                        getSeverityRailClassName(session)
+                      )}
+                    />
+                    <div className="min-w-0 flex-1 space-y-3">
+                      <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0 space-y-1">
+                          <p className="line-clamp-2 text-sm font-medium text-foreground">
+                            {session.title}
+                          </p>
+                          <p className="line-clamp-1 text-xs/relaxed text-muted-foreground">
+                            {session.firstUserPrompt ?? "No user prompt captured"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {session.adapterDisplayName} · {session.projectDisplayName ?? "Unknown Project"} ·{" "}
+                            {formatSessionRange(session)}
+                          </p>
+                        </div>
+                        <div className="flex min-w-0 flex-wrap items-start justify-start gap-1 lg:max-w-[18rem] lg:justify-end">
+                          {truthBadges.map(({ key, label, state }) => {
+                            const tooltip = getTruthTooltip(label, state);
+
+                            return (
+                              <StatusChipTooltip key={key} tooltip={tooltip}>
+                                <TruthStateBadge state={state} tooltip={tooltip} />
+                              </StatusChipTooltip>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div className="flex min-w-0 flex-wrap items-start justify-start gap-1 lg:max-w-[18rem] lg:justify-end">
-                        <TruthStateBadge state={primaryVerdict} />
-                        <TruthStateBadge state={session.verificationState} />
-                        <TruthStateBadge state={session.runAuditState} />
+
+                      <p className="line-clamp-1 text-xs font-medium text-muted-foreground">
+                        {sessionReason}
+                      </p>
+
+                      <div className="flex flex-wrap gap-1">
+                        {metricBadges.map(({ key, label, metric, content }) => {
+                          const tooltip = getMetricTooltip(label, metric);
+
+                          return (
+                            <StatusChipTooltip key={key} tooltip={tooltip}>
+                              <Badge variant="outline" title={tooltip}>
+                                {content}
+                              </Badge>
+                            </StatusChipTooltip>
+                          );
+                        })}
+                        {shouldRenderFailedCommandBadge(session.triageMetrics.failedCommands) ? (
+                          <StatusChipTooltip
+                            tooltip={getMetricTooltip(
+                              "Failed commands",
+                              session.triageMetrics.failedCommands,
+                              "failed"
+                            )}
+                          >
+                            <Badge
+                              variant="outline"
+                              title={getMetricTooltip(
+                                "Failed commands",
+                                session.triageMetrics.failedCommands,
+                                "failed"
+                              )}
+                            >
+                              {session.triageMetrics.failedCommands.displayValue} failed
+                            </Badge>
+                          </StatusChipTooltip>
+                        ) : null}
                       </div>
-                    </div>
-
-                    <p className="line-clamp-1 text-xs font-medium text-muted-foreground">
-                      {sessionReason}
-                    </p>
-
-                    <div className="flex flex-wrap gap-1">
-                      <Badge variant="outline">
-                        {session.triageMetrics.commands.displayValue}{" "}
-                        {getMetricLabel(session.triageMetrics.commands.displayValue, "cmd")}
-                      </Badge>
-                      <Badge variant="outline">
-                        {session.triageMetrics.toolCalls.displayValue}{" "}
-                        {getMetricLabel(session.triageMetrics.toolCalls.displayValue, "tool")}
-                      </Badge>
-                      <Badge variant="outline">
-                        {session.triageMetrics.fileMutations.displayValue}{" "}
-                        {getMetricLabel(session.triageMetrics.fileMutations.displayValue, "file")}
-                      </Badge>
-                      <Badge variant="outline">
-                        {session.evidenceMetrics.diagnostics.displayValue}{" "}
-                        {getMetricLabel(
-                          session.evidenceMetrics.diagnostics.displayValue,
-                          "diag"
-                        )}
-                      </Badge>
-                      {shouldRenderFailedCommandBadge(session.triageMetrics.failedCommands) ? (
-                        <Badge variant="outline">
-                          {session.triageMetrics.failedCommands.displayValue} failed
-                        </Badge>
-                      ) : null}
                     </div>
                   </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+                </button>
+              );
+            })}
+          </div>
+        </TooltipProvider>
       </ScrollArea>
     </div>
   );
