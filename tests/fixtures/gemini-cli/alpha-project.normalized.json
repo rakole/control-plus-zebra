@@ -308,7 +308,8 @@
       "usage": {
         "inputTokens": 420,
         "outputTokens": 110,
-        "totalTokens": 552
+        "totalTokens": 552,
+        "cacheReadTokens": 0
       },
       "rawArtifactRefs": [
         {
@@ -821,7 +822,8 @@
       "usage": {
         "inputTokens": 200,
         "outputTokens": 80,
-        "totalTokens": 280
+        "totalTokens": 280,
+        "cacheReadTokens": 0
       },
       "timestamp": "2026-05-23T09:13:11.343Z",
       "eventIds": [

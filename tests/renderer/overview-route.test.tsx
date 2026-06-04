@@ -61,6 +61,9 @@ describe("Overview route", () => {
     expect(within(route).getByRole("group", { name: "Projects" })).toHaveTextContent("2");
     expect(within(route).getByRole("group", { name: "Sessions" })).toHaveTextContent("3");
     expect(within(route).getByRole("group", { name: "Needs Attention" })).toHaveTextContent("2");
+    expect(within(route).getByText("Input")).toBeInTheDocument();
+    expect(within(route).getByText("Output")).toBeInTheDocument();
+    expect(within(route).getByText("Cached Input")).toBeInTheDocument();
 
     const heatmapSection = within(route).getByRole("region", {
       name: "Overview Activity Heatmap"
@@ -127,5 +130,58 @@ describe("Overview route", () => {
         "May 28, 2026: 3 sessions, 2 sessions need attention"
       )
     ).toBeInTheDocument();
+  });
+
+  it("keeps overview token breakdown states explicit per metric", async () => {
+    installBridgeMocks({
+      overview: {
+        metrics: {
+          totalProjects: { status: "value", displayValue: "2", numericValue: 2 },
+          totalSessions: { status: "value", displayValue: "3", numericValue: 3 },
+          activeOrRecentSessions: { status: "value", displayValue: "2", numericValue: 2 },
+          failedVerification: { status: "value", displayValue: "1", numericValue: 1 },
+          cancelledSessions: { status: "value", displayValue: "1", numericValue: 1 },
+          needsAttentionSessions: { status: "value", displayValue: "2", numericValue: 2 },
+          toolActivity: { status: "value", displayValue: "4", numericValue: 4 }
+        },
+        usageSummary: {
+          models: {
+            status: "value",
+            displayValue: "gemini-3-flash-preview",
+            rawValue: "gemini-3-flash-preview"
+          },
+          tokenMetrics: {
+            totalTokens: { status: "value", displayValue: "560", numericValue: 560 },
+            inputTokens: { status: "value", displayValue: "420", numericValue: 420 },
+            outputTokens: {
+              status: "unknown",
+              displayValue: "Unknown",
+              reason: "Selected sessions are missing output token counts."
+            },
+            cacheReadTokens: {
+              status: "unsupported",
+              displayValue: "Unsupported",
+              reason: "Selected sessions do not expose cached input tokens."
+            }
+          },
+          tokenCount: { status: "value", displayValue: "560", numericValue: 560 }
+        },
+        harnessFilters: [
+          { adapterId: "fake-test", label: "Fake Test Harness", sessionCount: 1 },
+          { adapterId: "gemini-cli", label: "Gemini CLI", sessionCount: 2 }
+        ],
+        activity: [{ day: "2026-05-23", sessionCount: 3, needsAttentionCount: 2 }]
+      }
+    });
+    render(<App />);
+
+    const route = await screen.findByRole("region", { name: "Overview route" });
+
+    expect(within(route).getByText("Input")).toBeInTheDocument();
+    expect(within(route).getByText("420")).toBeInTheDocument();
+    expect(within(route).getByText("Output")).toBeInTheDocument();
+    expect(within(route).getByText("Cached Input")).toBeInTheDocument();
+    expect(within(route).getAllByText("Unknown").length).toBeGreaterThan(0);
+    expect(within(route).getAllByText("Unsupported").length).toBeGreaterThan(0);
   });
 });

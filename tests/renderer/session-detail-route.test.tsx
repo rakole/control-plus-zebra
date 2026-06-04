@@ -21,11 +21,58 @@ describe("Session detail route", () => {
 
     expect(await screen.findByRole("heading", { name: "Session Detail" })).toBeInTheDocument();
     expect(screen.getByLabelText("Session detail summary")).toBeInTheDocument();
+    expect(await screen.findByText("Input")).toBeInTheDocument();
+    expect(await screen.findByText("Output")).toBeInTheDocument();
+    expect(await screen.findByText("Cached Input")).toBeInTheDocument();
     expect(screen.getByText("Capability Coverage")).toBeInTheDocument();
     expect(screen.getByText("Session Timeline")).toBeInTheDocument();
     expect(screen.getByText("npm run typecheck")).toBeInTheDocument();
     expect(screen.getByText("Type checking passed.")).toBeInTheDocument();
     expect(screen.getByText("Output artifact")).toBeInTheDocument();
+  });
+
+  it("keeps unsupported and unknown token breakdown states visible in the summary rail", async () => {
+    const detail = buildSessionDetail({
+      session: {
+        ...buildSessionDetail().session,
+        usageSummary: {
+          models: {
+            status: "value",
+            displayValue: "gemini-3-flash-preview",
+            rawValue: "gemini-3-flash-preview"
+          },
+          tokenMetrics: {
+            totalTokens: { status: "value", displayValue: "280", numericValue: 280 },
+            inputTokens: { status: "value", displayValue: "200", numericValue: 200 },
+            outputTokens: {
+              status: "unknown",
+              displayValue: "Unknown",
+              reason: "Output tokens were expected but not observed."
+            },
+            cacheReadTokens: {
+              status: "unsupported",
+              displayValue: "Unsupported",
+              reason: "Cached input tokens are not available for this harness."
+            }
+          },
+          tokenCount: { status: "value", displayValue: "280", numericValue: 280 }
+        }
+      }
+    });
+
+    installBridgeMocks({
+      firstPreview: detail.session,
+      detail
+    });
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Session Detail" })).toBeInTheDocument();
+    expect(await screen.findByText("Input")).toBeInTheDocument();
+    expect(await screen.findByText("200")).toBeInTheDocument();
+    expect(await screen.findByText("Output")).toBeInTheDocument();
+    expect(await screen.findByText("Cached Input")).toBeInTheDocument();
+    expect((await screen.findAllByText("Unknown")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Unsupported")).length).toBeGreaterThan(0);
   });
 
   it("contains tool and shell timeline evidence without changing normal summaries", async () => {

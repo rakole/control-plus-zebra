@@ -62,6 +62,29 @@ describe("normalized fixture contract", () => {
       )
     ).toBe(true);
   });
+
+  it("preserves observed zero cache-read tokens in Gemini goldens without inventing them elsewhere", async () => {
+    const alpha = JSON.parse(
+      await readFile(path.resolve("tests/fixtures/gemini-cli/alpha-project.normalized.json"), "utf8")
+    ) as {
+      messages?: Array<{ nativeId?: string; usage?: { cacheReadTokens?: number } }>;
+      sessions?: Array<{ nativeId?: string; usage?: { cacheReadTokens?: number } }>;
+    };
+
+    const completedSession = alpha.sessions?.find(
+      (session) => session.nativeId === "11111111-1111-4111-8111-111111111111"
+    );
+    const cancelledSession = alpha.sessions?.find(
+      (session) => session.nativeId === "22222222-2222-4222-8222-222222222222"
+    );
+    const finalMessage = alpha.messages?.find(
+      (message) => message.nativeId === "assistant-final-111:9"
+    );
+
+    expect(completedSession?.usage?.cacheReadTokens).toBe(0);
+    expect(finalMessage?.usage?.cacheReadTokens).toBe(0);
+    expect(cancelledSession?.usage?.cacheReadTokens).toBeUndefined();
+  });
 });
 
 function assertSourcePointers(

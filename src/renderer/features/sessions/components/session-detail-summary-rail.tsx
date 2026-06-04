@@ -28,7 +28,13 @@ export function SessionDetailSummaryRail({ detail }: SessionDetailSummaryRailPro
           { label: "Session ID", value: session.sessionId },
           { label: "Native Session ID", value: session.nativeSessionId ?? "Unknown" },
           { label: "Models", value: session.usageSummary.models.displayValue },
-          { label: "Tokens", value: session.usageSummary.tokenCount.displayValue },
+          { label: "Total Tokens", value: session.usageSummary.tokenMetrics.totalTokens.displayValue },
+          { label: "Input", value: session.usageSummary.tokenMetrics.inputTokens.displayValue },
+          { label: "Output", value: session.usageSummary.tokenMetrics.outputTokens.displayValue },
+          {
+            label: "Cached Input",
+            value: session.usageSummary.tokenMetrics.cacheReadTokens.displayValue
+          },
           {
             label: "Attention Reasons",
             value: session.attentionReasons.join(", ") || "None"

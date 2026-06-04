@@ -235,9 +235,20 @@ export const overviewMetricsViewModelSchema = z
   .strict();
 export type OverviewMetricsViewModel = z.infer<typeof overviewMetricsViewModelSchema>;
 
+export const tokenMetricsViewModelSchema = z
+  .object({
+    totalTokens: metricStateViewModelSchema,
+    inputTokens: metricStateViewModelSchema,
+    outputTokens: metricStateViewModelSchema,
+    cacheReadTokens: metricStateViewModelSchema
+  })
+  .strict();
+export type TokenMetricsViewModel = z.infer<typeof tokenMetricsViewModelSchema>;
+
 export const overviewUsageSummaryViewModelSchema = z
   .object({
     models: fieldValueViewModelSchema,
+    tokenMetrics: tokenMetricsViewModelSchema,
     tokenCount: metricStateViewModelSchema
   })
   .strict();
@@ -325,6 +336,7 @@ export type SessionTriageMetricsViewModel = z.infer<
 export const sessionUsageSummaryViewModelSchema = z
   .object({
     models: fieldValueViewModelSchema,
+    tokenMetrics: tokenMetricsViewModelSchema,
     tokenCount: metricStateViewModelSchema
   })
   .strict();

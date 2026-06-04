@@ -245,6 +245,48 @@ describe("ipc handlers", () => {
     const sources = await collector.invoke(IPC_CHANNELS.listSources);
     const scanner = await collector.invoke(IPC_CHANNELS.getScannerStatus);
 
+    expect(overview).toMatchObject({
+      ok: true,
+      stats: {
+        usageSummary: {
+          tokenMetrics: {
+            totalTokens: { status: "unsupported", displayValue: "Unsupported" },
+            inputTokens: { status: "unsupported", displayValue: "Unsupported" },
+            outputTokens: { status: "unsupported", displayValue: "Unsupported" },
+            cacheReadTokens: { status: "unsupported", displayValue: "Unsupported" }
+          }
+        }
+      }
+    });
+    expect(list).toMatchObject({
+      ok: true,
+      sessions: [
+        expect.objectContaining({
+          usageSummary: expect.objectContaining({
+            tokenMetrics: expect.objectContaining({
+              totalTokens: { status: "unsupported", displayValue: "Unsupported" },
+              inputTokens: { status: "unsupported", displayValue: "Unsupported" },
+              outputTokens: { status: "unsupported", displayValue: "Unsupported" },
+              cacheReadTokens: { status: "unsupported", displayValue: "Unsupported" }
+            })
+          })
+        })
+      ]
+    });
+    expect(get).toMatchObject({
+      ok: true,
+      session: expect.objectContaining({
+        usageSummary: expect.objectContaining({
+          tokenMetrics: expect.objectContaining({
+            totalTokens: { status: "unsupported", displayValue: "Unsupported" },
+            inputTokens: { status: "unsupported", displayValue: "Unsupported" },
+            outputTokens: { status: "unsupported", displayValue: "Unsupported" },
+            cacheReadTokens: { status: "unsupported", displayValue: "Unsupported" }
+          })
+        })
+      })
+    });
+
     expect(() => shellStateViewModelSchema.parse(shell)).not.toThrow();
     expect(() => createArchiveResponseSchema.parse(archive)).not.toThrow();
     expect(() => dashboardStatsResponseSchema.parse(overview)).not.toThrow();
@@ -339,7 +381,7 @@ function createFakeServices(): {
   themeService: ThemeService;
   triageService: TriageViewModelService;
 } {
-  const summary: SessionSummaryViewModel = {
+  const summary = {
     adapterId: "fake-test",
     adapterDisplayName: "Fake Test Harness",
     sourceId: "source_1",
@@ -396,6 +438,12 @@ function createFakeServices(): {
     },
     usageSummary: {
       models: { status: "unknown", displayValue: "Unknown" },
+      tokenMetrics: {
+        totalTokens: { status: "unsupported", displayValue: "Unsupported" },
+        inputTokens: { status: "unsupported", displayValue: "Unsupported" },
+        outputTokens: { status: "unsupported", displayValue: "Unsupported" },
+        cacheReadTokens: { status: "unsupported", displayValue: "Unsupported" }
+      },
       tokenCount: { status: "unsupported", displayValue: "Unsupported" }
     },
     triageMetrics: {
@@ -405,11 +453,11 @@ function createFakeServices(): {
       failedCommands: { status: "value", displayValue: "0", numericValue: 0 },
       tokenCount: { status: "unsupported", displayValue: "Unsupported" }
     }
-  };
-  const preview: SessionPreviewViewModel = {
+  } as unknown as SessionSummaryViewModel;
+  const preview = {
     ...summary,
     diagnostics: []
-  };
+  } as unknown as SessionPreviewViewModel;
   const dataSourcesViewModel = {
     adapters: [
       {
@@ -559,6 +607,12 @@ function createFakeServices(): {
         },
         usageSummary: {
           models: { status: "unknown", displayValue: "Unknown" },
+          tokenMetrics: {
+            totalTokens: { status: "unsupported", displayValue: "Unsupported" },
+            inputTokens: { status: "unsupported", displayValue: "Unsupported" },
+            outputTokens: { status: "unsupported", displayValue: "Unsupported" },
+            cacheReadTokens: { status: "unsupported", displayValue: "Unsupported" }
+          },
           tokenCount: { status: "unsupported", displayValue: "Unsupported" }
         },
         harnessFilters: [
