@@ -2103,7 +2103,7 @@ function buildOverviewTokenMetricByKey(
     (item) => item.tokenCapability?.status === "unsupported"
   );
 
-  if (supportedSessions.length > 0 && supportedWithMetric.length === supportedSessions.length) {
+  if (supportedWithMetric.length > 0) {
     const total = supportedWithMetric.reduce(
       (sum, item) => sum + (selectValue(item) ?? 0),
       0

@@ -36,29 +36,27 @@ describe("triage view model service", () => {
     expect(overview.usageSummary.models.status).toBe("value");
     expect(overview.usageSummary.models.displayValue).toContain("gemini-3-flash-preview");
     expect(overview.usageSummary.models.reason).toContain("selected sessions");
-    expect(overview.usageSummary.tokenCount).toMatchObject({
-      status: "unknown",
-      displayValue: "Unknown",
-      reason: "Selected sessions are missing total token counts."
-    });
+    expect(overview.usageSummary.tokenCount.status).toBe("value");
+    expect(overview.usageSummary.tokenCount.numericValue).toBeGreaterThan(0);
+    expect(overview.usageSummary.tokenCount.reason).toContain("selected sessions");
     expect(overview).toMatchObject({
       usageSummary: {
         tokenMetrics: {
           totalTokens: expect.objectContaining({
-            status: "unknown",
-            displayValue: "Unknown"
+            status: "value",
+            numericValue: expect.any(Number)
           }),
           inputTokens: expect.objectContaining({
-            status: "unknown",
-            displayValue: "Unknown"
+            status: "value",
+            numericValue: expect.any(Number)
           }),
           outputTokens: expect.objectContaining({
-            status: "unknown",
-            displayValue: "Unknown"
+            status: "value",
+            numericValue: expect.any(Number)
           }),
           cacheReadTokens: expect.objectContaining({
-            status: "unknown",
-            displayValue: "Unknown"
+            status: "value",
+            numericValue: 0
           })
         }
       }
@@ -73,26 +71,25 @@ describe("triage view model service", () => {
           displayValue: "gemini-3-flash-preview"
         },
         tokenCount: {
-          status: "unknown",
-          displayValue: "Unknown",
-          reason: "Selected sessions are missing total token counts."
+          status: "value",
+          numericValue: expect.any(Number)
         },
         tokenMetrics: {
           totalTokens: expect.objectContaining({
-            status: "unknown",
-            displayValue: "Unknown"
+            status: "value",
+            numericValue: expect.any(Number)
           }),
           inputTokens: expect.objectContaining({
-            status: "unknown",
-            displayValue: "Unknown"
+            status: "value",
+            numericValue: expect.any(Number)
           }),
           outputTokens: expect.objectContaining({
-            status: "unknown",
-            displayValue: "Unknown"
+            status: "value",
+            numericValue: expect.any(Number)
           }),
           cacheReadTokens: expect.objectContaining({
-            status: "unknown",
-            displayValue: "Unknown"
+            status: "value",
+            numericValue: 0
           })
         }
       }
@@ -190,7 +187,7 @@ describe("triage view model service", () => {
     ).toBe(1);
   }, 15000);
 
-  it("returns Unknown for an overview token metric when a supported selected session is missing that metric", async () => {
+  it("returns Unknown for an overview token metric when no supported selected session exposes that metric", async () => {
     const runtime = await createScannedRuntime(tempDirs);
     const source = (await runtime.sourceRegistry.listSources()).find(
       (candidate) => candidate.adapterId === "gemini-cli"
