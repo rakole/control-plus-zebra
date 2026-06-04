@@ -230,6 +230,12 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
       },
       usageSummary: {
         models: { status: "unknown" as const, displayValue: "Unknown" },
+        tokenMetrics: {
+          totalTokens: { status: "unsupported" as const, displayValue: "Unsupported" },
+          inputTokens: { status: "unsupported" as const, displayValue: "Unsupported" },
+          outputTokens: { status: "unsupported" as const, displayValue: "Unsupported" },
+          cacheReadTokens: { status: "unsupported" as const, displayValue: "Unsupported" }
+        },
         tokenCount: { status: "unsupported" as const, displayValue: "Unsupported" }
       },
       harnessFilters: [],

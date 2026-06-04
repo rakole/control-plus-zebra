@@ -67,6 +67,12 @@ export interface SessionSummaryFixture {
       rawValue?: string;
       reason?: string;
     };
+    tokenMetrics: {
+      totalTokens: MetricFixture;
+      inputTokens: MetricFixture;
+      outputTokens: MetricFixture;
+      cacheReadTokens: MetricFixture;
+    };
     tokenCount: MetricFixture;
   };
   triageMetrics: {
@@ -134,6 +140,12 @@ export interface OverviewFixture {
   metrics: Record<string, MetricFixture>;
   usageSummary: {
     models: { status: string; displayValue: string; rawValue?: string; reason?: string };
+    tokenMetrics: {
+      totalTokens: MetricFixture;
+      inputTokens: MetricFixture;
+      outputTokens: MetricFixture;
+      cacheReadTokens: MetricFixture;
+    };
     tokenCount: MetricFixture;
   };
   harnessFilters: Array<{ adapterId: string; label: string; sessionCount: number }>;
@@ -269,6 +281,12 @@ export function buildSessionSummary(
         status: "value",
         displayValue: "gemini-3-flash-preview",
         rawValue: "gemini-3-flash-preview"
+      },
+      tokenMetrics: {
+        totalTokens: { status: "value", displayValue: "280", numericValue: 280 },
+        inputTokens: { status: "value", displayValue: "200", numericValue: 200 },
+        outputTokens: { status: "value", displayValue: "80", numericValue: 80 },
+        cacheReadTokens: { status: "value", displayValue: "0", numericValue: 0 }
       },
       tokenCount: { status: "value", displayValue: "280", numericValue: 280 }
     },
@@ -420,6 +438,12 @@ export function buildOverview(overrides: Partial<OverviewFixture> = {}) {
         status: "value" as const,
         displayValue: "gemini-3-flash-preview",
         rawValue: "gemini-3-flash-preview"
+      },
+      tokenMetrics: {
+        totalTokens: { status: "value" as const, displayValue: "560", numericValue: 560 },
+        inputTokens: { status: "value" as const, displayValue: "420", numericValue: 420 },
+        outputTokens: { status: "value" as const, displayValue: "140", numericValue: 140 },
+        cacheReadTokens: { status: "value" as const, displayValue: "0", numericValue: 0 }
       },
       tokenCount: { status: "value" as const, displayValue: "560", numericValue: 560 }
     },

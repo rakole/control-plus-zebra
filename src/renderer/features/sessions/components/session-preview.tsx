@@ -180,9 +180,18 @@ export function SessionPreview({
     session.attentionReasons.length > 0
       ? session.attentionReasons.join(" · ")
       : session.lifecycleState.reason ?? "No additional attention signal exposed.";
+  const tokenMetricItems = [
+    { label: "Total Tokens", value: session.usageSummary.tokenMetrics.totalTokens.displayValue },
+    { label: "Input", value: session.usageSummary.tokenMetrics.inputTokens.displayValue },
+    { label: "Output", value: session.usageSummary.tokenMetrics.outputTokens.displayValue },
+    {
+      label: "Cached Input",
+      value: session.usageSummary.tokenMetrics.cacheReadTokens.displayValue
+    }
+  ];
   const metadataItems = [
     { label: "Models", value: session.usageSummary.models.displayValue },
-    { label: "Tokens", value: session.usageSummary.tokenCount.displayValue },
+    ...tokenMetricItems,
     { label: "Session ID", value: session.sessionId },
     {
       label: "Native Session ID",
@@ -233,7 +242,13 @@ export function SessionPreview({
                 <Badge variant="outline">Time: {formatSessionRange(session)}</Badge>
                 <Badge variant="outline">Model: {session.usageSummary.models.displayValue}</Badge>
                 <Badge variant="outline">
-                  Tokens: {session.usageSummary.tokenCount.displayValue}
+                  Input: {session.usageSummary.tokenMetrics.inputTokens.displayValue}
+                </Badge>
+                <Badge variant="outline">
+                  Output: {session.usageSummary.tokenMetrics.outputTokens.displayValue}
+                </Badge>
+                <Badge variant="outline">
+                  Cached Input: {session.usageSummary.tokenMetrics.cacheReadTokens.displayValue}
                 </Badge>
               </div>
             </div>

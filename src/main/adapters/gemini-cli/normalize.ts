@@ -1214,30 +1214,61 @@ function toUsageSummary(
 }
 
 function buildSessionUsage(records: GeminiTranscriptRecord[]): NormalizedUsageSummary {
-  const totals = records.reduce<Required<NormalizedUsageSummary>>(
+  const totals = records.reduce<{
+    values: Required<NormalizedUsageSummary>;
+    observed: Record<keyof Required<NormalizedUsageSummary>, boolean>;
+  }>(
     (current, record) => {
       const usage = record.tokens ? toUsageSummary(record.tokens) : {};
 
+      if (typeof usage.inputTokens === "number") {
+        current.values.inputTokens += usage.inputTokens;
+        current.observed.inputTokens = true;
+      }
+
+      if (typeof usage.outputTokens === "number") {
+        current.values.outputTokens += usage.outputTokens;
+        current.observed.outputTokens = true;
+      }
+
+      if (typeof usage.totalTokens === "number") {
+        current.values.totalTokens += usage.totalTokens;
+        current.observed.totalTokens = true;
+      }
+
+      if (typeof usage.cacheReadTokens === "number") {
+        current.values.cacheReadTokens += usage.cacheReadTokens;
+        current.observed.cacheReadTokens = true;
+      }
+
       return {
-        inputTokens: current.inputTokens + (usage.inputTokens ?? 0),
-        outputTokens: current.outputTokens + (usage.outputTokens ?? 0),
-        totalTokens: current.totalTokens + (usage.totalTokens ?? 0),
-        cacheReadTokens: current.cacheReadTokens + (usage.cacheReadTokens ?? 0)
+        values: current.values,
+        observed: current.observed
       };
     },
     {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-      cacheReadTokens: 0
+      values: {
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        cacheReadTokens: 0
+      },
+      observed: {
+        inputTokens: false,
+        outputTokens: false,
+        totalTokens: false,
+        cacheReadTokens: false
+      }
     }
   );
 
   return removeUndefinedUsageFields({
-    inputTokens: totals.inputTokens,
-    outputTokens: totals.outputTokens,
-    totalTokens: totals.totalTokens,
-    cacheReadTokens: totals.cacheReadTokens
+    ...(totals.observed.inputTokens ? { inputTokens: totals.values.inputTokens } : {}),
+    ...(totals.observed.outputTokens ? { outputTokens: totals.values.outputTokens } : {}),
+    ...(totals.observed.totalTokens ? { totalTokens: totals.values.totalTokens } : {}),
+    ...(totals.observed.cacheReadTokens
+      ? { cacheReadTokens: totals.values.cacheReadTokens }
+      : {})
   });
 }
 
@@ -1247,7 +1278,7 @@ function removeUndefinedUsageFields(
 function removeUndefinedUsageFields(usage: NormalizedUsageSummary): NormalizedUsageSummary;
 function removeUndefinedUsageFields(usage: NormalizedUsageSummary): NormalizedUsageSummary {
   return Object.fromEntries(
-    Object.entries(usage).filter(([, value]) => typeof value === "number" && value > 0)
+    Object.entries(usage).filter(([, value]) => typeof value === "number")
   ) as NormalizedUsageSummary;
 }
 

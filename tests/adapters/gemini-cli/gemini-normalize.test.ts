@@ -184,10 +184,12 @@ describe("gemini-cli normalization", () => {
     });
     expect(alphaSession?.usage).toMatchObject({
       inputTokens: 420,
+      cacheReadTokens: 0,
       outputTokens: 110,
       totalTokens: 552
     });
     expect(alphaFinalMessage?.usage).toMatchObject({
+      cacheReadTokens: 0,
       inputTokens: 200,
       outputTokens: 80,
       totalTokens: 280

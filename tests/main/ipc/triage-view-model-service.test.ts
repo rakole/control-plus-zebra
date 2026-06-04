@@ -4,6 +4,7 @@ import { ArchiveExporter } from "../../../src/main/core/archive/archive-exporter
 import { ArchiveImporter } from "../../../src/main/core/archive/archive-importer.js";
 import { createSessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import { createTriageViewModelService } from "../../../src/main/app/triage-view-model-service.js";
+import { syncLatestSourceCacheRecordToEntityStore } from "../../../src/main/app/workbench-entity-store-sync.js";
 import { createConfidenceScore } from "../../../src/main/core/model/confidence.js";
 import {
   cleanupTempDirs,
@@ -35,9 +36,33 @@ describe("triage view model service", () => {
     expect(overview.usageSummary.models.status).toBe("value");
     expect(overview.usageSummary.models.displayValue).toContain("gemini-3-flash-preview");
     expect(overview.usageSummary.models.reason).toContain("selected sessions");
-    expect(overview.usageSummary.tokenCount.status).toBe("value");
-    expect(overview.usageSummary.tokenCount.numericValue).toBeGreaterThan(0);
-    expect(overview.usageSummary.tokenCount.reason).toContain("selected sessions");
+    expect(overview.usageSummary.tokenCount).toMatchObject({
+      status: "unknown",
+      displayValue: "Unknown",
+      reason: "Selected sessions are missing total token counts."
+    });
+    expect(overview).toMatchObject({
+      usageSummary: {
+        tokenMetrics: {
+          totalTokens: expect.objectContaining({
+            status: "unknown",
+            displayValue: "Unknown"
+          }),
+          inputTokens: expect.objectContaining({
+            status: "unknown",
+            displayValue: "Unknown"
+          }),
+          outputTokens: expect.objectContaining({
+            status: "unknown",
+            displayValue: "Unknown"
+          }),
+          cacheReadTokens: expect.objectContaining({
+            status: "unknown",
+            displayValue: "Unknown"
+          })
+        }
+      }
+    });
     expect(overview.harnessFilters.map((filter) => filter.label)).toEqual(
       expect.arrayContaining(["Fake Test Harness", "Gemini CLI"])
     );
@@ -48,8 +73,27 @@ describe("triage view model service", () => {
           displayValue: "gemini-3-flash-preview"
         },
         tokenCount: {
-          status: "value",
-          numericValue: expect.any(Number)
+          status: "unknown",
+          displayValue: "Unknown",
+          reason: "Selected sessions are missing total token counts."
+        },
+        tokenMetrics: {
+          totalTokens: expect.objectContaining({
+            status: "unknown",
+            displayValue: "Unknown"
+          }),
+          inputTokens: expect.objectContaining({
+            status: "unknown",
+            displayValue: "Unknown"
+          }),
+          outputTokens: expect.objectContaining({
+            status: "unknown",
+            displayValue: "Unknown"
+          }),
+          cacheReadTokens: expect.objectContaining({
+            status: "unknown",
+            displayValue: "Unknown"
+          })
         }
       }
     });
@@ -144,6 +188,57 @@ describe("triage view model service", () => {
     expect(
       heatmap.buckets.reduce((total, bucket) => total + bucket.needsAttentionCount, 0)
     ).toBe(1);
+  }, 15000);
+
+  it("returns Unknown for an overview token metric when a supported selected session is missing that metric", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const source = (await runtime.sourceRegistry.listSources()).find(
+      (candidate) => candidate.adapterId === "gemini-cli"
+    );
+
+    expect(source).toBeDefined();
+    if (!source) {
+      throw new Error("Expected a Gemini source.");
+    }
+
+    const record = await runtime.cacheStore.getLatestSourceRecord(source.sourceId);
+
+    expect(record).toBeDefined();
+    if (!record) {
+      throw new Error("Expected a Gemini cache record.");
+    }
+
+    const targetSession = record.normalized.sessions.find(
+      (session) => session.nativeId === "11111111-1111-4111-8111-111111111111"
+    );
+
+    expect(targetSession?.usage?.cacheReadTokens).toBe(0);
+    if (!targetSession) {
+      throw new Error("Expected the Gemini fixture session with token usage.");
+    }
+
+    const { cacheReadTokens: _removedCacheReadTokens, ...usageWithoutCacheReadTokens } =
+      targetSession.usage ?? {};
+
+    targetSession.usage = usageWithoutCacheReadTokens;
+
+    await runtime.cacheStore.writeRecord(record);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, source.sourceId);
+
+    const overview = await createTriageViewModelService({ runtime }).getOverview({
+      adapterId: "gemini-cli"
+    });
+
+    expect(overview).toMatchObject({
+      usageSummary: {
+        tokenMetrics: {
+          cacheReadTokens: {
+            status: "unknown",
+            displayValue: "Unknown"
+          }
+        }
+      }
+    });
   }, 15000);
 
   it("loads archive availability once for Projects route rollups", async () => {

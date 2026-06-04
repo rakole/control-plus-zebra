@@ -41,6 +41,7 @@ import {
   type ProjectSummaryViewModel,
   type SessionPreviewViewModel,
   type SessionSummaryViewModel,
+  type TokenMetricsViewModel,
   type TruthStateViewModel
 } from "../ipc/view-models.js";
 import {
@@ -64,6 +65,7 @@ type DerivedSession = NonNullable<NormalizedCacheRecord["derived"]>["sessions"][
 type DerivedProject = NonNullable<
   NonNullable<NormalizedCacheRecord["derived"]>["projects"]
 >[number];
+type TokenMetricKey = keyof TokenMetricsViewModel;
 
 export interface LoadedTriageData {
   descriptors: Map<string, HarnessDescriptor>;
@@ -1166,6 +1168,7 @@ function buildSessionBaseViewModel(
     },
     usageSummary: {
       models: toSessionModelsField(data, session, modelNameCapability),
+      tokenMetrics: toSessionTokenMetrics(session, tokenCountCapability),
       tokenCount: toTokenCountMetric(session, tokenCountCapability)
     },
     triageMetrics: {
@@ -1311,26 +1314,22 @@ function buildOverviewUsageSummary(
         "tokenCounts"
       ),
       models: getSessionModelNames(data, session),
-      tokenCount: getUsageTokenCount(session)
+      tokenCount: getUsageTokenCount(session),
+      tokenMetrics: getUsageTokenMetrics(session)
     };
   });
   const models = unique(sessionUsage.flatMap((item) => item.models));
   const sessionsWithModels = sessionUsage.filter((item) => item.models.length > 0).length;
-  const sessionsWithTokens = sessionUsage.filter((item) => typeof item.tokenCount === "number").length;
   const modelCoverageReason = buildUsageCoverageReason(
     "Model names",
     sessionsWithModels,
     sessionUsage.length
   );
-  const tokenCoverageReason = buildUsageCoverageReason(
-    "Token counts",
-    sessionsWithTokens,
-    sessionUsage.length
-  );
 
   return {
     models: buildOverviewModelsField(sessionUsage, models, modelCoverageReason),
-    tokenCount: buildOverviewTokenMetric(sessionUsage, tokenCoverageReason)
+    tokenMetrics: buildOverviewTokenMetrics(sessionUsage),
+    tokenCount: buildOverviewTokenMetric(sessionUsage)
   };
 }
 
@@ -1862,6 +1861,56 @@ function toTokenCountMetric(
   return toMetricStateFromCapability(capability);
 }
 
+function toSessionTokenMetrics(
+  session: Session,
+  capability?: { status: "supported" | "unsupported" | "unknown"; reason?: string }
+): TokenMetricsViewModel {
+  return {
+    totalTokens: toUsageTokenMetric(session, "totalTokens", capability, {
+      unsupportedReason: "Total token counts are not available for this harness.",
+      unknownReason: "Total token counts were expected but not observed."
+    }),
+    inputTokens: toUsageTokenMetric(session, "inputTokens", capability, {
+      unsupportedReason: "Input token counts are not available for this harness.",
+      unknownReason: "Input tokens were expected but not observed."
+    }),
+    outputTokens: toUsageTokenMetric(session, "outputTokens", capability, {
+      unsupportedReason: "Output token counts are not available for this harness.",
+      unknownReason: "Output tokens were expected but not observed."
+    }),
+    cacheReadTokens: toUsageTokenMetric(session, "cacheReadTokens", capability, {
+      unsupportedReason: "Cached input tokens are not available for this harness.",
+      unknownReason: "Cached input tokens were expected but not observed."
+    })
+  };
+}
+
+function toUsageTokenMetric(
+  session: Session,
+  key: TokenMetricKey,
+  capability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined,
+  copy: {
+    unsupportedReason: string;
+    unknownReason: string;
+  }
+): MetricStateViewModel {
+  const value = getUsageTokenMetric(session, key);
+
+  if (typeof value === "number") {
+    return toMetricValue(value);
+  }
+
+  if (capability?.status === "supported") {
+    return toMetricState("unknown", "Unknown", copy.unknownReason);
+  }
+
+  if (capability?.status === "unsupported") {
+    return toMetricState("unsupported", "Unsupported", copy.unsupportedReason);
+  }
+
+  return toMetricState("unknown", "Unknown", capability?.reason);
+}
+
 function toSessionModelsField(
   data: LoadedTriageData,
   session: Session,
@@ -1884,16 +1933,36 @@ function toSessionModelsField(
 }
 
 function getUsageTokenCount(session: Session): number | undefined {
+  return getUsageTokenMetric(session, "totalTokens");
+}
+
+function getUsageTokenMetric(session: Session, key: TokenMetricKey): number | undefined {
   const candidate = session as Session & {
     usage?: {
+      inputTokens?: number;
+      outputTokens?: number;
       totalTokens?: number;
+      cacheReadTokens?: number;
       tokenCounts?: {
         total?: number;
       };
     };
   };
 
-  return candidate.usage?.totalTokens ?? candidate.usage?.tokenCounts?.total;
+  if (key === "totalTokens") {
+    return candidate.usage?.totalTokens ?? candidate.usage?.tokenCounts?.total;
+  }
+
+  return candidate.usage?.[key];
+}
+
+function getUsageTokenMetrics(session: Session): Record<TokenMetricKey, number | undefined> {
+  return {
+    totalTokens: getUsageTokenMetric(session, "totalTokens"),
+    inputTokens: getUsageTokenMetric(session, "inputTokens"),
+    outputTokens: getUsageTokenMetric(session, "outputTokens"),
+    cacheReadTokens: getUsageTokenMetric(session, "cacheReadTokens")
+  };
 }
 
 function getSessionModelNames(
@@ -1951,32 +2020,128 @@ function buildOverviewTokenMetric(
   sessionUsage: Array<{
     tokenCapability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined;
     tokenCount: number | undefined;
-  }>,
-  coverageReason?: string
+    tokenMetrics: Record<TokenMetricKey, number | undefined>;
+  }>
 ): MetricStateViewModel {
-  const hasObservedTokenCount = sessionUsage.some((item) => typeof item.tokenCount === "number");
-  const tokenCount = sessionUsage.reduce((total, item) => total + (item.tokenCount ?? 0), 0);
-
-  if (hasObservedTokenCount) {
-    return {
-      ...toMetricValue(tokenCount),
-      ...(coverageReason ? { reason: coverageReason } : {})
-    };
-  }
-
   const tokenStatus = summarizeUsageCapability(
     sessionUsage,
     "tokenCapability",
     (item) => typeof item.tokenCount === "number"
   );
 
-  return toMetricState(
-    tokenStatus === "unsupported" ? "unsupported" : "unknown",
-    tokenStatus === "unsupported" ? "Unsupported" : "Unknown",
-    tokenStatus === "unsupported"
-      ? "Selected sessions do not expose token counts."
-      : "Token counts are not available for the selected sessions."
+  if (tokenStatus === "unsupported") {
+    return toMetricState(
+      "unsupported",
+      "Unsupported",
+      "Selected sessions do not expose token counts."
+    );
+  }
+
+  return buildOverviewTokenMetricByKey(
+    sessionUsage,
+    "totalTokens",
+    {
+      unsupportedReason: "Selected sessions do not expose total token counts.",
+      missingReason: "Selected sessions are missing total token counts."
+    },
+    "Token counts",
+    (item) => item.tokenCount
   );
+}
+
+function buildOverviewTokenMetrics(
+  sessionUsage: Array<{
+    tokenCapability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined;
+    tokenMetrics: Record<TokenMetricKey, number | undefined>;
+  }>
+): TokenMetricsViewModel {
+  return {
+    totalTokens: buildOverviewTokenMetricByKey(sessionUsage, "totalTokens", {
+      unsupportedReason: "Selected sessions do not expose total token counts.",
+      missingReason: "Selected sessions are missing total token counts."
+    }),
+    inputTokens: buildOverviewTokenMetricByKey(sessionUsage, "inputTokens", {
+      unsupportedReason: "Selected sessions do not expose input token counts.",
+      missingReason: "Selected sessions are missing input token counts."
+    }),
+    outputTokens: buildOverviewTokenMetricByKey(sessionUsage, "outputTokens", {
+      unsupportedReason: "Selected sessions do not expose output token counts.",
+      missingReason: "Selected sessions are missing output token counts."
+    }),
+    cacheReadTokens: buildOverviewTokenMetricByKey(sessionUsage, "cacheReadTokens", {
+      unsupportedReason: "Selected sessions do not expose cached input tokens.",
+      missingReason: "Selected sessions are missing cached input token counts."
+    })
+  };
+}
+
+function buildOverviewTokenMetricByKey(
+  sessionUsage: Array<{
+    tokenCapability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined;
+    tokenCount?: number | undefined;
+    tokenMetrics: Record<TokenMetricKey, number | undefined>;
+  }>,
+  key: TokenMetricKey,
+  copy: {
+    unsupportedReason: string;
+    missingReason: string;
+  },
+  coverageLabel = getOverviewTokenMetricLabel(key),
+  selectValue: (
+    item: {
+      tokenCapability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined;
+      tokenCount?: number | undefined;
+      tokenMetrics: Record<TokenMetricKey, number | undefined>;
+    }
+  ) => number | undefined = (item) => item.tokenMetrics[key]
+): MetricStateViewModel {
+  const supportedSessions = sessionUsage.filter((item) => item.tokenCapability?.status === "supported");
+  const supportedWithMetric = supportedSessions.filter(
+    (item) => typeof selectValue(item) === "number"
+  );
+  const unsupportedSessions = sessionUsage.filter(
+    (item) => item.tokenCapability?.status === "unsupported"
+  );
+
+  if (supportedSessions.length > 0 && supportedWithMetric.length === supportedSessions.length) {
+    const total = supportedWithMetric.reduce(
+      (sum, item) => sum + (selectValue(item) ?? 0),
+      0
+    );
+    const coverageReason = buildUsageCoverageReason(
+      coverageLabel,
+      supportedWithMetric.length,
+      sessionUsage.length
+    );
+
+    return {
+      ...toMetricValue(total),
+      ...(coverageReason ? { reason: coverageReason } : {})
+    };
+  }
+
+  if (supportedSessions.length > 0) {
+    return toMetricState("unknown", "Unknown", copy.missingReason);
+  }
+
+  if (unsupportedSessions.length === sessionUsage.length && sessionUsage.length > 0) {
+    return toMetricState("unsupported", "Unsupported", copy.unsupportedReason);
+  }
+
+  return toMetricState("unknown", "Unknown", copy.missingReason);
+}
+
+function getOverviewTokenMetricLabel(key: TokenMetricKey): string {
+  switch (key) {
+    case "totalTokens":
+      return "Total token counts";
+    case "inputTokens":
+      return "Input token counts";
+    case "outputTokens":
+      return "Output token counts";
+    case "cacheReadTokens":
+      return "Cached input tokens";
+  }
 }
 
 function buildUsageCoverageReason(

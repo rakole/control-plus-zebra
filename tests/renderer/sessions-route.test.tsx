@@ -49,6 +49,9 @@ describe("Sessions route", () => {
     expect(within(route).getByText("Status Signals vs Evidence")).toBeInTheDocument();
     expect(within(route).getByText("Evidence Spine")).toBeInTheDocument();
     expect(within(route).getByText("Capability Coverage")).toBeInTheDocument();
+    expect(await within(route).findByText("Input")).toBeInTheDocument();
+    expect(await within(route).findByText("Output")).toBeInTheDocument();
+    expect(await within(route).findByText("Cached Input")).toBeInTheDocument();
     const capabilityDisclosure = within(route).getByRole("button", { name: "View details" });
     const capabilityPanel = document.getElementById(
       capabilityDisclosure.getAttribute("aria-controls") ?? ""
@@ -66,6 +69,56 @@ describe("Sessions route", () => {
     expect(capabilityPanel).not.toHaveClass("hidden");
     expect(within(route).getAllByLabelText("Git Context: Unsupported").length).toBeGreaterThan(0);
     expect(within(route).getAllByText("Unsupported").length).toBeGreaterThan(0);
+  });
+
+  it("shows token metric breakdown states without collapsing unknown or unsupported values", async () => {
+    const sessionWithPartialTokens = buildSessionSummary({
+      sessionId: "session-partial-tokens",
+      nativeSessionId: "native-partial-tokens",
+      title: "Partial token session",
+      usageSummary: {
+        models: {
+          status: "value",
+          displayValue: "gemini-3-flash-preview",
+          rawValue: "gemini-3-flash-preview"
+        },
+        tokenMetrics: {
+          totalTokens: { status: "value", displayValue: "280", numericValue: 280 },
+          inputTokens: { status: "value", displayValue: "200", numericValue: 200 },
+          outputTokens: {
+            status: "unknown",
+            displayValue: "Unknown",
+            reason: "Output tokens were expected but not observed."
+          },
+          cacheReadTokens: {
+            status: "unsupported",
+            displayValue: "Unsupported",
+            reason: "Cached input tokens are not available for this harness."
+          }
+        },
+        tokenCount: { status: "value", displayValue: "280", numericValue: 280 }
+      }
+    });
+
+    installBridgeMocks({
+      firstSession: sessionWithPartialTokens,
+      firstPreview: buildSessionPreview({
+        ...sessionWithPartialTokens,
+        diagnostics: []
+      }),
+      sessions: [sessionWithPartialTokens]
+    });
+    render(<App />);
+
+    const route = await screen.findByRole("region", { name: "Sessions route" });
+    await screen.findByRole("heading", { name: "Partial token session" });
+
+    expect(await within(route).findByText("Input")).toBeInTheDocument();
+    expect(await within(route).findByText("200")).toBeInTheDocument();
+    expect(await within(route).findByText("Output")).toBeInTheDocument();
+    expect((await within(route).findAllByText("Unknown")).length).toBeGreaterThan(0);
+    expect(await within(route).findByText("Cached Input")).toBeInTheDocument();
+    expect((await within(route).findAllByText("Unsupported")).length).toBeGreaterThan(0);
   });
 
   it("uses honest empty states when preview evidence detail is not exposed", async () => {

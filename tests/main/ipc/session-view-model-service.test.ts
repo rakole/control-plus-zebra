@@ -279,6 +279,32 @@ describe("session view model service", () => {
       numericValue: 552,
       displayValue: "552"
     });
+    expect(geminiSession).toMatchObject({
+      usageSummary: {
+        tokenMetrics: {
+          totalTokens: {
+            status: "value",
+            numericValue: 552,
+            displayValue: "552"
+          },
+          inputTokens: {
+            status: "value",
+            numericValue: 420,
+            displayValue: "420"
+          },
+          outputTokens: {
+            status: "value",
+            numericValue: 110,
+            displayValue: "110"
+          },
+          cacheReadTokens: {
+            status: "value",
+            numericValue: 0,
+            displayValue: "0"
+          }
+        }
+      }
+    });
     expect(findForbiddenKeys(geminiSession)).toEqual([]);
 
     if (!geminiSession) {
@@ -294,6 +320,26 @@ describe("session view model service", () => {
           messages: expect.any(Number),
           toolCalls: expect.any(Number),
           diagnostics: expect.any(Number)
+        }),
+        usageSummary: expect.objectContaining({
+          tokenMetrics: expect.objectContaining({
+            totalTokens: expect.objectContaining({
+              status: "value",
+              numericValue: 552
+            }),
+            inputTokens: expect.objectContaining({
+              status: "value",
+              numericValue: 420
+            }),
+            outputTokens: expect.objectContaining({
+              status: "value",
+              numericValue: 110
+            }),
+            cacheReadTokens: expect.objectContaining({
+              status: "value",
+              numericValue: 0
+            })
+          })
         })
       })
     );

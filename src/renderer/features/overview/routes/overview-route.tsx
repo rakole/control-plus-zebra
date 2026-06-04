@@ -122,7 +122,22 @@ export function OverviewRoute() {
               <MetadataGrid
                 items={[
                   { label: "Models", value: overview.usageSummary.models.displayValue },
-                  { label: "Tokens", value: overview.usageSummary.tokenCount.displayValue }
+                  {
+                    label: "Total Tokens",
+                    value: overview.usageSummary.tokenMetrics.totalTokens.displayValue
+                  },
+                  {
+                    label: "Input",
+                    value: overview.usageSummary.tokenMetrics.inputTokens.displayValue
+                  },
+                  {
+                    label: "Output",
+                    value: overview.usageSummary.tokenMetrics.outputTokens.displayValue
+                  },
+                  {
+                    label: "Cached Input",
+                    value: overview.usageSummary.tokenMetrics.cacheReadTokens.displayValue
+                  }
                 ]}
               />
             </SectionCard>
