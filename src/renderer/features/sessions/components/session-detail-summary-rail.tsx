@@ -31,8 +31,9 @@ export function SessionDetailSummaryRail({ detail }: SessionDetailSummaryRailPro
           { label: "Total Tokens", value: session.usageSummary.tokenMetrics.totalTokens.displayValue },
           { label: "Input", value: session.usageSummary.tokenMetrics.inputTokens.displayValue },
           { label: "Output", value: session.usageSummary.tokenMetrics.outputTokens.displayValue },
+          { label: "Thoughts", value: session.usageSummary.tokenMetrics.thoughtTokens.displayValue },
           {
-            label: "Cached Input",
+            label: "Cached Input (subset of Input)",
             value: session.usageSummary.tokenMetrics.cacheReadTokens.displayValue
           },
           {

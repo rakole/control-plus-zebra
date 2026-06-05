@@ -297,6 +297,11 @@ describe("session view model service", () => {
             numericValue: 110,
             displayValue: "110"
           },
+          thoughtTokens: {
+            status: "value",
+            numericValue: 22,
+            displayValue: "22"
+          },
           cacheReadTokens: {
             status: "value",
             numericValue: 0,
@@ -334,6 +339,10 @@ describe("session view model service", () => {
             outputTokens: expect.objectContaining({
               status: "value",
               numericValue: 110
+            }),
+            thoughtTokens: expect.objectContaining({
+              status: "value",
+              numericValue: 22
             }),
             cacheReadTokens: expect.objectContaining({
               status: "value",

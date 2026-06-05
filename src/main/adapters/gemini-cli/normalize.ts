@@ -144,6 +144,7 @@ type NormalizedUsageSummary = {
   cacheReadTokens?: number;
   inputTokens?: number;
   outputTokens?: number;
+  thoughtTokens?: number;
   totalTokens?: number;
 };
 
@@ -1202,6 +1203,10 @@ function toUsageSummary(
     usage.outputTokens = tokens.output;
   }
 
+  if (typeof tokens.thoughts === "number") {
+    usage.thoughtTokens = tokens.thoughts;
+  }
+
   if (typeof tokens.total === "number") {
     usage.totalTokens = tokens.total;
   }
@@ -1231,6 +1236,11 @@ function buildSessionUsage(records: GeminiTranscriptRecord[]): NormalizedUsageSu
         current.observed.outputTokens = true;
       }
 
+      if (typeof usage.thoughtTokens === "number") {
+        current.values.thoughtTokens += usage.thoughtTokens;
+        current.observed.thoughtTokens = true;
+      }
+
       if (typeof usage.totalTokens === "number") {
         current.values.totalTokens += usage.totalTokens;
         current.observed.totalTokens = true;
@@ -1250,12 +1260,14 @@ function buildSessionUsage(records: GeminiTranscriptRecord[]): NormalizedUsageSu
       values: {
         inputTokens: 0,
         outputTokens: 0,
+        thoughtTokens: 0,
         totalTokens: 0,
         cacheReadTokens: 0
       },
       observed: {
         inputTokens: false,
         outputTokens: false,
+        thoughtTokens: false,
         totalTokens: false,
         cacheReadTokens: false
       }
@@ -1265,6 +1277,7 @@ function buildSessionUsage(records: GeminiTranscriptRecord[]): NormalizedUsageSu
   return removeUndefinedUsageFields({
     ...(totals.observed.inputTokens ? { inputTokens: totals.values.inputTokens } : {}),
     ...(totals.observed.outputTokens ? { outputTokens: totals.values.outputTokens } : {}),
+    ...(totals.observed.thoughtTokens ? { thoughtTokens: totals.values.thoughtTokens } : {}),
     ...(totals.observed.totalTokens ? { totalTokens: totals.values.totalTokens } : {}),
     ...(totals.observed.cacheReadTokens
       ? { cacheReadTokens: totals.values.cacheReadTokens }

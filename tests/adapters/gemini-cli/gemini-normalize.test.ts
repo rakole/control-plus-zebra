@@ -148,6 +148,7 @@ describe("gemini-cli normalization", () => {
           usage: expect.objectContaining({
             inputTokens: 200,
             outputTokens: 80,
+            thoughtTokens: 0,
             totalTokens: 280
           })
         }
@@ -157,6 +158,7 @@ describe("gemini-cli normalization", () => {
       expect.objectContaining({
         inputTokens: 420,
         outputTokens: 110,
+        thoughtTokens: 22,
         totalTokens: 552
       })
     );
@@ -186,6 +188,7 @@ describe("gemini-cli normalization", () => {
       inputTokens: 420,
       cacheReadTokens: 0,
       outputTokens: 110,
+      thoughtTokens: 22,
       totalTokens: 552
     });
     expect(alphaFinalMessage?.usage).toMatchObject({

@@ -234,6 +234,7 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
           totalTokens: { status: "unsupported" as const, displayValue: "Unsupported" },
           inputTokens: { status: "unsupported" as const, displayValue: "Unsupported" },
           outputTokens: { status: "unsupported" as const, displayValue: "Unsupported" },
+          thoughtTokens: { status: "unsupported" as const, displayValue: "Unsupported" },
           cacheReadTokens: { status: "unsupported" as const, displayValue: "Unsupported" }
         },
         tokenCount: { status: "unsupported" as const, displayValue: "Unsupported" }

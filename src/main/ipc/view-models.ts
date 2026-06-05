@@ -240,6 +240,7 @@ export const tokenMetricsViewModelSchema = z
     totalTokens: metricStateViewModelSchema,
     inputTokens: metricStateViewModelSchema,
     outputTokens: metricStateViewModelSchema,
+    thoughtTokens: metricStateViewModelSchema,
     cacheReadTokens: metricStateViewModelSchema
   })
   .strict();

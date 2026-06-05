@@ -77,6 +77,7 @@ export type AttentionReason = AttentionReasonCode;
 export interface UsageSummary {
   inputTokens?: number;
   outputTokens?: number;
+  thoughtTokens?: number;
   totalTokens?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;

@@ -54,6 +54,10 @@ describe("triage view model service", () => {
             status: "value",
             numericValue: expect.any(Number)
           }),
+          thoughtTokens: expect.objectContaining({
+            status: "value",
+            numericValue: expect.any(Number)
+          }),
           cacheReadTokens: expect.objectContaining({
             status: "value",
             numericValue: 0
@@ -84,6 +88,10 @@ describe("triage view model service", () => {
             numericValue: expect.any(Number)
           }),
           outputTokens: expect.objectContaining({
+            status: "value",
+            numericValue: expect.any(Number)
+          }),
+          thoughtTokens: expect.objectContaining({
             status: "value",
             numericValue: expect.any(Number)
           }),

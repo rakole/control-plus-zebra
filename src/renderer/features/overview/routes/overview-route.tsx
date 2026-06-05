@@ -4,13 +4,13 @@ import { useSearchParams } from "react-router";
 import { getDashboardStats } from "../../../bridge/agent-workbench.js";
 import { ErrorState } from "../../../components/app/error-state.js";
 import { LoadingState } from "../../../components/app/loading-state.js";
-import { MetadataGrid } from "../../../components/app/metadata-grid.js";
 import { PageHeader } from "../../../components/app/page-header.js";
 import { RoutePage } from "../../../components/app/route-page.js";
 import { SectionCard } from "../../../components/app/section-card.js";
 import { Toolbar } from "../../../components/app/toolbar.js";
 import { NativeSelect } from "../../../components/ui/native-select.js";
 import { OverviewSummary } from "../components/overview-summary.js";
+import { UsageCoverageCards } from "../components/usage-coverage-cards.js";
 
 type OverviewResponse = Awaited<ReturnType<typeof getDashboardStats>>;
 type OverviewView = Extract<OverviewResponse, { ok: true }>["stats"];
@@ -119,24 +119,42 @@ export function OverviewRoute() {
               title={<h2>Usage Coverage</h2>}
               description="Keep model and token visibility explicit before drilling into session-level chronology."
             >
-              <MetadataGrid
-                items={[
-                  { label: "Models", value: overview.usageSummary.models.displayValue },
+              <UsageCoverageCards
+                metrics={[
                   {
-                    label: "Total Tokens",
+                    icon: "MD",
+                    title: "Models",
+                    value: (
+                      <span className="break-words text-xl leading-tight">
+                        {overview.usageSummary.models.displayValue}
+                      </span>
+                    )
+                  },
+                  {
+                    icon: "TT",
+                    title: "Total Tokens",
                     value: overview.usageSummary.tokenMetrics.totalTokens.displayValue
                   },
                   {
-                    label: "Input",
+                    icon: "IN",
+                    title: "Input",
                     value: overview.usageSummary.tokenMetrics.inputTokens.displayValue
                   },
                   {
-                    label: "Output",
+                    icon: "OUT",
+                    title: "Output",
                     value: overview.usageSummary.tokenMetrics.outputTokens.displayValue
                   },
                   {
-                    label: "Cached Input",
-                    value: overview.usageSummary.tokenMetrics.cacheReadTokens.displayValue
+                    icon: "TH",
+                    title: "Thoughts",
+                    value: overview.usageSummary.tokenMetrics.thoughtTokens.displayValue
+                  },
+                  {
+                    icon: "CI",
+                    title: "Cached Input",
+                    value: overview.usageSummary.tokenMetrics.cacheReadTokens.displayValue,
+                    change: "Subset of input tokens, not an extra additive bucket."
                   }
                 ]}
               />

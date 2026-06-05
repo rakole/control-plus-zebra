@@ -253,6 +253,7 @@ describe("ipc handlers", () => {
             totalTokens: { status: "unsupported", displayValue: "Unsupported" },
             inputTokens: { status: "unsupported", displayValue: "Unsupported" },
             outputTokens: { status: "unsupported", displayValue: "Unsupported" },
+            thoughtTokens: { status: "unsupported", displayValue: "Unsupported" },
             cacheReadTokens: { status: "unsupported", displayValue: "Unsupported" }
           }
         }
@@ -267,6 +268,7 @@ describe("ipc handlers", () => {
               totalTokens: { status: "unsupported", displayValue: "Unsupported" },
               inputTokens: { status: "unsupported", displayValue: "Unsupported" },
               outputTokens: { status: "unsupported", displayValue: "Unsupported" },
+              thoughtTokens: { status: "unsupported", displayValue: "Unsupported" },
               cacheReadTokens: { status: "unsupported", displayValue: "Unsupported" }
             })
           })
@@ -281,6 +283,7 @@ describe("ipc handlers", () => {
             totalTokens: { status: "unsupported", displayValue: "Unsupported" },
             inputTokens: { status: "unsupported", displayValue: "Unsupported" },
             outputTokens: { status: "unsupported", displayValue: "Unsupported" },
+            thoughtTokens: { status: "unsupported", displayValue: "Unsupported" },
             cacheReadTokens: { status: "unsupported", displayValue: "Unsupported" }
           })
         })
@@ -442,6 +445,7 @@ function createFakeServices(): {
         totalTokens: { status: "unsupported", displayValue: "Unsupported" },
         inputTokens: { status: "unsupported", displayValue: "Unsupported" },
         outputTokens: { status: "unsupported", displayValue: "Unsupported" },
+        thoughtTokens: { status: "unsupported", displayValue: "Unsupported" },
         cacheReadTokens: { status: "unsupported", displayValue: "Unsupported" }
       },
       tokenCount: { status: "unsupported", displayValue: "Unsupported" }
@@ -611,6 +615,7 @@ function createFakeServices(): {
             totalTokens: { status: "unsupported", displayValue: "Unsupported" },
             inputTokens: { status: "unsupported", displayValue: "Unsupported" },
             outputTokens: { status: "unsupported", displayValue: "Unsupported" },
+            thoughtTokens: { status: "unsupported", displayValue: "Unsupported" },
             cacheReadTokens: { status: "unsupported", displayValue: "Unsupported" }
           },
           tokenCount: { status: "unsupported", displayValue: "Unsupported" }

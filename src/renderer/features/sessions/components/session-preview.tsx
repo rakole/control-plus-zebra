@@ -184,8 +184,9 @@ export function SessionPreview({
     { label: "Total Tokens", value: session.usageSummary.tokenMetrics.totalTokens.displayValue },
     { label: "Input", value: session.usageSummary.tokenMetrics.inputTokens.displayValue },
     { label: "Output", value: session.usageSummary.tokenMetrics.outputTokens.displayValue },
+    { label: "Thoughts", value: session.usageSummary.tokenMetrics.thoughtTokens.displayValue },
     {
-      label: "Cached Input",
+      label: "Cached Input (subset of Input)",
       value: session.usageSummary.tokenMetrics.cacheReadTokens.displayValue
     }
   ];
@@ -246,6 +247,9 @@ export function SessionPreview({
                 </Badge>
                 <Badge variant="outline">
                   Output: {session.usageSummary.tokenMetrics.outputTokens.displayValue}
+                </Badge>
+                <Badge variant="outline">
+                  Thoughts: {session.usageSummary.tokenMetrics.thoughtTokens.displayValue}
                 </Badge>
                 <Badge variant="outline">
                   Cached Input: {session.usageSummary.tokenMetrics.cacheReadTokens.displayValue}

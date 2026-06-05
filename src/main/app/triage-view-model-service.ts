@@ -1878,6 +1878,10 @@ function toSessionTokenMetrics(
       unsupportedReason: "Output token counts are not available for this harness.",
       unknownReason: "Output tokens were expected but not observed."
     }),
+    thoughtTokens: toUsageTokenMetric(session, "thoughtTokens", capability, {
+      unsupportedReason: "Thought token counts are not available for this harness.",
+      unknownReason: "Thought tokens were expected but not observed."
+    }),
     cacheReadTokens: toUsageTokenMetric(session, "cacheReadTokens", capability, {
       unsupportedReason: "Cached input tokens are not available for this harness.",
       unknownReason: "Cached input tokens were expected but not observed."
@@ -1941,6 +1945,7 @@ function getUsageTokenMetric(session: Session, key: TokenMetricKey): number | un
     usage?: {
       inputTokens?: number;
       outputTokens?: number;
+      thoughtTokens?: number;
       totalTokens?: number;
       cacheReadTokens?: number;
       tokenCounts?: {
@@ -1961,6 +1966,7 @@ function getUsageTokenMetrics(session: Session): Record<TokenMetricKey, number |
     totalTokens: getUsageTokenMetric(session, "totalTokens"),
     inputTokens: getUsageTokenMetric(session, "inputTokens"),
     outputTokens: getUsageTokenMetric(session, "outputTokens"),
+    thoughtTokens: getUsageTokenMetric(session, "thoughtTokens"),
     cacheReadTokens: getUsageTokenMetric(session, "cacheReadTokens")
   };
 }
@@ -2068,6 +2074,10 @@ function buildOverviewTokenMetrics(
       unsupportedReason: "Selected sessions do not expose output token counts.",
       missingReason: "Selected sessions are missing output token counts."
     }),
+    thoughtTokens: buildOverviewTokenMetricByKey(sessionUsage, "thoughtTokens", {
+      unsupportedReason: "Selected sessions do not expose thought token counts.",
+      missingReason: "Selected sessions are missing thought token counts."
+    }),
     cacheReadTokens: buildOverviewTokenMetricByKey(sessionUsage, "cacheReadTokens", {
       unsupportedReason: "Selected sessions do not expose cached input tokens.",
       missingReason: "Selected sessions are missing cached input token counts."
@@ -2139,6 +2149,8 @@ function getOverviewTokenMetricLabel(key: TokenMetricKey): string {
       return "Input token counts";
     case "outputTokens":
       return "Output token counts";
+    case "thoughtTokens":
+      return "Thought token counts";
     case "cacheReadTokens":
       return "Cached input tokens";
   }
