@@ -15,9 +15,11 @@ import {
   syncLatestSourceCacheRecordToEntityStore,
   syncMissingCurrentRunsFromCacheToEntityStore
 } from "./workbench-entity-store-sync.js";
+import type { SourceDataChangedEvent } from "../ipc/view-models.js";
 
 export interface WorkbenchRuntimeOptions {
   appDataDir?: string;
+  onSourceDataChanged?: (event: SourceDataChangedEvent) => void;
   projectDir?: string;
 }
 
@@ -90,6 +92,11 @@ export function createWorkbenchRuntime(
         diagnostics: source.scan.diagnostics,
         reason
       });
+      options.onSourceDataChanged?.({
+        sourceId: event.sourceId,
+        status: "stale",
+        reason
+      });
     },
     onSourceUpdateSignaled(event) {
       backgroundScanScheduler?.handleWatchUpdateSignal(event);
@@ -129,8 +136,26 @@ export function createWorkbenchRuntime(
     getScanJobRunner: () => runtime.scanJobRunner,
     sourceRegistry: runtime.sourceRegistry,
     watchOrchestrator: runtime.watchOrchestrator,
-    onScanComplete(sourceId) {
-      return syncLatestSourceCacheRecordToEntityStore(runtime, sourceId);
+    async onScanComplete(sourceId) {
+      await syncLatestSourceCacheRecordToEntityStore(runtime, sourceId);
+      options.onSourceDataChanged?.({
+        sourceId,
+        status: "scan-completed",
+        completedAt: new Date().toISOString()
+      });
+    },
+    async onScanFailed(sourceId, error) {
+      const source = await runtime.sourceRegistry.getSource(sourceId);
+
+      options.onSourceDataChanged?.({
+        sourceId,
+        status: "scan-failed",
+        reason:
+          source?.scan.reason ??
+          source?.scan.diagnostics.at(-1)?.message ??
+          (error instanceof Error ? error.message : "Background source refresh failed."),
+        completedAt: new Date().toISOString()
+      });
     }
   });
   runtime.backgroundScanScheduler = backgroundScanScheduler;

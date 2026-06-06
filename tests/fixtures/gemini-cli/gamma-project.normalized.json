@@ -37,8 +37,8 @@
           "costEstimates": false
         },
         "live": {
-          "activeSessionDetection": "none",
-          "watchableArtifacts": false,
+          "activeSessionDetection": "mtime",
+          "watchableArtifacts": true,
           "incrementalParsing": false
         },
         "audit": {
@@ -89,8 +89,8 @@
           "costEstimates": false
         },
         "live": {
-          "activeSessionDetection": "none",
-          "watchableArtifacts": false,
+          "activeSessionDetection": "mtime",
+          "watchableArtifacts": true,
           "incrementalParsing": false
         },
         "audit": {
@@ -143,8 +143,8 @@
             "costEstimates": false
           },
           "live": {
-            "activeSessionDetection": "none",
-            "watchableArtifacts": false,
+            "activeSessionDetection": "mtime",
+            "watchableArtifacts": true,
             "incrementalParsing": false
           },
           "audit": {

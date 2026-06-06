@@ -1,7 +1,10 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
-import { getDashboardStats } from "../../../bridge/agent-workbench.js";
+import {
+  getDashboardStats,
+  onSourceDataChanged
+} from "../../../bridge/agent-workbench.js";
 import { ErrorState } from "../../../components/app/error-state.js";
 import { LoadingState } from "../../../components/app/loading-state.js";
 import { PageHeader } from "../../../components/app/page-header.js";
@@ -28,12 +31,18 @@ export function OverviewRoute() {
   const [overview, setOverview] = useState<OverviewView | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
     let isCurrent = true;
-    setIsLoading(true);
+    const isLiveRefresh = refreshToken > 0;
+
+    setIsLoading(!isLiveRefresh);
     setLoadFailed(false);
-    setOverview(null);
+
+    if (!isLiveRefresh) {
+      setOverview(null);
+    }
 
     getDashboardStats(selectedAdapterId === "all" ? {} : { adapterId: selectedAdapterId })
       .then((response) => {
@@ -61,7 +70,13 @@ export function OverviewRoute() {
     return () => {
       isCurrent = false;
     };
-  }, [selectedAdapterId]);
+  }, [refreshToken, selectedAdapterId]);
+
+  useEffect(() => {
+    return onSourceDataChanged(() => {
+      setRefreshToken((current) => current + 1);
+    });
+  }, []);
 
   function handleAdapterChange(adapterId: string) {
     setSearchParams((current) => {

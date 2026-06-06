@@ -151,6 +151,12 @@ export function createDataSourcesViewModelService(
 
       await runtime.scanJobRunner.scanSource(parsed.sourceId);
       await syncLatestSourceCacheRecordToEntityStore(runtime, parsed.sourceId);
+      const scannedSource = await runtime.sourceRegistry.getSource(parsed.sourceId);
+
+      if (scannedSource) {
+        runtime.backgroundScanScheduler.restorePersistedWatchPlans([scannedSource]);
+      }
+
       return buildViewModel(runtime);
     },
 

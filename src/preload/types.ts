@@ -39,6 +39,7 @@ import type {
   ShellStateViewModel,
   ShellCommandsResponse,
   SessionTimelineResponse,
+  SourceDataChangedEvent,
   SourcesResponse,
   ToolCallsResponse,
   UpdateSourceRequest,
@@ -91,6 +92,7 @@ export interface AgentWorkbenchBridge {
   getGitSnapshot(request: GitSnapshotRequest): Promise<GitSnapshotResponse>;
   getGitHubSnapshot(request: GitHubSnapshotRequest): Promise<GitHubSnapshotResponse>;
   listDiagnostics(request?: ListDiagnosticsRequest): Promise<ListDiagnosticsResponse>;
+  onSourceDataChanged(callback: (event: SourceDataChangedEvent) => void): () => void;
 }
 
 export interface AgentWorkbenchThemeBridge {

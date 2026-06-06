@@ -37,8 +37,8 @@
           "costEstimates": false
         },
         "live": {
-          "activeSessionDetection": "none",
-          "watchableArtifacts": false,
+          "activeSessionDetection": "mtime",
+          "watchableArtifacts": true,
           "incrementalParsing": false
         },
         "audit": {
@@ -89,8 +89,8 @@
           "costEstimates": false
         },
         "live": {
-          "activeSessionDetection": "none",
-          "watchableArtifacts": false,
+          "activeSessionDetection": "mtime",
+          "watchableArtifacts": true,
           "incrementalParsing": false
         },
         "audit": {
@@ -143,8 +143,8 @@
             "costEstimates": false
           },
           "live": {
-            "activeSessionDetection": "none",
-            "watchableArtifacts": false,
+            "activeSessionDetection": "mtime",
+            "watchableArtifacts": true,
             "incrementalParsing": false
           },
           "audit": {
@@ -222,10 +222,11 @@
         "session-event:33333333-3333-4333-8333-333333333333:header-metadata",
         "session-event:chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl:message:2",
         "session-event:list_directory_1700000004000_0:3",
-        "session-event:list_directory_1700000004000_0:4"
+        "session-event:list_directory_1700000004000_0:occurrence:2:4"
       ],
       "toolCallIds": [
-        "tool-call:list_directory_1700000004000_0"
+        "tool-call:list_directory_1700000004000_0",
+        "tool-call:list_directory_1700000004000_0:occurrence:2"
       ],
       "usage": {},
       "rawArtifactRefs": [
@@ -325,13 +326,13 @@
     },
     {
       "kind": "tool-call",
-      "id": "session-event:list_directory_1700000004000_0:4",
+      "id": "session-event:list_directory_1700000004000_0:occurrence:2:4",
       "adapterId": "gemini-cli",
       "sourceId": "source:beta-project",
       "sessionId": "session:33333333-3333-4333-8333-333333333333",
-      "nativeId": "list_directory_1700000004000_0:4",
+      "nativeId": "list_directory_1700000004000_0:occurrence:2:4",
       "timestamp": "2026-05-23T10:00:03.500Z",
-      "orderKey": "000005:list_directory_1700000004000_0:4",
+      "orderKey": "000005:list_directory_1700000004000_0:occurrence:2:4",
       "actor": "tool",
       "title": "list_directory success",
       "text": "list_directory success",
@@ -339,8 +340,8 @@
         "path": "src/main/adapters/gemini-cli/fixtures/sample-root/beta-project/chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
         "nativeId": "chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
         "lineNumber": 4,
-        "eventId": "session-event:list_directory_1700000004000_0:4",
-        "pointer": "event:list_directory_1700000004000_0:4"
+        "eventId": "session-event:list_directory_1700000004000_0:occurrence:2:4",
+        "pointer": "event:list_directory_1700000004000_0:occurrence:2:4"
       }
     }
   ],
@@ -386,9 +387,32 @@
       "source": {
         "path": "src/main/adapters/gemini-cli/fixtures/sample-root/beta-project/chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
         "nativeId": "chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
-        "lineNumber": 4,
-        "eventId": "session-event:list_directory_1700000004000_0:4",
+        "lineNumber": 3,
+        "eventId": "session-event:list_directory_1700000004000_0:3",
         "pointer": "tool:list_directory_1700000004000_0"
+      },
+      "confidence": "confirmed"
+    },
+    {
+      "kind": "tool-call",
+      "id": "tool-call:list_directory_1700000004000_0:occurrence:2",
+      "adapterId": "gemini-cli",
+      "sourceId": "source:beta-project",
+      "sessionId": "session:33333333-3333-4333-8333-333333333333",
+      "nativeId": "list_directory_1700000004000_0:occurrence:2",
+      "nativeToolCallId": "list_directory_1700000004000_0",
+      "name": "list_directory",
+      "normalizedKind": "unknown",
+      "statusRaw": "success",
+      "statusNormalized": "completed",
+      "argsPreview": "dir_path=src/",
+      "resultPreview": "src/main\nsrc/renderer",
+      "source": {
+        "path": "src/main/adapters/gemini-cli/fixtures/sample-root/beta-project/chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "nativeId": "chats/session-2026-05-23T10-00-33333333-3333-4333-8333-333333333333.jsonl",
+        "lineNumber": 4,
+        "eventId": "session-event:list_directory_1700000004000_0:occurrence:2:4",
+        "pointer": "tool:list_directory_1700000004000_0:occurrence:2"
       },
       "confidence": "confirmed"
     }

@@ -37,8 +37,8 @@
           "costEstimates": false
         },
         "live": {
-          "activeSessionDetection": "none",
-          "watchableArtifacts": false,
+          "activeSessionDetection": "mtime",
+          "watchableArtifacts": true,
           "incrementalParsing": false
         },
         "audit": {
@@ -89,8 +89,8 @@
           "costEstimates": false
         },
         "live": {
-          "activeSessionDetection": "none",
-          "watchableArtifacts": false,
+          "activeSessionDetection": "mtime",
+          "watchableArtifacts": true,
           "incrementalParsing": false
         },
         "audit": {
@@ -143,8 +143,8 @@
             "costEstimates": false
           },
           "live": {
-            "activeSessionDetection": "none",
-            "watchableArtifacts": false,
+            "activeSessionDetection": "mtime",
+            "watchableArtifacts": true,
             "incrementalParsing": false
           },
           "audit": {
@@ -196,8 +196,8 @@
             "costEstimates": false
           },
           "live": {
-            "activeSessionDetection": "none",
-            "watchableArtifacts": false,
+            "activeSessionDetection": "mtime",
+            "watchableArtifacts": true,
             "incrementalParsing": false
           },
           "audit": {
@@ -308,6 +308,7 @@
       "usage": {
         "inputTokens": 420,
         "outputTokens": 110,
+        "thoughtTokens": 22,
         "totalTokens": 552,
         "cacheReadTokens": 0
       },
@@ -822,6 +823,7 @@
       "usage": {
         "inputTokens": 200,
         "outputTokens": 80,
+        "thoughtTokens": 0,
         "totalTokens": 280,
         "cacheReadTokens": 0
       },

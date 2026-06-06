@@ -71,6 +71,36 @@ describe("BackgroundScanScheduler", () => {
     });
   });
 
+  it("reports failed background scans without leaving work queued", async () => {
+    const source = buildSource({
+      sourceId: "source-failed",
+      scanStatus: "stale",
+      cacheStatus: "stale"
+    });
+    const sources = new Map([[source.sourceId, source]]);
+    const failedSources: Array<{ error: unknown; sourceId: string }> = [];
+    const scheduler = createScheduler({
+      sources,
+      onScan() {
+        throw new Error("worker failed");
+      },
+      onScanFailed(sourceId, error) {
+        failedSources.push({ sourceId, error });
+      }
+    });
+
+    scheduler.enqueue(source.sourceId, "changed artifact");
+    await flushBackgroundWork();
+
+    expect(failedSources).toHaveLength(1);
+    expect(failedSources[0]?.sourceId).toBe("source-failed");
+    expect(failedSources[0]?.error).toBeInstanceOf(Error);
+    expect(scheduler.getStatus()).toMatchObject({
+      activeBackgroundScans: 0,
+      queuedScans: 0
+    });
+  });
+
   it("routes scoped watch update signals into coalesced scans", async () => {
     const source = buildSource({
       sourceId: "source-watch",
@@ -135,6 +165,7 @@ function createScheduler(options: {
   sources: Map<string, SourceRecord>;
   onReconcile?: (sourceId: string) => SourceRecord | undefined;
   onScan?: (sourceId: string) => void;
+  onScanFailed?: (sourceId: string, error: unknown) => void;
   watchOrchestrator?: WatchOrchestrator;
 }): BackgroundScanScheduler {
   const sourceRegistry = {
@@ -168,6 +199,7 @@ function createScheduler(options: {
   return new BackgroundScanScheduler({
     coalesceMs: 0,
     scanner,
+    ...(options.onScanFailed ? { onScanFailed: options.onScanFailed } : {}),
     scanJobRunner,
     sourceRegistry,
     watchOrchestrator: options.watchOrchestrator ?? new WatchOrchestrator()

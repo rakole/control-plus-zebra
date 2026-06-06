@@ -10,6 +10,7 @@ import { createOutputArtifactViewModelService } from "./app/output-artifact-view
 import { createRunAuditViewModelService } from "./app/run-audit-view-model-service.js";
 import { createSessionViewModelService } from "./app/session-view-model-service.js";
 import { createSessionDetailViewModelService } from "./app/session-detail-view-model-service.js";
+import { createSourceDataChangeService } from "./app/source-data-change-service.js";
 import { createTriageViewModelService } from "./app/triage-view-model-service.js";
 import { createWorkbenchRuntime } from "./app/workbench-runtime.js";
 import { registerIpcHandlers } from "./ipc/index.js";
@@ -26,7 +27,13 @@ async function bootstrap(): Promise<void> {
   applyDockIcon();
 
   const appDataDir = app.getPath("userData");
-  const runtime = createWorkbenchRuntime({ appDataDir });
+  const sourceDataChangeService = createSourceDataChangeService();
+  const runtime = createWorkbenchRuntime({
+    appDataDir,
+    onSourceDataChanged(event) {
+      sourceDataChangeService.notifySourceDataChanged(event);
+    }
+  });
   runtime.scanJobRunner = createElectronUtilityScanJobRunner({
     appDataDir: runtime.appDataDir,
     forkUtilityProcess(modulePath, args, options) {
@@ -69,12 +76,20 @@ async function bootstrap(): Promise<void> {
     dataSourcesService: createDataSourcesViewModelService({ runtime }),
     themeService
   });
-  registerThemeWindow(themeService, createMainWindow());
+  registerWorkbenchWindow({
+    sourceDataChangeService,
+    themeService,
+    window: createMainWindow()
+  });
   void runtime.backgroundScanScheduler.runStartupRefresh();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      registerThemeWindow(themeService, createMainWindow());
+      registerWorkbenchWindow({
+        sourceDataChangeService,
+        themeService,
+        window: createMainWindow()
+      });
     }
   });
 }
@@ -96,13 +111,20 @@ function applyDockIcon(): void {
   app.dock.setIcon(dockIconPath);
 }
 
-function registerThemeWindow(
-  themeService: ReturnType<typeof createThemeService>,
-  window: BrowserWindow
-): BrowserWindow {
+function registerWorkbenchWindow({
+  sourceDataChangeService,
+  themeService,
+  window
+}: {
+  sourceDataChangeService: ReturnType<typeof createSourceDataChangeService>;
+  themeService: ReturnType<typeof createThemeService>;
+  window: BrowserWindow;
+}): BrowserWindow {
   themeService.registerWindow(window);
+  sourceDataChangeService.registerWindow(window);
   window.once("closed", () => {
     themeService.unregisterWindow(window);
+    sourceDataChangeService.unregisterWindow(window);
   });
 
   return window;

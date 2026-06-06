@@ -1109,6 +1109,16 @@ export const scannerStatusResponseSchema = z.discriminatedUnion("ok", [
 ]);
 export type ScannerStatusResponse = z.infer<typeof scannerStatusResponseSchema>;
 
+export const sourceDataChangedEventSchema = z
+  .object({
+    sourceId: z.string().min(1),
+    status: z.enum(["stale", "scan-completed", "scan-failed"]),
+    reason: z.string().min(1).optional(),
+    completedAt: z.string().min(1).optional()
+  })
+  .strict();
+export type SourceDataChangedEvent = z.infer<typeof sourceDataChangedEventSchema>;
+
 export const rescanAllSourcesRequestSchema = z.undefined();
 export type RescanAllSourcesRequest = z.infer<typeof rescanAllSourcesRequestSchema>;
 

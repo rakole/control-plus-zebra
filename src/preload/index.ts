@@ -19,6 +19,7 @@ import type {
   OpenArchiveRequest,
   OutputArtifactRequest,
   RescanSourceRequest,
+  SourceDataChangedEvent,
   UpdateSourceRequest,
   ValidateSourceRequest
 } from "../main/ipc/view-models.js";
@@ -115,6 +116,17 @@ const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
   },
   listDiagnostics(request: ListDiagnosticsRequest = {}) {
     return ipcRenderer.invoke(IPC_CHANNELS.listDiagnostics, request);
+  },
+  onSourceDataChanged(callback: (event: SourceDataChangedEvent) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, event: SourceDataChangedEvent) => {
+      callback(event);
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.sourceDataChanged, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.sourceDataChanged, listener);
+    };
   }
 });
 

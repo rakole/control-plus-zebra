@@ -9,7 +9,10 @@ import {
 } from "react";
 import type { HeatMapProps } from "@uiw/react-heat-map";
 
-import { getOverviewActivityHeatmap } from "../../../bridge/agent-workbench.js";
+import {
+  getOverviewActivityHeatmap,
+  onSourceDataChanged
+} from "../../../bridge/agent-workbench.js";
 import { ErrorState } from "../../../components/app/error-state.js";
 import { LoadingState } from "../../../components/app/loading-state.js";
 import { SectionCard } from "../../../components/app/section-card.js";
@@ -50,11 +53,17 @@ export default function OverviewActivityHeatmap({
   const [heatmap, setHeatmap] = useState<HeatmapView | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
     let isCurrent = true;
-    setHeatmap(null);
-    setIsLoading(true);
+    const isLiveRefresh = refreshToken > 0;
+
+    if (!isLiveRefresh) {
+      setHeatmap(null);
+    }
+
+    setIsLoading(!isLiveRefresh);
     setLoadFailed(false);
 
     getOverviewActivityHeatmap(selectedAdapterId === "all" ? {} : { adapterId: selectedAdapterId })
@@ -83,7 +92,13 @@ export default function OverviewActivityHeatmap({
     return () => {
       isCurrent = false;
     };
-  }, [selectedAdapterId]);
+  }, [refreshToken, selectedAdapterId]);
+
+  useEffect(() => {
+    return onSourceDataChanged(() => {
+      setRefreshToken((current) => current + 1);
+    });
+  }, []);
 
   if (isLoading) {
     return <OverviewActivityHeatmapLoadingCard />;

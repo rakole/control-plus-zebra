@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { getSession, listSessions } from "../../../bridge/agent-workbench.js";
+import {
+  getSession,
+  listSessions,
+  onSourceDataChanged
+} from "../../../bridge/agent-workbench.js";
 import { EmptyState } from "../../../components/app/empty-state.js";
 import { ErrorState } from "../../../components/app/error-state.js";
 import { LoadingState } from "../../../components/app/loading-state.js";
@@ -100,6 +104,7 @@ export function SessionsRoute() {
   const [previousPages, setPreviousPages] = useState<CursorHistoryEntry[]>([]);
   const [reloadToken, setReloadToken] = useState(0);
   const pageNavigationPendingRef = useRef(false);
+  const preserveFocusOnNextLoadRef = useRef(false);
   const [isPageNavigationPending, setIsPageNavigationPending] = useState(false);
 
   const visibleSessions = useMemo(() => sortSessions(sessions, sortOrder), [sessions, sortOrder]);
@@ -138,10 +143,27 @@ export function SessionsRoute() {
       }
 
       const sortedSessions = sortSessions(response.sessions, sortOrder);
+      const shouldPreserveFocus = preserveFocusOnNextLoadRef.current;
+      preserveFocusOnNextLoadRef.current = false;
+      const previousFocusedSessionId = focusedSessionIdRef.current;
+      const nextFocusedSessionId =
+        shouldPreserveFocus &&
+        previousFocusedSessionId &&
+        response.sessions.some((session) => session.sessionId === previousFocusedSessionId)
+          ? previousFocusedSessionId
+          : sortedSessions[0]?.sessionId ?? null;
+      const nextFocusedIndex =
+        nextFocusedSessionId === null
+          ? 0
+          : Math.max(
+              0,
+              sortedSessions.findIndex((session) => session.sessionId === nextFocusedSessionId)
+            );
+
       setSessions(response.sessions);
       setPageInfo(response.pageInfo);
-      focusedSessionIdRef.current = sortedSessions[0]?.sessionId ?? null;
-      setFocusedIndex(0);
+      focusedSessionIdRef.current = nextFocusedSessionId;
+      setFocusedIndex(nextFocusedIndex);
       setSelectedSessionId((current) => {
         if (current && response.sessions.some((session) => session.sessionId === current)) {
           return current;
@@ -156,6 +178,7 @@ export function SessionsRoute() {
       setSelectedPreview(null);
       setLoadFailed(true);
     } finally {
+      preserveFocusOnNextLoadRef.current = false;
       pageNavigationPendingRef.current = false;
       setIsPageNavigationPending(false);
       setIsListLoading(false);
@@ -165,6 +188,13 @@ export function SessionsRoute() {
   useEffect(() => {
     void loadSessions();
   }, [loadSessions, reloadToken]);
+
+  useEffect(() => {
+    return onSourceDataChanged(() => {
+      preserveFocusOnNextLoadRef.current = true;
+      setReloadToken((current) => current + 1);
+    });
+  }, []);
 
   useEffect(() => {
     if (!selectedSessionId) {

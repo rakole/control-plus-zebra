@@ -734,7 +734,10 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
       }
     }),
     getGitSnapshot: vi.fn(),
-    getGitHubSnapshot: vi.fn()
+    getGitHubSnapshot: vi.fn(),
+    onSourceDataChanged: vi.fn<
+      (callback: Parameters<Window["agentWorkbench"]["onSourceDataChanged"]>[0]) => () => void
+    >(() => vi.fn())
   };
 
   Object.defineProperty(window, "agentWorkbench", {

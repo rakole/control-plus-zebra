@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 
-import { getSessionDetail } from "../../../bridge/agent-workbench.js";
+import {
+  getSessionDetail,
+  onSourceDataChanged
+} from "../../../bridge/agent-workbench.js";
 import { ErrorState } from "../../../components/app/error-state.js";
 import { LoadingState } from "../../../components/app/loading-state.js";
 import { PageHeader } from "../../../components/app/page-header.js";
@@ -20,6 +23,7 @@ export function SessionDetailRoute() {
   const [detail, setDetail] = useState<SessionDetailView | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
     if (!sessionId) {
@@ -29,6 +33,10 @@ export function SessionDetailRoute() {
     }
 
     let isCurrent = true;
+    const isLiveRefresh = refreshToken > 0;
+
+    setIsLoading(!isLiveRefresh);
+    setLoadFailed(false);
 
     getSessionDetail({ sessionId })
       .then((response) => {
@@ -56,7 +64,13 @@ export function SessionDetailRoute() {
     return () => {
       isCurrent = false;
     };
-  }, [sessionId]);
+  }, [refreshToken, sessionId]);
+
+  useEffect(() => {
+    return onSourceDataChanged(() => {
+      setRefreshToken((current) => current + 1);
+    });
+  }, []);
 
   return (
     <RoutePage aria-label="Session detail route">

@@ -1,7 +1,13 @@
+import path from "node:path";
+
 import type { SessionSourceAdapter } from "../../core/adapter-contract/session-source-adapter.js";
-import type { LoadedOutputArtifact } from "../../core/adapter-contract/types.js";
+import type {
+  AdapterContext,
+  LoadedOutputArtifact
+} from "../../core/adapter-contract/types.js";
 import { adapterReadTextFile } from "../../core/adapter-contract/context-helpers.js";
 import type { WatchPlan } from "../../core/watcher/watch-plan.js";
+import { createSafeFilesystem } from "../../core/security/safe-filesystem.js";
 
 import { geminiCliDescriptor } from "./descriptor.js";
 import {
@@ -71,14 +77,14 @@ export const geminiCliAdapter: SessionSourceAdapter<GeminiRawEvent> = {
       mediaType
     };
   },
-  async getWatchPlan(source): Promise<WatchPlan> {
+  async getWatchPlan(source, context): Promise<WatchPlan> {
     return {
       adapterId: geminiCliDescriptor.id,
       sourceId: source.id,
-      status: "unsupported",
-      scopePaths: [],
-      strategy: "none",
-      reason: "Gemini CLI artifact watching is not supported in this Wave 2 adapter contract slice."
+      status: "supported",
+      scopePaths: await buildGeminiWatchScopePaths(source.rootPath, context),
+      strategy: "native",
+      reason: "Gemini CLI artifacts are watched by mtime and refreshed through background snapshot scans."
     };
   }
 };
@@ -86,3 +92,33 @@ export const geminiCliAdapter: SessionSourceAdapter<GeminiRawEvent> = {
 export { geminiCliDescriptor } from "./descriptor.js";
 export type { GeminiRawEvent } from "./parse.js";
 export * from "./types.js";
+
+async function buildGeminiWatchScopePaths(
+  rootPath: string,
+  context: AdapterContext
+): Promise<string[]> {
+  const safeFilesystem =
+    context.safeFilesystem ??
+    createSafeFilesystem({
+      allowedRootPaths: [rootPath]
+    });
+  const candidates = [
+    rootPath,
+    path.join(rootPath, "chats"),
+    path.join(rootPath, "tool-outputs"),
+    path.join(rootPath, "logs.json"),
+    path.join(rootPath, ".project_root")
+  ];
+  const scopePaths: string[] = [];
+
+  for (const candidate of candidates) {
+    try {
+      await safeFilesystem.statPath(candidate);
+      scopePaths.push(candidate);
+    } catch {
+      // Optional Gemini artifact locations may not exist yet.
+    }
+  }
+
+  return scopePaths.length > 0 ? scopePaths : [rootPath];
+}

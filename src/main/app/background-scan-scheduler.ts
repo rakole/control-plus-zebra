@@ -22,6 +22,7 @@ export interface BackgroundScanSchedulerOptions {
   getScanJobRunner?: () => ScanJobRunner;
   maxConcurrentScans?: number;
   onScanComplete?: (sourceId: SourceId) => Promise<void> | void;
+  onScanFailed?: (sourceId: SourceId, error: unknown) => Promise<void> | void;
   scanner: Scanner;
   scanJobRunner?: ScanJobRunner;
   sourceRegistry: SourceRegistry;
@@ -37,6 +38,9 @@ export class BackgroundScanScheduler {
   readonly #coalesceMs: number;
   readonly #maxConcurrentScans: number;
   readonly #onScanComplete: ((sourceId: SourceId) => Promise<void> | void) | undefined;
+  readonly #onScanFailed:
+    | ((sourceId: SourceId, error: unknown) => Promise<void> | void)
+    | undefined;
   readonly #queue = new Map<SourceId, QueueEntry>();
   readonly #running = new Set<SourceId>();
   readonly #scanner: Scanner;
@@ -53,6 +57,7 @@ export class BackgroundScanScheduler {
     this.#coalesceMs = options.coalesceMs ?? 1000;
     this.#maxConcurrentScans = options.maxConcurrentScans ?? 1;
     this.#onScanComplete = options.onScanComplete;
+    this.#onScanFailed = options.onScanFailed;
     this.#scanner = options.scanner;
     this.#getScanJobRunner =
       options.getScanJobRunner ?? (() => expectScanJobRunner(options.scanJobRunner));
@@ -195,9 +200,10 @@ export class BackgroundScanScheduler {
       }
 
       this.#lastBackgroundScanAt = new Date().toISOString();
-    } catch {
+    } catch (error) {
       // The scan job runner persists bounded failure diagnostics. Background
       // scheduling must not turn a failed source into an unhandled rejection.
+      await this.#onScanFailed?.(entry.sourceId, error);
     } finally {
       this.#running.delete(entry.sourceId);
     }

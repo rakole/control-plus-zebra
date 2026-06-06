@@ -29,6 +29,7 @@ export const IPC_CHANNELS = {
   getGitSnapshot: "git:getSnapshot",
   getGitHubSnapshot: "github:getSnapshot",
   listDiagnostics: "diagnostics:list",
+  sourceDataChanged: "sources:dataChanged",
   getThemeState: "theme:getState",
   setThemePreference: "theme:setPreference",
   themeStateChanged: "theme:stateChanged"

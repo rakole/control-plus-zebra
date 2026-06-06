@@ -84,9 +84,9 @@ const scenarios = [
   },
   {
     name: "active-changing-artifact",
-    status: "unsupported",
+    status: "supported",
     capability: { group: "live", key: "activeSessionDetection" },
-    assertNotFabricated(adapterRun) {
+    assertSupported(adapterRun) {
       expect(
         adapterRun.normalized.outputArtifacts.some((artifact) =>
           /active|changing|watch/iu.test(JSON.stringify(artifact))

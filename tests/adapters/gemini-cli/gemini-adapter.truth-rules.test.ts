@@ -40,8 +40,8 @@ function findForbiddenKeys(value: unknown, pathPrefix = "$", hits: string[] = []
 }
 
 function assertTruthStates(snapshot: CapabilityEnvelope) {
-  expect(snapshot.capabilities.live.activeSessionDetection).toBe("none");
-  expect(snapshot.capabilities.live.watchableArtifacts).toBe(false);
+  expect(snapshot.capabilities.live.activeSessionDetection).toBe("mtime");
+  expect(snapshot.capabilities.live.watchableArtifacts).toBe(true);
   expect(snapshot.capabilities.replay.transcriptReplay).toBe(true);
   expect(snapshot.capabilities.tools.shellCommands).toBe(true);
   expect(snapshot.capabilities.tools.fileSearches).toBe(true);

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -69,6 +69,45 @@ describe("Sessions route", () => {
     expect(capabilityPanel).not.toHaveClass("hidden");
     expect(within(route).getAllByLabelText("Git Context: Unsupported").length).toBeGreaterThan(0);
     expect(within(route).getAllByText("Unsupported").length).toBeGreaterThan(0);
+  });
+
+  it("refreshes session summaries on source data changes without losing the selected row", async () => {
+    const liveSession = buildSessionSummary({
+      sessionId: "session-live",
+      title: "Live session"
+    });
+    const refreshedLiveSession = buildSessionSummary({
+      ...liveSession,
+      title: "Live session refreshed"
+    });
+    const bridge = installBridgeMocks({
+      firstSession: liveSession,
+      firstPreview: buildSessionPreview(liveSession),
+      sessions: [liveSession]
+    });
+    render(<App />);
+
+    await screen.findByRole("button", { name: /Live session/u });
+    expect(bridge.onSourceDataChanged).toHaveBeenCalledTimes(1);
+
+    bridge.listSessions.mockResolvedValueOnce({
+      ok: true,
+      sessions: [refreshedLiveSession]
+    });
+
+    const listener = bridge.onSourceDataChanged.mock.calls[0]?.[0];
+
+    if (!listener) {
+      throw new Error("Expected Sessions route to subscribe to source data changes.");
+    }
+
+    act(() => {
+      listener({ sourceId: liveSession.sourceId, status: "scan-completed" });
+    });
+
+    await screen.findByRole("button", { name: /Live session refreshed/u });
+    await waitFor(() => expect(bridge.listSessions).toHaveBeenCalledTimes(2));
+    expect(bridge.getSession).toHaveBeenLastCalledWith({ sessionId: "session-live" });
   });
 
   it("shows token metric breakdown states without collapsing unknown or unsupported values", async () => {

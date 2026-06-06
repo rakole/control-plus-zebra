@@ -39,6 +39,7 @@ describe("preload API surface", () => {
     expect(typesSource).toContain("getGitSnapshot(request");
     expect(typesSource).toContain("getGitHubSnapshot(request");
     expect(typesSource).toContain("listDiagnostics(request?");
+    expect(typesSource).toContain("onSourceDataChanged(callback");
     expect(extractBridgeMethodNames(typesSource)).toEqual([
       "getShellState",
       "listHarnesses",
@@ -69,7 +70,8 @@ describe("preload API surface", () => {
       "getRunAudit",
       "getGitSnapshot",
       "getGitHubSnapshot",
-      "listDiagnostics"
+      "listDiagnostics",
+      "onSourceDataChanged"
     ]);
     expect(findForbiddenPublicNames(typesSource)).toEqual([]);
   });
@@ -108,11 +110,12 @@ describe("preload API surface", () => {
       "getRunAudit",
       "getGitSnapshot",
       "getGitHubSnapshot",
-      "listDiagnostics"
+      "listDiagnostics",
+      "onSourceDataChanged"
     ]);
     expect(preloadSource).not.toMatch(/\b(?:fs|child_process|shell)\b/u);
     expect(preloadSource).not.toMatch(/(?<!\.)\binvoke\s*\(/u);
-    expect(preloadSource).not.toMatch(/\b(?:send|on|removeListener)\s*\(/u);
+    expect(preloadSource).not.toMatch(/\bsend\s*\(/u);
   });
 });
 

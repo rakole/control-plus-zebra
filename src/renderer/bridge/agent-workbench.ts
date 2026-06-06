@@ -108,3 +108,9 @@ export function listDiagnostics(
 ) {
   return getAgentWorkbenchBridge().listDiagnostics(request);
 }
+
+export function onSourceDataChanged(
+  callback: Parameters<Window["agentWorkbench"]["onSourceDataChanged"]>[0]
+) {
+  return getAgentWorkbenchBridge().onSourceDataChanged(callback);
+}

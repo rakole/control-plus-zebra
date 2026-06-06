@@ -37,8 +37,8 @@ const geminiCliCapabilityGroups = {
     costEstimates: false
   },
   live: {
-    activeSessionDetection: "none",
-    watchableArtifacts: false,
+    activeSessionDetection: "mtime",
+    watchableArtifacts: true,
     incrementalParsing: false
   },
   audit: {

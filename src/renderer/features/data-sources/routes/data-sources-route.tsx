@@ -8,6 +8,7 @@ import {
   setDataSourceEnabled,
   updateDataSource,
   validateDataSource,
+  onSourceDataChanged,
   type CreateDataSourceRequest,
   type DataSourceAdapterOption,
   type SetDataSourceEnabledRequest,
@@ -110,6 +111,12 @@ export function DataSourcesRoute() {
 
   useEffect(() => {
     void loadDataSources();
+  }, [loadDataSources]);
+
+  useEffect(() => {
+    return onSourceDataChanged((event) => {
+      void loadDataSources(event.sourceId);
+    });
   }, [loadDataSources]);
 
   const displaySources = buildDisplaySources(sources, selectedSource);

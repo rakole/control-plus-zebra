@@ -141,6 +141,7 @@ describe("Data Sources route", () => {
   const setDataSourceEnabled = vi.fn();
   const validateDataSource = vi.fn();
   const scanDataSource = vi.fn();
+  const onSourceDataChanged = vi.fn();
 
   beforeEach(() => {
     window.location.hash = "#/data-sources";
@@ -280,7 +281,8 @@ describe("Data Sources route", () => {
         updateSource: updateDataSource,
         disableSource: setDataSourceEnabled,
         validateSource: validateDataSource,
-        rescanSource: scanDataSource
+        rescanSource: scanDataSource,
+        onSourceDataChanged
       }
     });
   });
@@ -288,6 +290,7 @@ describe("Data Sources route", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    onSourceDataChanged.mockImplementation(() => vi.fn());
   });
 
   describe("list and detail rendering", () => {
@@ -317,6 +320,32 @@ describe("Data Sources route", () => {
       expect(within(list).getAllByText("Cached").length).toBeGreaterThan(0);
       expect(within(route).queryByText("Passed")).not.toBeInTheDocument();
       expect(within(route).queryByText("Clean")).not.toBeInTheDocument();
+    });
+
+    it("refreshes source summaries on source data changes while keeping the changed source selected", async () => {
+      onSourceDataChanged.mockImplementation(() => vi.fn());
+      const refreshedSource = buildSource({
+        ...firstSource,
+        scanReason: "Live refresh completed from a background source scan."
+      });
+      renderDataSourcesRoute();
+
+      await screen.findByText("4 artifacts were normalized with parser warnings.");
+      expect(onSourceDataChanged).toHaveBeenCalledTimes(1);
+
+      listDataSources.mockResolvedValueOnce(buildSourcesResponse([refreshedSource, secondSource]));
+
+      const listener = onSourceDataChanged.mock.calls[0]?.[0];
+
+      if (!listener) {
+        throw new Error("Expected Data Sources route to subscribe to source data changes.");
+      }
+
+      listener({ sourceId: firstSource.sourceId, status: "scan-completed" });
+
+      await screen.findByText("Live refresh completed from a background source scan.");
+      await waitFor(() => expect(listDataSources).toHaveBeenCalledTimes(2));
+      expect(screen.getByDisplayValue("Fixture Root")).toBeInTheDocument();
     });
 
     it("renders the selected source form, statuses, diagnostics, and enabled switch", async () => {

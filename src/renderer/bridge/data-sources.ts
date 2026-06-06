@@ -241,6 +241,12 @@ export async function openArchive(
   };
 }
 
+export function onSourceDataChanged(
+  callback: Parameters<AgentWorkbenchBridge["onSourceDataChanged"]>[0]
+) {
+  return getBridge().onSourceDataChanged(callback);
+}
+
 async function loadSourceById(
   sourceId: string
 ): Promise<NativeDataSourceViewModel | null> {
