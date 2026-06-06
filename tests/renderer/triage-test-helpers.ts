@@ -71,6 +71,7 @@ export interface SessionSummaryFixture {
       totalTokens: MetricFixture;
       inputTokens: MetricFixture;
       outputTokens: MetricFixture;
+      thoughtTokens: MetricFixture;
       cacheReadTokens: MetricFixture;
     };
     tokenCount: MetricFixture;
@@ -144,6 +145,7 @@ export interface OverviewFixture {
       totalTokens: MetricFixture;
       inputTokens: MetricFixture;
       outputTokens: MetricFixture;
+      thoughtTokens: MetricFixture;
       cacheReadTokens: MetricFixture;
     };
     tokenCount: MetricFixture;
@@ -286,6 +288,7 @@ export function buildSessionSummary(
         totalTokens: { status: "value", displayValue: "280", numericValue: 280 },
         inputTokens: { status: "value", displayValue: "200", numericValue: 200 },
         outputTokens: { status: "value", displayValue: "80", numericValue: 80 },
+        thoughtTokens: { status: "value", displayValue: "0", numericValue: 0 },
         cacheReadTokens: { status: "value", displayValue: "0", numericValue: 0 }
       },
       tokenCount: { status: "value", displayValue: "280", numericValue: 280 }
@@ -443,6 +446,7 @@ export function buildOverview(overrides: Partial<OverviewFixture> = {}) {
         totalTokens: { status: "value" as const, displayValue: "560", numericValue: 560 },
         inputTokens: { status: "value" as const, displayValue: "420", numericValue: 420 },
         outputTokens: { status: "value" as const, displayValue: "140", numericValue: 140 },
+        thoughtTokens: { status: "value" as const, displayValue: "0", numericValue: 0 },
         cacheReadTokens: { status: "value" as const, displayValue: "0", numericValue: 0 }
       },
       tokenCount: { status: "value" as const, displayValue: "560", numericValue: 560 }

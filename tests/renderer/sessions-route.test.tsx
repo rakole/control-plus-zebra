@@ -51,7 +51,7 @@ describe("Sessions route", () => {
     expect(within(route).getByText("Capability Coverage")).toBeInTheDocument();
     expect(await within(route).findByText("Input")).toBeInTheDocument();
     expect(await within(route).findByText("Output")).toBeInTheDocument();
-    expect(await within(route).findByText("Cached Input")).toBeInTheDocument();
+    expect((await within(route).findAllByText(/Cached Input/u)).length).toBeGreaterThan(0);
     const capabilityDisclosure = within(route).getByRole("button", { name: "View details" });
     const capabilityPanel = document.getElementById(
       capabilityDisclosure.getAttribute("aria-controls") ?? ""
@@ -90,6 +90,11 @@ describe("Sessions route", () => {
             displayValue: "Unknown",
             reason: "Output tokens were expected but not observed."
           },
+          thoughtTokens: {
+            status: "unsupported",
+            displayValue: "Unsupported",
+            reason: "Thought token counts are not available for this harness."
+          },
           cacheReadTokens: {
             status: "unsupported",
             displayValue: "Unsupported",
@@ -117,8 +122,50 @@ describe("Sessions route", () => {
     expect(await within(route).findByText("200")).toBeInTheDocument();
     expect(await within(route).findByText("Output")).toBeInTheDocument();
     expect((await within(route).findAllByText("Unknown")).length).toBeGreaterThan(0);
-    expect(await within(route).findByText("Cached Input")).toBeInTheDocument();
+    expect((await within(route).findAllByText(/Cached Input/u)).length).toBeGreaterThan(0);
     expect((await within(route).findAllByText("Unsupported")).length).toBeGreaterThan(0);
+  });
+
+  it("compacts large session-preview token metrics in the UI", async () => {
+    const sessionWithLargeTokens = buildSessionSummary({
+      sessionId: "session-large-tokens",
+      nativeSessionId: "native-large-tokens",
+      title: "Large token session",
+      usageSummary: {
+        models: {
+          status: "value",
+          displayValue: "gemini-3-flash-preview",
+          rawValue: "gemini-3-flash-preview"
+        },
+        tokenMetrics: {
+          totalTokens: { status: "value", displayValue: "1000000", numericValue: 1_000_000 },
+          inputTokens: { status: "value", displayValue: "999999", numericValue: 999_999 },
+          outputTokens: { status: "value", displayValue: "1500000", numericValue: 1_500_000 },
+          thoughtTokens: { status: "value", displayValue: "1000000000", numericValue: 1_000_000_000 },
+          cacheReadTokens: { status: "value", displayValue: "1250000", numericValue: 1_250_000 }
+        },
+        tokenCount: { status: "value", displayValue: "1000000", numericValue: 1_000_000 }
+      }
+    });
+
+    installBridgeMocks({
+      firstSession: sessionWithLargeTokens,
+      firstPreview: buildSessionPreview({
+        ...sessionWithLargeTokens,
+        diagnostics: []
+      }),
+      sessions: [sessionWithLargeTokens]
+    });
+    render(<App />);
+
+    const route = await screen.findByRole("region", { name: "Sessions route" });
+    await screen.findByRole("heading", { name: "Large token session" });
+
+    expect(await within(route).findByText("1 million")).toBeInTheDocument();
+    expect(await within(route).findByText("999999")).toBeInTheDocument();
+    expect(await within(route).findByText("1.5 million")).toBeInTheDocument();
+    expect(await within(route).findByText("1 billion")).toBeInTheDocument();
+    expect(await within(route).findByText("1.25 million")).toBeInTheDocument();
   });
 
   it("uses honest empty states when preview evidence detail is not exposed", async () => {

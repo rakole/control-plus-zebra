@@ -8,6 +8,7 @@ import { PageHeader } from "../../../components/app/page-header.js";
 import { RoutePage } from "../../../components/app/route-page.js";
 import { SectionCard } from "../../../components/app/section-card.js";
 import { Toolbar } from "../../../components/app/toolbar.js";
+import { formatTokenMetric } from "../../../lib/format-token-metric.js";
 import { NativeSelect } from "../../../components/ui/native-select.js";
 import { OverviewSummary } from "../components/overview-summary.js";
 import { UsageCoverageCards } from "../components/usage-coverage-cards.js";
@@ -133,27 +134,27 @@ export function OverviewRoute() {
                   {
                     icon: "TT",
                     title: "Total Tokens",
-                    value: overview.usageSummary.tokenMetrics.totalTokens.displayValue
+                    value: formatTokenMetric(overview.usageSummary.tokenMetrics.totalTokens)
                   },
                   {
                     icon: "IN",
                     title: "Input",
-                    value: overview.usageSummary.tokenMetrics.inputTokens.displayValue
+                    value: formatTokenMetric(overview.usageSummary.tokenMetrics.inputTokens)
                   },
                   {
                     icon: "OUT",
                     title: "Output",
-                    value: overview.usageSummary.tokenMetrics.outputTokens.displayValue
+                    value: formatTokenMetric(overview.usageSummary.tokenMetrics.outputTokens)
                   },
                   {
                     icon: "TH",
                     title: "Thoughts",
-                    value: overview.usageSummary.tokenMetrics.thoughtTokens.displayValue
+                    value: formatTokenMetric(overview.usageSummary.tokenMetrics.thoughtTokens)
                   },
                   {
                     icon: "CI",
                     title: "Cached Input",
-                    value: overview.usageSummary.tokenMetrics.cacheReadTokens.displayValue,
+                    value: formatTokenMetric(overview.usageSummary.tokenMetrics.cacheReadTokens),
                     change: "Subset of input tokens, not an extra additive bucket."
                   }
                 ]}

@@ -2,6 +2,7 @@ import { CapabilityBadge } from "../../../components/app/capability-badge.js";
 import { MetadataGrid } from "../../../components/app/metadata-grid.js";
 import { SectionCard } from "../../../components/app/section-card.js";
 import { TruthStateBadge } from "../../../components/app/truth-state-badge.js";
+import { formatTokenMetric } from "../../../lib/format-token-metric.js";
 import { flattenSessionCapabilities, type SessionDetailView } from "../types.js";
 
 interface SessionDetailSummaryRailProps {
@@ -28,13 +29,13 @@ export function SessionDetailSummaryRail({ detail }: SessionDetailSummaryRailPro
           { label: "Session ID", value: session.sessionId },
           { label: "Native Session ID", value: session.nativeSessionId ?? "Unknown" },
           { label: "Models", value: session.usageSummary.models.displayValue },
-          { label: "Total Tokens", value: session.usageSummary.tokenMetrics.totalTokens.displayValue },
-          { label: "Input", value: session.usageSummary.tokenMetrics.inputTokens.displayValue },
-          { label: "Output", value: session.usageSummary.tokenMetrics.outputTokens.displayValue },
-          { label: "Thoughts", value: session.usageSummary.tokenMetrics.thoughtTokens.displayValue },
+          { label: "Total Tokens", value: formatTokenMetric(session.usageSummary.tokenMetrics.totalTokens) },
+          { label: "Input", value: formatTokenMetric(session.usageSummary.tokenMetrics.inputTokens) },
+          { label: "Output", value: formatTokenMetric(session.usageSummary.tokenMetrics.outputTokens) },
+          { label: "Thoughts", value: formatTokenMetric(session.usageSummary.tokenMetrics.thoughtTokens) },
           {
             label: "Cached Input (subset of Input)",
-            value: session.usageSummary.tokenMetrics.cacheReadTokens.displayValue
+            value: formatTokenMetric(session.usageSummary.tokenMetrics.cacheReadTokens)
           },
           {
             label: "Attention Reasons",

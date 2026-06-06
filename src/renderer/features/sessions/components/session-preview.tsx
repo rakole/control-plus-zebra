@@ -27,6 +27,7 @@ import { Badge } from "../../../components/ui/badge.js";
 import { Button } from "../../../components/ui/button.js";
 import { Skeleton } from "../../../components/ui/skeleton.js";
 import { TooltipProvider } from "../../../components/ui/tooltip.js";
+import { formatTokenMetric } from "../../../lib/format-token-metric.js";
 import { formatSessionRange } from "../format.js";
 import { getSessionPrimaryVerdict, getSessionReason } from "../session-triage-helpers.js";
 import { flattenSessionCapabilities, type SessionPreviewView } from "../types.js";
@@ -181,13 +182,13 @@ export function SessionPreview({
       ? session.attentionReasons.join(" · ")
       : session.lifecycleState.reason ?? "No additional attention signal exposed.";
   const tokenMetricItems = [
-    { label: "Total Tokens", value: session.usageSummary.tokenMetrics.totalTokens.displayValue },
-    { label: "Input", value: session.usageSummary.tokenMetrics.inputTokens.displayValue },
-    { label: "Output", value: session.usageSummary.tokenMetrics.outputTokens.displayValue },
-    { label: "Thoughts", value: session.usageSummary.tokenMetrics.thoughtTokens.displayValue },
+    { label: "Total Tokens", value: formatTokenMetric(session.usageSummary.tokenMetrics.totalTokens) },
+    { label: "Input", value: formatTokenMetric(session.usageSummary.tokenMetrics.inputTokens) },
+    { label: "Output", value: formatTokenMetric(session.usageSummary.tokenMetrics.outputTokens) },
+    { label: "Thoughts", value: formatTokenMetric(session.usageSummary.tokenMetrics.thoughtTokens) },
     {
       label: "Cached Input (subset of Input)",
-      value: session.usageSummary.tokenMetrics.cacheReadTokens.displayValue
+      value: formatTokenMetric(session.usageSummary.tokenMetrics.cacheReadTokens)
     }
   ];
   const metadataItems = [
@@ -243,16 +244,16 @@ export function SessionPreview({
                 <Badge variant="outline">Time: {formatSessionRange(session)}</Badge>
                 <Badge variant="outline">Model: {session.usageSummary.models.displayValue}</Badge>
                 <Badge variant="outline">
-                  Input: {session.usageSummary.tokenMetrics.inputTokens.displayValue}
+                  Input: {formatTokenMetric(session.usageSummary.tokenMetrics.inputTokens)}
                 </Badge>
                 <Badge variant="outline">
-                  Output: {session.usageSummary.tokenMetrics.outputTokens.displayValue}
+                  Output: {formatTokenMetric(session.usageSummary.tokenMetrics.outputTokens)}
                 </Badge>
                 <Badge variant="outline">
-                  Thoughts: {session.usageSummary.tokenMetrics.thoughtTokens.displayValue}
+                  Thoughts: {formatTokenMetric(session.usageSummary.tokenMetrics.thoughtTokens)}
                 </Badge>
                 <Badge variant="outline">
-                  Cached Input: {session.usageSummary.tokenMetrics.cacheReadTokens.displayValue}
+                  Cached Input: {formatTokenMetric(session.usageSummary.tokenMetrics.cacheReadTokens)}
                 </Badge>
               </div>
             </div>

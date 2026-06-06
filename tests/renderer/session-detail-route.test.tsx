@@ -23,7 +23,7 @@ describe("Session detail route", () => {
     expect(screen.getByLabelText("Session detail summary")).toBeInTheDocument();
     expect(await screen.findByText("Input")).toBeInTheDocument();
     expect(await screen.findByText("Output")).toBeInTheDocument();
-    expect(await screen.findByText("Cached Input")).toBeInTheDocument();
+    expect(await screen.findByText(/Cached Input/u)).toBeInTheDocument();
     expect(screen.getByText("Capability Coverage")).toBeInTheDocument();
     expect(screen.getByText("Session Timeline")).toBeInTheDocument();
     expect(screen.getByText("npm run typecheck")).toBeInTheDocument();
@@ -49,6 +49,11 @@ describe("Session detail route", () => {
               displayValue: "Unknown",
               reason: "Output tokens were expected but not observed."
             },
+            thoughtTokens: {
+              status: "unsupported",
+              displayValue: "Unsupported",
+              reason: "Thought token counts are not available for this harness."
+            },
             cacheReadTokens: {
               status: "unsupported",
               displayValue: "Unsupported",
@@ -70,9 +75,45 @@ describe("Session detail route", () => {
     expect(await screen.findByText("Input")).toBeInTheDocument();
     expect(await screen.findByText("200")).toBeInTheDocument();
     expect(await screen.findByText("Output")).toBeInTheDocument();
-    expect(await screen.findByText("Cached Input")).toBeInTheDocument();
+    expect(await screen.findByText(/Cached Input/u)).toBeInTheDocument();
     expect((await screen.findAllByText("Unknown")).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("Unsupported")).length).toBeGreaterThan(0);
+  });
+
+  it("compacts large session-detail token metrics in the UI", async () => {
+    const detail = buildSessionDetail({
+      session: {
+        ...buildSessionDetail().session,
+        usageSummary: {
+          models: {
+            status: "value",
+            displayValue: "gemini-3-flash-preview",
+            rawValue: "gemini-3-flash-preview"
+          },
+          tokenMetrics: {
+            totalTokens: { status: "value", displayValue: "1000000", numericValue: 1_000_000 },
+            inputTokens: { status: "value", displayValue: "999999", numericValue: 999_999 },
+            outputTokens: { status: "value", displayValue: "1500000", numericValue: 1_500_000 },
+            thoughtTokens: { status: "value", displayValue: "1000000000", numericValue: 1_000_000_000 },
+            cacheReadTokens: { status: "value", displayValue: "1250000", numericValue: 1_250_000 }
+          },
+          tokenCount: { status: "value", displayValue: "1000000", numericValue: 1_000_000 }
+        }
+      }
+    });
+
+    installBridgeMocks({
+      firstPreview: detail.session,
+      detail
+    });
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Session Detail" })).toBeInTheDocument();
+    expect(await screen.findByText("1 million")).toBeInTheDocument();
+    expect(await screen.findByText("999999")).toBeInTheDocument();
+    expect(await screen.findByText("1.5 million")).toBeInTheDocument();
+    expect(await screen.findByText("1 billion")).toBeInTheDocument();
+    expect(await screen.findByText("1.25 million")).toBeInTheDocument();
   });
 
   it("contains tool and shell timeline evidence without changing normal summaries", async () => {

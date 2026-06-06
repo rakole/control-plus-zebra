@@ -158,6 +158,11 @@ describe("Overview route", () => {
               displayValue: "Unknown",
               reason: "Selected sessions are missing output token counts."
             },
+            thoughtTokens: {
+              status: "unsupported",
+              displayValue: "Unsupported",
+              reason: "Selected sessions do not expose thought token counts."
+            },
             cacheReadTokens: {
               status: "unsupported",
               displayValue: "Unsupported",
@@ -183,5 +188,47 @@ describe("Overview route", () => {
     expect(within(route).getByText("Cached Input")).toBeInTheDocument();
     expect(within(route).getAllByText("Unknown").length).toBeGreaterThan(0);
     expect(within(route).getAllByText("Unsupported").length).toBeGreaterThan(0);
+  });
+
+  it("compacts large overview token metrics in the UI only after one million", async () => {
+    installBridgeMocks({
+      overview: {
+        metrics: {
+          totalProjects: { status: "value", displayValue: "2", numericValue: 2 },
+          totalSessions: { status: "value", displayValue: "3", numericValue: 3 },
+          activeOrRecentSessions: { status: "value", displayValue: "2", numericValue: 2 },
+          failedVerification: { status: "value", displayValue: "1", numericValue: 1 },
+          cancelledSessions: { status: "value", displayValue: "1", numericValue: 1 },
+          needsAttentionSessions: { status: "value", displayValue: "2", numericValue: 2 },
+          toolActivity: { status: "value", displayValue: "4", numericValue: 4 }
+        },
+        usageSummary: {
+          models: {
+            status: "value",
+            displayValue: "gemini-3-flash-preview",
+            rawValue: "gemini-3-flash-preview"
+          },
+          tokenMetrics: {
+            totalTokens: { status: "value", displayValue: "1000000", numericValue: 1_000_000 },
+            inputTokens: { status: "value", displayValue: "999999", numericValue: 999_999 },
+            outputTokens: { status: "value", displayValue: "1500000", numericValue: 1_500_000 },
+            thoughtTokens: { status: "value", displayValue: "1000000000", numericValue: 1_000_000_000 },
+            cacheReadTokens: { status: "value", displayValue: "1250000", numericValue: 1_250_000 }
+          },
+          tokenCount: { status: "value", displayValue: "1000000", numericValue: 1_000_000 }
+        },
+        harnessFilters: [{ adapterId: "gemini-cli", label: "Gemini CLI", sessionCount: 2 }],
+        activity: [{ day: "2026-05-23", sessionCount: 3, needsAttentionCount: 2 }]
+      }
+    });
+    render(<App />);
+
+    const route = await screen.findByRole("region", { name: "Overview route" });
+
+    expect(within(route).getByText("1 million")).toBeInTheDocument();
+    expect(within(route).getByText("999999")).toBeInTheDocument();
+    expect(within(route).getByText("1.5 million")).toBeInTheDocument();
+    expect(within(route).getByText("1 billion")).toBeInTheDocument();
+    expect(within(route).getByText("1.25 million")).toBeInTheDocument();
   });
 });
