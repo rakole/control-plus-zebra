@@ -71,11 +71,10 @@ export async function requireGeminiSource(
 }
 
 export async function collectGeminiArtifacts(
-  source: DiscoveredHarnessSource
+  source: DiscoveredHarnessSource,
+  context: AdapterContext = createGeminiAdapterContext(source.rootPath)
 ): Promise<RawArtifactRef[]> {
-  return collectAsync(
-    geminiCliAdapter.discoverArtifacts(source, createGeminiAdapterContext(source.rootPath))
-  );
+  return collectAsync(geminiCliAdapter.discoverArtifacts(source, context));
 }
 
 export async function createTempGeminiFixtureRoot(): Promise<{

@@ -412,6 +412,12 @@ function createRuntimeStub(
 
   return {
     appDataDir: "/virtual/agent-workbench",
+    appSettingsStore: {
+      async load() {
+        return { retentionDays: 7 };
+      },
+      async save() {}
+    },
     adapterRegistry: {
       listDescriptors() {
         return [{
@@ -576,6 +582,11 @@ function createRuntimeStub(
       }
     } as WorkbenchRuntime["rawArtifactIndex"],
     scanJobRunner: {
+      async acquireSourceMaintenanceLease() {
+        return {
+          release() {}
+        };
+      },
       getActiveScanCount() {
         return 0;
       },

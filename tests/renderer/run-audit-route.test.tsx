@@ -21,26 +21,80 @@ describe("Run audit route", () => {
   });
 
   it("renders grouped run audit sections and session truth states", async () => {
-    render(<App />);
+      installBridgeMocks({
+        runAudit: buildRunAudit({
+          sections: [
+            {
+              id: "claim-vs-evidence",
+              title: "Claim vs Evidence",
+              summary: "Keep the stated completion claim separate from normalized evidence.",
+              items: [
+                { label: "Completion Claim", value: "Claimed", tone: "neutral" },
+                { label: "Run Audit", value: "Needs Review", tone: "warning" }
+              ]
+            },
+            {
+              id: "commands",
+              title: "Commands",
+              summary: "Show command evidence without replaying raw output.",
+              items: [
+                { label: "Observed Commands", value: "3", tone: "neutral" },
+                { label: "Failed Commands", value: "1", tone: "danger" },
+                {
+                  label: "Recent Commands",
+                  value: "Recent command activity",
+                  tone: "neutral",
+                  kind: "command-list",
+                  commands: [
+                    {
+                      command: "npm run test -- tests/main/core/run-audit-engine.test.ts",
+                      result: "Failed"
+                    },
+                    { command: "npm run typecheck", result: "Passed" },
+                    { command: "git status --short", result: "Passed" }
+                  ]
+                }
+              ]
+            },
+            {
+              id: "git",
+              title: "Git",
+              summary: "Show shared read-only repository truth.",
+              items: [
+                { label: "Git Snapshot", value: "Available", tone: "info" },
+                { label: "Branch", value: "main", tone: "info" }
+              ]
+            }
+          ]
+        })
+      });
 
-    expect(await screen.findByRole("heading", { name: "Run Audit" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Run audit summary")).toBeInTheDocument();
-    expect(screen.getByText("Claim vs Evidence")).toBeInTheDocument();
-    expect(screen.getByText("Git / GitHub")).toBeInTheDocument();
-    expect(screen.getAllByText("No Matching PR").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("main").length).toBeGreaterThan(0);
-    expect(screen.getByText("https://github.com/example/control-plus-zebra.git")).toBeInTheDocument();
-    expect(screen.getByText("Commands")).toBeInTheDocument();
-    expect(screen.getByText("Failed")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        hasExactTextContent("npm run test -- tests/main/core/run-audit-engine.test.ts"),
-        { selector: "pre" }
-      )
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(hasExactTextContent("git status --short"), { selector: "pre" })
-    ).toBeInTheDocument();
+      render(<App />);
+
+      expect(await screen.findByRole("heading", { name: "Run Audit" })).toBeInTheDocument();
+      expect(screen.getByLabelText("Run audit summary")).toBeInTheDocument();
+      expect(screen.getByText("Claim vs Evidence")).toBeInTheDocument();
+      expect(screen.queryByText("Git / GitHub")).not.toBeInTheDocument();
+      expect(screen.getByText("Git Snapshot")).toBeInTheDocument();
+      expect(screen.getAllByText("main").length).toBeGreaterThan(0);
+      expect(
+        screen.queryByText("https://github.com/example/control-plus-zebra.git")
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText("GitHub Snapshot")).not.toBeInTheDocument();
+      expect(screen.queryByText("Pull Request")).not.toBeInTheDocument();
+      expect(screen.queryByText("Checks")).not.toBeInTheDocument();
+      expect(screen.queryByText("Review / Merge")).not.toBeInTheDocument();
+      expect(screen.getByText("Commands")).toBeInTheDocument();
+      expect(screen.getByText("Failed")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          hasExactTextContent("npm run test -- tests/main/core/run-audit-engine.test.ts"),
+          { selector: "pre" }
+        )
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(hasExactTextContent("git status --short"), { selector: "pre" })
+      ).toBeInTheDocument();
   });
 
   it("opens a dialog to show all commands when the session has more than three", async () => {

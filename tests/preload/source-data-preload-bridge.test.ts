@@ -64,6 +64,28 @@ describe("source data preload bridge", () => {
 
     expect(electronMocks.removeListener).toHaveBeenCalledWith("sources:dataChanged", listener);
   });
+
+  it("ignores malformed source data change payloads", async () => {
+    await import("../../src/preload/index.js");
+
+    const bridge = getAgentWorkbenchBridge();
+    const callback = vi.fn<(event: SourceDataChangedEvent) => void>();
+    const unsubscribe = bridge.onSourceDataChanged(callback);
+    const listener = electronMocks.on.mock.calls[0]?.[1];
+
+    if (typeof listener !== "function") {
+      throw new Error("Expected source data bridge to register an IPC listener.");
+    }
+
+    listener({}, {
+      sourceId: "source-live",
+      status: "bogus"
+    });
+
+    expect(callback).not.toHaveBeenCalled();
+
+    unsubscribe();
+  });
 });
 
 function getAgentWorkbenchBridge(): AgentWorkbenchBridge {

@@ -7,21 +7,25 @@ import {
   type DiagnosticRowViewModel,
   type DiagnosticsSourceArea,
   type DiagnosticsViewModel,
-  type ListDiagnosticsRequest
+  type ListDiagnosticsRequest,
 } from "../ipc/view-models.js";
 import {
   getProjectDisplayName,
-  sanitizeText
+  sanitizeText,
 } from "./triage-view-model-service.js";
 import { listProjectRollupsBySourceId } from "./store-session-query.js";
 import {
   createWorkbenchRuntime,
   type WorkbenchRuntime,
-  type WorkbenchRuntimeOptions
+  type WorkbenchRuntimeOptions,
 } from "./workbench-runtime.js";
+import { isGithubUiEnabled } from "../../shared/feature-flags.js";
+import { isGitHubOnlyDiagnostic } from "../../shared/github-ui.js";
 
 export interface DiagnosticsViewModelService {
-  listDiagnostics(request?: ListDiagnosticsRequest): Promise<DiagnosticsViewModel>;
+  listDiagnostics(
+    request?: ListDiagnosticsRequest,
+  ): Promise<DiagnosticsViewModel>;
 }
 
 export interface DiagnosticsViewModelServiceOptions extends WorkbenchRuntimeOptions {
@@ -29,7 +33,7 @@ export interface DiagnosticsViewModelServiceOptions extends WorkbenchRuntimeOpti
 }
 
 export function createDiagnosticsViewModelService(
-  options: DiagnosticsViewModelServiceOptions = {}
+  options: DiagnosticsViewModelServiceOptions = {},
 ): DiagnosticsViewModelService {
   const runtime = options.runtime ?? createWorkbenchRuntime(options);
 
@@ -38,21 +42,29 @@ export function createDiagnosticsViewModelService(
       const parsed = listDiagnosticsRequestSchema.parse(request ?? {});
       const sources = await runtime.sourceRegistry.listSources();
       const descriptors = new Map(
-        runtime
-          .adapterRegistry
+        runtime.adapterRegistry
           .listDescriptors()
-          .map((descriptor) => [descriptor.id, descriptor] as const)
+          .map((descriptor) => [descriptor.id, descriptor] as const),
       );
       const storeDiagnosticsBySource = await Promise.all(
         sources.map(async (source) => ({
           source,
-          diagnostics: await runtime.entityStore.listDiagnostics({
-            sourceId: source.sourceId,
-            ...(parsed.severity ? { severity: parsed.severity } : {})
-          }),
-          projectRollups: await listProjectRollupsBySourceId(runtime, source.sourceId),
-          sessions: await listAllSourceSessions(runtime, source.sourceId, parsed.adapterId)
-        }))
+          diagnostics: (
+            await runtime.entityStore.listDiagnostics({
+              sourceId: source.sourceId,
+              ...(parsed.severity ? { severity: parsed.severity } : {}),
+            })
+          ).filter(shouldIncludeDiagnosticInUi),
+          projectRollups: await listProjectRollupsBySourceId(
+            runtime,
+            source.sourceId,
+          ),
+          sessions: await listAllSourceSessions(
+            runtime,
+            source.sourceId,
+            parsed.adapterId,
+          ),
+        })),
       );
       const sessionDiagnosticsBySessionId = new Map<string, Diagnostic[]>();
       const sessionDiagnosticIds = new Set<string>();
@@ -60,7 +72,7 @@ export function createDiagnosticsViewModelService(
       for (const sourceContext of storeDiagnosticsBySource) {
         for (const session of sourceContext.sessions) {
           const diagnostics = sourceContext.diagnostics.filter((diagnostic) =>
-            isDiagnosticRelatedToSession(diagnostic, session)
+            isDiagnosticRelatedToSession(diagnostic, session),
           );
 
           sessionDiagnosticsBySessionId.set(session.id, diagnostics);
@@ -73,30 +85,33 @@ export function createDiagnosticsViewModelService(
 
       const rows = [
         ...sources.flatMap((source) =>
-          collectSourceRows(descriptors, source, sessionDiagnosticIds)
+          collectSourceRows(descriptors, source, sessionDiagnosticIds),
         ),
         ...storeDiagnosticsBySource.flatMap((sourceContext) =>
           sourceContext.sessions.flatMap((session) => {
-            const sessionDiagnostics = sessionDiagnosticsBySessionId.get(session.id) ?? [];
+            const sessionDiagnostics =
+              sessionDiagnosticsBySessionId.get(session.id) ?? [];
             const project = session.projectId
               ? sourceContext.projectRollups.get(session.projectId)?.project
               : undefined;
 
             return sessionDiagnostics.map((diagnostic) =>
-            toDiagnosticRow(
-              descriptors,
-              session.adapterId,
-              mapDiagnosticArea(diagnostic),
-              diagnostic,
-              session.id,
-              getSessionDisplayTitle(session),
-              getProjectDisplayName(project)
-            )
-          );
-          })
-        )
+              toDiagnosticRow(
+                descriptors,
+                session.adapterId,
+                mapDiagnosticArea(diagnostic),
+                diagnostic,
+                session.id,
+                getSessionDisplayTitle(session),
+                getProjectDisplayName(project),
+              ),
+            );
+          }),
+        ),
       ]
-        .filter((row) => !parsed.adapterId || row.adapterId === parsed.adapterId)
+        .filter(
+          (row) => !parsed.adapterId || row.adapterId === parsed.adapterId,
+        )
         .filter((row) => !parsed.severity || row.severity === parsed.severity);
 
       const groups = new Map<
@@ -115,7 +130,7 @@ export function createDiagnosticsViewModelService(
           title: `${humanizeSourceArea(row.sourceArea)} ${humanizeSeverity(row.severity)}`,
           sourceArea: row.sourceArea,
           severity: row.severity,
-          diagnostics: []
+          diagnostics: [],
         };
 
         current.diagnostics.push(row);
@@ -123,11 +138,14 @@ export function createDiagnosticsViewModelService(
       }
 
       return diagnosticsViewModelSchema.parse({
-        harnessFilters: [...new Set(rows.map((row) => row.adapterId))].map((adapterId) => ({
-          adapterId,
-          label: descriptors.get(adapterId)?.displayName ?? adapterId,
-          sessionCount: rows.filter((row) => row.adapterId === adapterId).length
-        })),
+        harnessFilters: [...new Set(rows.map((row) => row.adapterId))].map(
+          (adapterId) => ({
+            adapterId,
+            label: descriptors.get(adapterId)?.displayName ?? adapterId,
+            sessionCount: rows.filter((row) => row.adapterId === adapterId)
+              .length,
+          }),
+        ),
         severityFilters: ["info", "warning", "error"],
         groups: [...groups.entries()]
           .map(([groupId, group]) => ({
@@ -136,31 +154,42 @@ export function createDiagnosticsViewModelService(
             sourceArea: group.sourceArea,
             severity: group.severity,
             count: group.diagnostics.length,
-            diagnostics: group.diagnostics
+            diagnostics: group.diagnostics,
           }))
-          .sort((left, right) => right.count - left.count)
+          .sort((left, right) => right.count - left.count),
       });
-    }
+    },
   };
 }
 
 function collectSourceRows(
   descriptors: Map<string, { displayName: string }>,
   source: SourceRecord,
-  sessionDiagnosticIds: Set<string>
+  sessionDiagnosticIds: Set<string>,
 ): DiagnosticRowViewModel[] {
   const rows = [
-    ...source.validation.diagnostics.map((diagnostic) =>
-      toDiagnosticRow(descriptors, source.adapterId, "source", diagnostic)
-    ),
+    ...source.validation.diagnostics
+      .filter(shouldIncludeDiagnosticInUi)
+      .map((diagnostic) =>
+        toDiagnosticRow(descriptors, source.adapterId, "source", diagnostic),
+      ),
     ...source.scan.diagnostics
+      .filter(shouldIncludeDiagnosticInUi)
       .filter((diagnostic) => !sessionDiagnosticIds.has(diagnostic.id))
       .map((diagnostic) =>
-        toDiagnosticRow(descriptors, source.adapterId, mapDiagnosticArea(diagnostic), diagnostic)
+        toDiagnosticRow(
+          descriptors,
+          source.adapterId,
+          mapDiagnosticArea(diagnostic),
+          diagnostic,
+        ),
       ),
     ...source.cache.diagnostics
+      .filter(shouldIncludeDiagnosticInUi)
       .filter((diagnostic) => !sessionDiagnosticIds.has(diagnostic.id))
-      .map((diagnostic) => toDiagnosticRow(descriptors, source.adapterId, "cache", diagnostic))
+      .map((diagnostic) =>
+        toDiagnosticRow(descriptors, source.adapterId, "cache", diagnostic),
+      ),
   ];
 
   return dedupeRows(rows);
@@ -169,7 +198,7 @@ function collectSourceRows(
 async function listAllSourceSessions(
   runtime: WorkbenchRuntime,
   sourceId: string,
-  adapterId?: string
+  adapterId?: string,
 ): Promise<Session[]> {
   const sessions: Session[] = [];
   let cursor: string | undefined;
@@ -179,7 +208,7 @@ async function listAllSourceSessions(
       sourceId,
       ...(adapterId ? { adapterId } : {}),
       ...(cursor ? { cursor } : {}),
-      limit: 100
+      limit: 100,
     });
 
     sessions.push(...page.items.map((item) => item.session));
@@ -204,7 +233,7 @@ function dedupeRows(rows: DiagnosticRowViewModel[]): DiagnosticRowViewModel[] {
       row.message,
       row.sessionId ?? "",
       row.sessionTitle ?? "",
-      row.projectDisplayName ?? ""
+      row.projectDisplayName ?? "",
     ].join("\0");
 
     if (seen.has(key)) {
@@ -267,7 +296,7 @@ function toDiagnosticRow(
   diagnostic: Diagnostic,
   sessionId?: string,
   sessionTitle?: string,
-  projectDisplayName?: string
+  projectDisplayName?: string,
 ): DiagnosticRowViewModel {
   return {
     code: diagnostic.code,
@@ -278,7 +307,7 @@ function toDiagnosticRow(
     ...(sessionId ? { sessionId } : {}),
     ...(sessionTitle ? { sessionTitle } : {}),
     ...(projectDisplayName ? { projectDisplayName } : {}),
-    message: sanitizeText(diagnostic.message)
+    message: sanitizeText(diagnostic.message),
   };
 }
 
@@ -286,7 +315,10 @@ function getSessionDisplayTitle(session: Session): string {
   return session.title ?? session.nativeSessionId ?? session.id;
 }
 
-function isDiagnosticRelatedToSession(diagnostic: Diagnostic, session: Session): boolean {
+function isDiagnosticRelatedToSession(
+  diagnostic: Diagnostic,
+  session: Session,
+): boolean {
   const relatedEntityIds = new Set([
     session.id,
     ...(session.eventIds ?? []),
@@ -295,14 +327,18 @@ function isDiagnosticRelatedToSession(diagnostic: Diagnostic, session: Session):
     ...(session.fileMutationIds ?? []),
     ...(session.outputArtifactIds ?? []),
     ...(session.shellCommandIds ?? []),
-    ...(session.diagnosticIds ?? [])
+    ...(session.diagnosticIds ?? []),
   ]);
 
   if (relatedEntityIds.has(diagnostic.id)) {
     return true;
   }
 
-  if (diagnostic.relatedEntityIds?.some((entityId) => relatedEntityIds.has(entityId))) {
+  if (
+    diagnostic.relatedEntityIds?.some((entityId) =>
+      relatedEntityIds.has(entityId),
+    )
+  ) {
     return true;
   }
 
@@ -313,11 +349,19 @@ function isDiagnosticRelatedToSession(diagnostic: Diagnostic, session: Session):
 }
 
 function resolveDiagnosticSeverity(
-  diagnostic: Diagnostic
+  diagnostic: Diagnostic,
 ): DiagnosticRowViewModel["severity"] {
   if (diagnostic.code === "github.pr.no-match") {
     return "info";
   }
 
   return diagnostic.severity;
+}
+
+function shouldIncludeDiagnosticInUi(diagnostic: Diagnostic): boolean {
+  if (isGithubUiEnabled()) {
+    return true;
+  }
+
+  return !isGitHubOnlyDiagnostic(diagnostic);
 }

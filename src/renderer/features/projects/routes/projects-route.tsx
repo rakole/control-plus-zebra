@@ -11,6 +11,7 @@ import { RoutePage } from "../../../components/app/route-page.js";
 import { Toolbar } from "../../../components/app/toolbar.js";
 import { Button } from "../../../components/ui/button.js";
 import { NativeSelect } from "../../../components/ui/native-select.js";
+import { isGithubUiEnabled } from "../../../../shared/feature-flags.js";
 import { ProjectDetail } from "../components/project-detail.js";
 import { ProjectList } from "../components/project-list.js";
 
@@ -22,11 +23,13 @@ type HarnessOption = Extract<HarnessesResponse, { ok: true }>["harnesses"][numbe
 
 const EMPTY_HEADING = "No projects available";
 const EMPTY_BODY =
-  "The workbench has not derived any project summaries yet. Scan a configured source, then reload triage data.";
+  "The workbench has not derived any project summaries yet. Scan a configured source, then reload project data.";
 const ERROR_COPY =
-  "Projects could not load. Check the preload bridge and IPC handler, then reload triage data.";
+  "Projects could not load. Check the preload bridge and IPC handler, then reload project data.";
 const EXPORT_ERROR_COPY =
   "Archive export could not complete. Check the archive destination, current source data, and privacy options, then try the export again.";
+
+const githubUiEnabled = isGithubUiEnabled();
 
 export function ProjectsRoute() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -146,7 +149,11 @@ export function ProjectsRoute() {
       <PageHeader
         eyebrow="Repository context"
         title="Projects"
-        description="Keep shared git, GitHub, and archive-export truth visible across observed project summaries."
+        description={
+          githubUiEnabled
+            ? "Keep shared git, GitHub, and archive-export truth visible across observed project summaries."
+            : "Keep shared git and archive-export truth visible across observed project summaries."
+        }
         actions={
           <div className="flex flex-wrap items-end justify-end gap-3">
             <label className="grid gap-1 text-xs text-muted-foreground">
@@ -165,7 +172,7 @@ export function ProjectsRoute() {
               </NativeSelect>
             </label>
             <Button onClick={() => void loadProjects()} type="button" variant="outline">
-              Reload Triage Data
+              Reload Project Data
             </Button>
           </div>
         }
@@ -174,7 +181,7 @@ export function ProjectsRoute() {
       {isLoading ? (
         <LoadingState
           title="Loading projects"
-          description="Reading project rollups, repository metadata, and archive-export coverage."
+          description="Reading project rollups, git metadata, and archive-export coverage."
         />
       ) : null}
 

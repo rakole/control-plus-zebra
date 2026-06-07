@@ -8,12 +8,14 @@ import { createDataSourcesViewModelService } from "./app/data-sources-view-model
 import { createElectronUtilityScanJobRunner } from "./app/electron-utility-scan-job-runner.js";
 import { createOutputArtifactViewModelService } from "./app/output-artifact-view-model-service.js";
 import { createRunAuditViewModelService } from "./app/run-audit-view-model-service.js";
+import { createRetentionMaintenanceService } from "./app/retention-maintenance-service.js";
 import { createSessionViewModelService } from "./app/session-view-model-service.js";
 import { createSessionDetailViewModelService } from "./app/session-detail-view-model-service.js";
 import { createSourceDataChangeService } from "./app/source-data-change-service.js";
 import { createTriageViewModelService } from "./app/triage-view-model-service.js";
 import { createWorkbenchRuntime } from "./app/workbench-runtime.js";
-import { registerIpcHandlers } from "./ipc/index.js";
+import { IPC_CHANNELS, registerIpcHandlers } from "./ipc/index.js";
+import { retentionJobStatusViewModelSchema } from "./ipc/view-models.js";
 import { createThemePreferenceStore } from "./theme/theme-preference-store.js";
 import { createThemeService } from "./theme/theme-service.js";
 import { createMainWindow } from "./window.js";
@@ -48,6 +50,8 @@ async function bootstrap(): Promise<void> {
     loadPreference: themePreferenceStore.loadPreference,
     savePreference: themePreferenceStore.savePreference
   });
+  const retentionService = createRetentionMaintenanceService({ runtime });
+  const retentionWindowRegistrations = new Map<BrowserWindow, () => void>();
 
   registerIpcHandlers(ipcMain, {
     archiveImportService: createArchiveImportService({
@@ -74,9 +78,12 @@ async function bootstrap(): Promise<void> {
     triageService: createTriageViewModelService({ runtime }),
     diagnosticsService: createDiagnosticsViewModelService({ runtime }),
     dataSourcesService: createDataSourcesViewModelService({ runtime }),
+    retentionService,
     themeService
   });
   registerWorkbenchWindow({
+    retentionService,
+    retentionWindowRegistrations,
     sourceDataChangeService,
     themeService,
     window: createMainWindow()
@@ -86,6 +93,8 @@ async function bootstrap(): Promise<void> {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       registerWorkbenchWindow({
+        retentionService,
+        retentionWindowRegistrations,
         sourceDataChangeService,
         themeService,
         window: createMainWindow()
@@ -112,19 +121,39 @@ function applyDockIcon(): void {
 }
 
 function registerWorkbenchWindow({
+  retentionService,
+  retentionWindowRegistrations,
   sourceDataChangeService,
   themeService,
   window
 }: {
+  retentionService: ReturnType<typeof createRetentionMaintenanceService>;
+  retentionWindowRegistrations: Map<BrowserWindow, () => void>;
   sourceDataChangeService: ReturnType<typeof createSourceDataChangeService>;
   themeService: ReturnType<typeof createThemeService>;
   window: BrowserWindow;
 }): BrowserWindow {
   themeService.registerWindow(window);
   sourceDataChangeService.registerWindow(window);
+  retentionWindowRegistrations.set(
+    window,
+    retentionService.onStatusChanged((status) => {
+      if (window.webContents.isDestroyed()) {
+        return;
+      }
+
+      const parsed = retentionJobStatusViewModelSchema.safeParse(status);
+
+      if (parsed.success) {
+        window.webContents.send(IPC_CHANNELS.retentionJobChanged, parsed.data);
+      }
+    })
+  );
   window.once("closed", () => {
     themeService.unregisterWindow(window);
     sourceDataChangeService.unregisterWindow(window);
+    retentionWindowRegistrations.get(window)?.();
+    retentionWindowRegistrations.delete(window);
   });
 
   return window;

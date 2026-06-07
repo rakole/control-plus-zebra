@@ -3,6 +3,7 @@ import { expect } from "vitest";
 import { geminiCliAdapter } from "../../../src/main/adapters/gemini-cli/index.js";
 
 import {
+  assertNormalizedRelationshipIntegrity,
   runAdapterContractSuite,
   type AdapterScenarioManifestEntry
 } from "../../contract/run-adapter-contract.js";
@@ -145,6 +146,7 @@ runAdapterContractSuite({
     ).toBe(true);
   },
   assertNormalized(normalized) {
+    assertNormalizedRelationshipIntegrity(normalized);
     expect(normalized.projects[0]).toMatchObject({
       adapterId: "gemini-cli",
       name: "alpha-project"
@@ -153,6 +155,7 @@ runAdapterContractSuite({
       "completed",
       "cancelled"
     ]);
+    expect(normalized.sessions[0]?.startedAt).toBe("2026-05-23T09:11:30.497Z");
     expect(normalized.shellCommands[0]).toMatchObject({
       command: "npm run typecheck",
       outputInline: "Typecheck passed"

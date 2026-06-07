@@ -18,7 +18,11 @@ async function main(): Promise<void> {
   });
 
   try {
-    await runtime.scanner.scanSource(request.sourceId);
+    await runtime.scanner.scanSource(request.sourceId, {
+      ...(request.sessionStartedAtCutoff
+        ? { sessionStartedAtCutoff: request.sessionStartedAtCutoff }
+        : {})
+    });
     postWorkerMessage({
       ok: true,
       sourceId: request.sourceId
@@ -57,6 +61,9 @@ function parseWorkerRequest(raw: string | undefined): ScanSourceWorkerRequest {
   return {
     appDataDir: parsed.appDataDir,
     projectDir: parsed.projectDir,
+    ...(typeof parsed.sessionStartedAtCutoff === "string" && parsed.sessionStartedAtCutoff.length > 0
+      ? { sessionStartedAtCutoff: parsed.sessionStartedAtCutoff }
+      : {}),
     sourceId: parsed.sourceId
   };
 }

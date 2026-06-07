@@ -6,6 +6,8 @@ import { HIGH_CONFIDENCE } from "../core/model/confidence.js";
 import type { SourceRegistry } from "../core/registry/source-registry.js";
 import type {
   ScanJobRunner,
+  ScanSourceMaintenanceLease,
+  ScanSourceJobOptions,
   ScanSourceWorkerRequest,
   ScanSourceWorkerResponse
 } from "./scan-job-runner.js";
@@ -35,32 +37,115 @@ export interface ElectronUtilityScanJobRunnerOptions {
 export function createElectronUtilityScanJobRunner(
   options: ElectronUtilityScanJobRunnerOptions
 ): ScanJobRunner {
-  const activeJobs = new Map<string, Promise<void>>();
+  const activeScans = new Set<string>();
+  const enqueuedJobs = new Map<string, Promise<void>>();
+  const sourceMaintenanceLocks = new Map<string, Promise<void>>();
 
   return {
-    getActiveScanCount() {
-      return activeJobs.size;
+    acquireSourceMaintenanceLease(sourceId) {
+      const priorLock = sourceMaintenanceLocks.get(sourceId);
+      const tail = latestQueuedJobForSource(enqueuedJobs, sourceId);
+      let releaseBarrier: (() => void) | undefined;
+      const released = new Promise<void>((resolve) => {
+        releaseBarrier = resolve;
+      });
+      const waitForStart = waitForSourceBlockers([priorLock, tail]);
+      const maintenanceGate = waitForStart.then(() => released);
+
+      sourceMaintenanceLocks.set(sourceId, maintenanceGate);
+
+      return waitForStart.then((): ScanSourceMaintenanceLease => {
+        let releasedOnce = false;
+
+        return {
+          release() {
+            if (releasedOnce) {
+              return;
+            }
+
+            releasedOnce = true;
+            releaseBarrier?.();
+
+            if (sourceMaintenanceLocks.get(sourceId) === maintenanceGate) {
+              sourceMaintenanceLocks.delete(sourceId);
+            }
+          }
+        };
+      });
     },
-    scanSource(sourceId) {
-      const existing = activeJobs.get(sourceId);
+    getActiveScanCount() {
+      return activeScans.size;
+    },
+    scanSource(sourceId, scanOptions) {
+      const scanKey = createScanJobKey(sourceId, scanOptions);
+      const existing = enqueuedJobs.get(scanKey);
 
       if (existing) {
         return existing;
       }
 
-      const job = runWorkerScanJob(options, sourceId).finally(() => {
-        activeJobs.delete(sourceId);
-      });
+      const tail = latestQueuedJobForSource(enqueuedJobs, sourceId);
+      const maintenanceLock = scanOptions?.ignoreMaintenanceLease
+        ? undefined
+        : sourceMaintenanceLocks.get(sourceId);
+      const runScan = async () => {
+        activeScans.add(scanKey);
 
-      activeJobs.set(sourceId, job);
+        try {
+          await runWorkerScanJob(options, sourceId, scanOptions);
+        } finally {
+          activeScans.delete(scanKey);
+          enqueuedJobs.delete(scanKey);
+        }
+      };
+      const blockers = [tail, maintenanceLock];
+      const job = blockers.some((blocker) => blocker !== undefined)
+        ? waitForSourceBlockers(blockers).then(runScan)
+        : runScan();
+
+      enqueuedJobs.set(scanKey, job);
       return job;
     }
   };
 }
 
+function latestQueuedJobForSource(
+  enqueuedJobs: Map<string, Promise<void>>,
+  sourceId: string
+): Promise<void> | undefined {
+  const sourcePrefix = `${sourceId}::`;
+  let latest: Promise<void> | undefined;
+
+  for (const [jobKey, job] of enqueuedJobs) {
+    if (jobKey.startsWith(sourcePrefix)) {
+      latest = job;
+    }
+  }
+
+  return latest;
+}
+
+function createScanJobKey(sourceId: string, scanOptions?: ScanSourceJobOptions): string {
+  return `${sourceId}::${scanOptions?.sessionStartedAtCutoff ?? ""}`;
+}
+
+function waitForSourceBlockers(
+  blockers: Array<Promise<void> | undefined>
+): Promise<void> {
+  return Promise.all(blockers.filter((blocker): blocker is Promise<void> => blocker !== undefined)).then(
+    () => undefined,
+    swallowQueuedFailure
+  );
+}
+
+function swallowQueuedFailure(): void {
+  // Later same-source scans still need a chance to run after an earlier failure.
+}
+
 async function runWorkerScanJob(
   options: ElectronUtilityScanJobRunnerOptions,
-  sourceId: string
+  sourceId: string,
+  scanOptions?: ScanSourceJobOptions
 ): Promise<void> {
   const source = await options.sourceRegistry.getSource(sourceId);
 
@@ -71,6 +156,9 @@ async function runWorkerScanJob(
   const request: ScanSourceWorkerRequest = {
     appDataDir: options.appDataDir,
     projectDir: options.projectDir,
+    ...(scanOptions?.sessionStartedAtCutoff
+      ? { sessionStartedAtCutoff: scanOptions.sessionStartedAtCutoff }
+      : {}),
     sourceId
   };
   const child = options.forkUtilityProcess(

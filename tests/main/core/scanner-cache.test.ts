@@ -388,9 +388,38 @@ function createStreamingTestAdapter(): SessionSourceAdapter<StreamingRawEvent> {
   };
 }
 
+function emptyNormalizationResult(adapterId: string, sourceId: string): AdapterNormalizationResult {
+  return {
+    adapterId,
+    sourceId,
+    capabilities: {
+      adapter: {
+        adapterId,
+        capabilities: streamingCapabilities
+      },
+      source: {
+        adapterId,
+        sourceId,
+        capabilities: streamingCapabilities
+      },
+      sessions: []
+    },
+    projects: [],
+    sessions: [],
+    events: [],
+    messages: [],
+    toolCalls: [],
+    shellCommands: [],
+    outputArtifacts: [],
+    fileMutations: [],
+    diagnostics: []
+  };
+}
+
 async function createScannerHarness(options: {
   fakeFixturePath?: string;
   gitSnapshotProvider?: GitSnapshotProvider;
+  sessionStartedAtCutoff?: string;
 } = {}) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-scanner-"));
   const fixturePath = path.join(tempDir, "fixture.json");
@@ -412,6 +441,11 @@ async function createScannerHarness(options: {
     adapterRegistry: createBundledAdapterRegistry(),
     cacheStore,
     entityStore,
+    ...(options.sessionStartedAtCutoff
+      ? {
+          getSessionStartedAtCutoff: () => options.sessionStartedAtCutoff
+        }
+      : {}),
     ...(options.gitSnapshotProvider ? { gitSnapshotProvider: options.gitSnapshotProvider } : {}),
     projectDir: process.cwd(),
     rawArtifactIndex,
@@ -641,6 +675,34 @@ describe("Scanner cache integration", () => {
     ).toBe(true);
   });
 
+  it("removes dropped session references from retained Gemini projects under retention cutoff", async () => {
+    const cutoff = "2026-05-23T09:15:00.000Z";
+    const { entityStore, scanner, sourceRegistry, tempDir } = await createScannerHarness({
+      sessionStartedAtCutoff: cutoff
+    });
+    const copiedGeminiRoot = path.join(tempDir, "gemini-root-project-session-cutoff");
+
+    await cp(geminiFixtureRoot, copiedGeminiRoot, { recursive: true });
+
+    const source = await sourceRegistry.createSource({
+      adapterId: "gemini-cli",
+      rootPath: copiedGeminiRoot
+    });
+    const validated = await scanner.validateSource(source.sourceId);
+    const scanned = await scanner.scanSource(validated.source.sourceId);
+    const sessionPage = await entityStore.listSessionsPage({
+      sourceId: validated.source.sourceId
+    });
+    const nativeSessionIds = sessionPage.items.map((item) => item.session.nativeSessionId);
+
+    expect(scanned.source.scan.status).not.toBe("scan-failed");
+    expect(scanned.source.scan.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "normalization.project.session-missing"
+    );
+    expect(nativeSessionIds).not.toContain("11111111-1111-4111-8111-111111111111");
+    expect(nativeSessionIds).toContain("22222222-2222-4222-8222-222222222222");
+  });
+
   it("reconciles streamed Gemini sources from entity-store raw artifact metadata without rewriting the JSON index", async () => {
     const { entityStore, rawArtifactIndex, scanner, sourceRegistry, tempDir } =
       await createScannerHarness();
@@ -683,6 +745,144 @@ describe("Scanner cache integration", () => {
     expect(reconciled?.scan.status).toBe("stale");
     expect(reconciled?.cache.reason).toContain("next scan will perform a full reparse");
     expect(reconciled?.scan.reason).toContain("Change summary: 0 added, 0 removed, 1 changed.");
+  });
+
+  it("reuses the retention cutoff during streamed Gemini reconciliation", async () => {
+    const expectedCutoff = "2026-05-23T09:15:00.000Z";
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "aw-reconcile-cutoff-"));
+    let capturedCutoff: string | undefined;
+
+    try {
+      const sourceRegistry = new SourceRegistry(
+        new FileBackedSourceRegistryStore(path.join(tempDir, "sources.json"))
+      );
+      const rawArtifactIndex = new RawArtifactIndex(path.join(tempDir, "raw-artifact-index.json"));
+      const cacheStore = new FileBackedCacheStore(path.join(tempDir, "normalized-cache.json"));
+      const entityStore = new SQLiteWorkbenchEntityStore({
+        artifactBlobRootDir: path.join(tempDir, "artifact-blobs"),
+        databasePath: path.join(tempDir, "workbench.sqlite")
+      });
+      const adapterRegistry = new AdapterRegistry().register({
+        descriptor: {
+          id: "reconcile-cutoff-test",
+          displayName: "Reconcile Cutoff Test Adapter",
+          adapterVersion: "0.1.0",
+          supportedPlatforms: ["darwin", "linux", "win32"],
+          defaultRoots: [{ path: ".", label: "fixture", kind: "file" }],
+          capabilities: streamingCapabilities
+        },
+        async getDefaultSourceRoots() {
+          return [{ path: ".", label: "fixture", kind: "file" }];
+        },
+        async validateSourceRoot(root) {
+          return {
+            ok: true,
+            normalizedPath: root.rootPath,
+            diagnostics: [],
+            capabilities: streamingCapabilities
+          };
+        },
+        async *discoverSources(root) {
+          yield {
+            id: `reconcile:${root.rootPath}`,
+            adapterId: "reconcile-cutoff-test",
+            nativeId: root.rootPath,
+            rootPath: root.rootPath,
+            displayName: "Reconcile source",
+            confidence: HIGH_CONFIDENCE
+          };
+        },
+        async *discoverArtifacts(source, context) {
+          capturedCutoff = context.sessionStartedAtCutoff;
+
+          yield {
+            id: `artifact:${source.rootPath}`,
+            adapterId: "reconcile-cutoff-test",
+            sourceId: source.id,
+            path: source.rootPath,
+            nativeRef: source.rootPath,
+            artifactKind: "session-log",
+            parseStrategy: "json"
+          } as RawArtifactRef;
+        },
+        async *parseArtifact() {},
+        async normalize() {
+          return emptyNormalizationResult("reconcile-cutoff-test", "unused-source-id");
+        },
+        async getWatchPlan(source) {
+          return {
+            adapterId: "reconcile-cutoff-test",
+            sourceId: source.id,
+            status: "unsupported",
+            scopePaths: [],
+            strategy: "none",
+            reason: "Watch support is not required for this test."
+          };
+        }
+      });
+      const scanner = new Scanner({
+        adapterRegistry,
+        cacheStore,
+        entityStore,
+        getSessionStartedAtCutoff: () => expectedCutoff,
+        projectDir: process.cwd(),
+        rawArtifactIndex,
+        sourceRegistry,
+        watchOrchestrator: new WatchOrchestrator()
+      });
+      const source = await sourceRegistry.createSource({
+        adapterId: "reconcile-cutoff-test",
+        rootPath: path.join(tempDir, "fixture.json")
+      });
+      const validated = await scanner.validateSource(source.sourceId);
+
+      await scanner.reconcileSource(validated.source.sourceId);
+
+      expect(capturedCutoff).toBe(expectedCutoff);
+    } finally {
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it("keeps Gemini sessions with unknown header start time under the scanner retention cutoff", async () => {
+    const cutoff = "2026-05-23T09:15:00.000Z";
+    const { entityStore, scanner, sourceRegistry, tempDir } = await createScannerHarness({
+      sessionStartedAtCutoff: cutoff
+    });
+    const copiedGeminiRoot = path.join(tempDir, "gemini-root-unknown-start");
+    const chatPath = path.join(
+      copiedGeminiRoot,
+      "alpha-project",
+      "chats",
+      "session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+    );
+
+    await cp(geminiFixtureRoot, copiedGeminiRoot, { recursive: true });
+
+    const [headerLine, ...remainingLines] = (await readFile(chatPath, "utf8")).trimEnd().split("\n");
+    const header = JSON.parse(headerLine ?? "{}") as Record<string, unknown>;
+
+    delete header.startTime;
+    await writeFile(chatPath, `${[JSON.stringify(header), ...remainingLines].join("\n")}\n`, "utf8");
+
+    const source = await sourceRegistry.createSource({
+      adapterId: "gemini-cli",
+      rootPath: copiedGeminiRoot
+    });
+    const validated = await scanner.validateSource(source.sourceId);
+
+    await scanner.scanSource(validated.source.sourceId);
+
+    const sessionPage = await entityStore.listSessionsPage({
+      sourceId: validated.source.sourceId
+    });
+    const retainedSession = sessionPage.items.find(
+      (item) => item.session.nativeSessionId === "11111111-1111-4111-8111-111111111111"
+    );
+
+    expect(retainedSession).toBeDefined();
+    expect(retainedSession?.session.startedAt).toBeUndefined();
+    expect(retainedSession?.session.outputArtifactIds?.length ?? 0).toBeGreaterThan(0);
   });
 
   it("persists partial derived shell summaries when a Gemini shell sidecar is missing but inline output exists", async () => {

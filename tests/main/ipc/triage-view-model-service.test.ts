@@ -11,96 +11,112 @@ import {
   createHydrationDegradedRuntimeFromSeed,
   createScannedRuntime,
   createTempRuntime,
-  loadGeminiArtifactFixtureFromStore
+  loadGeminiArtifactFixtureFromStore,
 } from "./triage-test-runtime.js";
+
+type BuildFlagGlobal = typeof globalThis & {
+  __AW_FEATURE_GITHUB_UI__?: boolean;
+};
 
 describe("triage view model service", () => {
   const tempDirs: string[] = [];
 
   afterEach(async () => {
+    (globalThis as BuildFlagGlobal).__AW_FEATURE_GITHUB_UI__ = false;
     await cleanupTempDirs(tempDirs);
   });
 
   it("returns truthful overview and project rollups across fake and Gemini data", async () => {
     const runtime = await createScannedRuntime(tempDirs);
     const triageService = createTriageViewModelService({ runtime });
+    (globalThis as BuildFlagGlobal).__AW_FEATURE_GITHUB_UI__ = true;
     const overview = await triageService.getOverview();
     const projects = await triageService.listProjects();
     const gitBackedProject = projects.find(
-      (project) => project.projectDisplayName === "control-plus-zebra"
+      (project) => project.projectDisplayName === "control-plus-zebra",
     );
-    const degradedProject = projects.find((project) => project.gitStatus.label === "Unknown");
-    const rawExportProject = projects.find((project) => project.archiveExport.rawArtifactsAvailable);
+    const degradedProject = projects.find(
+      (project) => project.gitStatus.label === "Unknown",
+    );
+    const rawExportProject = projects.find(
+      (project) => project.archiveExport.rawArtifactsAvailable,
+    );
 
     expect(overview.metrics.totalSessions.numericValue).toBeGreaterThan(0);
     expect(overview.usageSummary.models.status).toBe("value");
-    expect(overview.usageSummary.models.displayValue).toContain("gemini-3-flash-preview");
+    expect(overview.usageSummary.models.displayValue).toContain(
+      "gemini-3-flash-preview",
+    );
     expect(overview.usageSummary.models.reason).toContain("selected sessions");
     expect(overview.usageSummary.tokenCount.status).toBe("value");
     expect(overview.usageSummary.tokenCount.numericValue).toBeGreaterThan(0);
-    expect(overview.usageSummary.tokenCount.reason).toContain("selected sessions");
+    expect(overview.usageSummary.tokenCount.reason).toContain(
+      "selected sessions",
+    );
     expect(overview).toMatchObject({
       usageSummary: {
         tokenMetrics: {
           totalTokens: expect.objectContaining({
             status: "value",
-            numericValue: expect.any(Number)
+            numericValue: expect.any(Number),
           }),
           inputTokens: expect.objectContaining({
             status: "value",
-            numericValue: expect.any(Number)
+            numericValue: expect.any(Number),
           }),
           outputTokens: expect.objectContaining({
             status: "value",
-            numericValue: expect.any(Number)
+            numericValue: expect.any(Number),
           }),
           thoughtTokens: expect.objectContaining({
             status: "value",
-            numericValue: expect.any(Number)
+            numericValue: expect.any(Number),
           }),
           cacheReadTokens: expect.objectContaining({
             status: "value",
-            numericValue: 0
-          })
-        }
-      }
+            numericValue: 0,
+          }),
+        },
+      },
     });
     expect(overview.harnessFilters.map((filter) => filter.label)).toEqual(
-      expect.arrayContaining(["Fake Test Harness", "Gemini CLI"])
+      expect.arrayContaining(["Fake Test Harness", "Gemini CLI"]),
     );
-    await expect(triageService.getOverview({ adapterId: "gemini-cli" })).resolves.toMatchObject({
+    await expect(
+      triageService.getOverview({ adapterId: "gemini-cli" }),
+    ).resolves.toMatchObject({
       usageSummary: {
         models: {
           status: "value",
-          displayValue: "gemini-3-flash-preview"
+          displayValue: "gemini-3-flash-preview",
         },
         tokenCount: {
           status: "value",
-          numericValue: expect.any(Number)
+          numericValue: expect.any(Number),
         },
         tokenMetrics: {
           totalTokens: expect.objectContaining({
             status: "value",
-            numericValue: expect.any(Number)
+            numericValue: expect.any(Number),
           }),
           inputTokens: expect.objectContaining({
             status: "value",
-            numericValue: expect.any(Number)
+            numericValue: expect.any(Number),
           }),
           outputTokens: expect.objectContaining({
             status: "value",
-            numericValue: expect.any(Number)
+            numericValue: expect.any(Number),
           }),
           thoughtTokens: expect.objectContaining({
             status: "value",
-            numericValue: expect.any(Number)
+            numericValue: expect.any(Number),
           }),
           cacheReadTokens: expect.objectContaining({
             status: "value",
-            numericValue: 0
-          })
-        }
-      }
+            numericValue: 0,
+          }),
+        },
+      },
     });
     expect(projects.length).toBeGreaterThan(0);
     expect(gitBackedProject).toEqual(
@@ -110,19 +126,179 @@ describe("triage view model service", () => {
         branch: expect.objectContaining({ displayValue: "main" }),
         dirtyState: expect.objectContaining({ label: "Dirty" }),
         remoteUrl: expect.objectContaining({
-          displayValue: "https://github.com/example/control-plus-zebra.git"
-        })
-      })
+          displayValue: "https://github.com/example/control-plus-zebra.git",
+        }),
+      }),
     );
     expect(rawExportProject?.archiveExport).toEqual(
       expect.objectContaining({
         rawArtifactsAvailable: true,
-        rawArtifactCount: expect.any(Number)
-      })
+        rawArtifactCount: expect.any(Number),
+      }),
     );
     expect(degradedProject?.gitStatus.label).toBe("Unknown");
     expect(gitBackedProject?.pullRequest.displayValue).toBe("No Matching PR");
     expect(JSON.stringify(projects)).not.toContain("rawEvents");
+  }, 15000);
+
+  it("keeps generic custom remotes visible while hiding GitHub-only project fields when GitHub UI is disabled", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const source = (await runtime.sourceRegistry.listSources()).find(
+      (candidate) => candidate.adapterId === "fake-test",
+    );
+
+    expect(source).toBeDefined();
+    if (!source) {
+      throw new Error("Expected a fake-test source.");
+    }
+
+    const record = await runtime.cacheStore.getLatestSourceRecord(
+      source.sourceId,
+    );
+
+    expect(record?.gitSnapshots?.projects[0]?.git.snapshot).toBeDefined();
+    expect(record?.githubSnapshots?.projects[0]?.github).toBeDefined();
+    if (
+      !record?.gitSnapshots?.projects[0]?.git.snapshot ||
+      !record.githubSnapshots?.projects[0]?.github
+    ) {
+      throw new Error("Expected a project snapshot with GitHub context.");
+    }
+
+    record.gitSnapshots.projects[0] = {
+      ...record.gitSnapshots.projects[0],
+      git: {
+        ...record.gitSnapshots.projects[0].git,
+        snapshot: {
+          ...record.gitSnapshots.projects[0].git.snapshot,
+          remoteUrl:
+            "ssh://git@git.company.example/example/control-plus-zebra.git",
+        },
+      },
+    };
+
+    await runtime.cacheStore.writeRecord(record);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, source.sourceId);
+
+    const service = createTriageViewModelService({ runtime });
+    (globalThis as BuildFlagGlobal).__AW_FEATURE_GITHUB_UI__ = false;
+    const hiddenProjects = await service.listProjects();
+    const hiddenProject = hiddenProjects.find(
+      (project) => project.projectDisplayName === "control-plus-zebra",
+    );
+
+    expect(hiddenProject).toEqual(
+      expect.objectContaining({
+        githubStatus: expect.objectContaining({ label: "Unknown" }),
+        remoteUrl: expect.objectContaining({
+          status: "value",
+          displayValue:
+            "ssh://git@git.company.example/example/control-plus-zebra.git",
+        }),
+        pullRequest: expect.objectContaining({
+          status: "unknown",
+          displayValue: "Unknown",
+        }),
+        checks: expect.objectContaining({
+          status: "unknown",
+          displayValue: "Unknown",
+        }),
+        reviewStatus: expect.objectContaining({
+          status: "unknown",
+          displayValue: "Unknown",
+        }),
+      }),
+    );
+
+    (globalThis as BuildFlagGlobal).__AW_FEATURE_GITHUB_UI__ = true;
+    const visibleProjects = await service.listProjects();
+    const visibleProject = visibleProjects.find(
+      (project) => project.projectDisplayName === "control-plus-zebra",
+    );
+
+    expect(visibleProject).toEqual(
+      expect.objectContaining({
+        githubStatus: expect.objectContaining({ label: "No Matching PR" }),
+        remoteUrl: expect.objectContaining({
+          status: "value",
+          displayValue:
+            "ssh://git@git.company.example/example/control-plus-zebra.git",
+        }),
+        pullRequest: expect.objectContaining({
+          status: "value",
+          displayValue: "No Matching PR",
+        }),
+      }),
+    );
+  }, 15000);
+
+  it("still hides clearly GitHub-branded enterprise remotes when GitHub UI is disabled", async () => {
+    const runtime = await createScannedRuntime(tempDirs);
+    const source = (await runtime.sourceRegistry.listSources()).find(
+      (candidate) => candidate.adapterId === "fake-test",
+    );
+
+    expect(source).toBeDefined();
+    if (!source) {
+      throw new Error("Expected a fake-test source.");
+    }
+
+    const record = await runtime.cacheStore.getLatestSourceRecord(
+      source.sourceId,
+    );
+
+    expect(record?.gitSnapshots?.projects[0]?.git.snapshot).toBeDefined();
+    expect(record?.githubSnapshots?.projects[0]?.github).toBeDefined();
+    if (
+      !record?.gitSnapshots?.projects[0]?.git.snapshot ||
+      !record.githubSnapshots?.projects[0]?.github
+    ) {
+      throw new Error("Expected a project snapshot with GitHub context.");
+    }
+
+    record.gitSnapshots.projects[0] = {
+      ...record.gitSnapshots.projects[0],
+      git: {
+        ...record.gitSnapshots.projects[0].git,
+        snapshot: {
+          ...record.gitSnapshots.projects[0].git.snapshot,
+          remoteUrl:
+            "ssh://git@github.company.example/example/control-plus-zebra.git",
+        },
+      },
+    };
+
+    await runtime.cacheStore.writeRecord(record);
+    await syncLatestSourceCacheRecordToEntityStore(runtime, source.sourceId);
+
+    const service = createTriageViewModelService({ runtime });
+    (globalThis as BuildFlagGlobal).__AW_FEATURE_GITHUB_UI__ = false;
+    const hiddenProjects = await service.listProjects();
+    const hiddenProject = hiddenProjects.find(
+      (project) => project.projectDisplayName === "control-plus-zebra",
+    );
+
+    expect(hiddenProject).toEqual(
+      expect.objectContaining({
+        githubStatus: expect.objectContaining({ label: "Unknown" }),
+        remoteUrl: expect.objectContaining({
+          status: "unknown",
+          displayValue: "Unknown",
+        }),
+        pullRequest: expect.objectContaining({
+          status: "unknown",
+          displayValue: "Unknown",
+        }),
+        checks: expect.objectContaining({
+          status: "unknown",
+          displayValue: "Unknown",
+        }),
+        reviewStatus: expect.objectContaining({
+          status: "unknown",
+          displayValue: "Unknown",
+        }),
+      }),
+    );
   }, 15000);
 
   it("returns exactly 30 heatmap buckets and honors the adapter filter", async () => {
@@ -130,75 +306,84 @@ describe("triage view model service", () => {
     const fakeSource = await runtime.sourceRegistry.createSource({
       adapterId: "fake-test",
       displayName: "Fake Heatmap Source",
-      rootPath: `${runtime.appDataDir}/fake-heatmap-source`
+      rootPath: `${runtime.appDataDir}/fake-heatmap-source`,
     });
     const geminiSource = await runtime.sourceRegistry.createSource({
       adapterId: "gemini-cli",
       displayName: "Gemini Heatmap Source",
-      rootPath: `${runtime.appDataDir}/gemini-heatmap-source`
+      rootPath: `${runtime.appDataDir}/gemini-heatmap-source`,
     });
 
     await seedHeatmapSource(runtime, fakeSource.sourceId, "fake-test", [
-      { sessionId: "fake-start", lastUpdatedAt: "2026-04-29T08:00:00.000Z", runAuditStatus: "clean" },
+      {
+        sessionId: "fake-start",
+        lastUpdatedAt: "2026-04-29T08:00:00.000Z",
+        runAuditStatus: "clean",
+      },
       {
         sessionId: "fake-end",
         lastUpdatedAt: "2026-05-28T09:30:00.000Z",
-        runAuditStatus: "needs-review"
+        runAuditStatus: "needs-review",
       },
       {
         sessionId: "fake-outside-range",
         lastUpdatedAt: "2026-04-28T09:30:00.000Z",
-        runAuditStatus: "clean"
-      }
+        runAuditStatus: "clean",
+      },
     ]);
     await seedHeatmapSource(runtime, geminiSource.sourceId, "gemini-cli", [
       {
         sessionId: "gemini-end",
         lastUpdatedAt: "2026-05-28T10:00:00.000Z",
-        runAuditStatus: "needs-review"
-      }
+        runAuditStatus: "needs-review",
+      },
     ]);
 
     const triageService = createTriageViewModelService({
       runtime,
-      now: () => new Date("2026-05-28T12:00:00.000Z")
+      now: () => new Date("2026-05-28T12:00:00.000Z"),
     });
     const heatmap = await triageService.getOverviewActivityHeatmap({
-      adapterId: "fake-test"
+      adapterId: "fake-test",
     });
 
     expect(heatmap.coverageState).toEqual({
       label: "Available",
-      tone: "info"
+      tone: "info",
     });
     expect(heatmap.buckets).toHaveLength(30);
     expect(heatmap.buckets[0]).toEqual({
       day: "2026-04-29",
       sessionCount: 1,
-      needsAttentionCount: 0
+      needsAttentionCount: 0,
     });
     expect(heatmap.buckets.at(-1)).toEqual({
       day: "2026-05-28",
       sessionCount: 1,
-      needsAttentionCount: 1
+      needsAttentionCount: 1,
     });
-    expect(heatmap.buckets.find((bucket) => bucket.day === "2026-05-27")).toEqual({
+    expect(
+      heatmap.buckets.find((bucket) => bucket.day === "2026-05-27"),
+    ).toEqual({
       day: "2026-05-27",
       sessionCount: 0,
-      needsAttentionCount: 0
+      needsAttentionCount: 0,
     });
     expect(
-      heatmap.buckets.reduce((total, bucket) => total + bucket.sessionCount, 0)
+      heatmap.buckets.reduce((total, bucket) => total + bucket.sessionCount, 0),
     ).toBe(2);
     expect(
-      heatmap.buckets.reduce((total, bucket) => total + bucket.needsAttentionCount, 0)
+      heatmap.buckets.reduce(
+        (total, bucket) => total + bucket.needsAttentionCount,
+        0,
+      ),
     ).toBe(1);
   }, 15000);
 
   it("returns Unknown for an overview token metric when no supported selected session exposes that metric", async () => {
     const runtime = await createScannedRuntime(tempDirs);
     const source = (await runtime.sourceRegistry.listSources()).find(
-      (candidate) => candidate.adapterId === "gemini-cli"
+      (candidate) => candidate.adapterId === "gemini-cli",
     );
 
     expect(source).toBeDefined();
@@ -206,7 +391,9 @@ describe("triage view model service", () => {
       throw new Error("Expected a Gemini source.");
     }
 
-    const record = await runtime.cacheStore.getLatestSourceRecord(source.sourceId);
+    const record = await runtime.cacheStore.getLatestSourceRecord(
+      source.sourceId,
+    );
 
     expect(record).toBeDefined();
     if (!record) {
@@ -214,7 +401,7 @@ describe("triage view model service", () => {
     }
 
     const targetSession = record.normalized.sessions.find(
-      (session) => session.nativeId === "11111111-1111-4111-8111-111111111111"
+      (session) => session.nativeId === "11111111-1111-4111-8111-111111111111",
     );
 
     expect(targetSession?.usage?.cacheReadTokens).toBe(0);
@@ -222,16 +409,20 @@ describe("triage view model service", () => {
       throw new Error("Expected the Gemini fixture session with token usage.");
     }
 
-    const { cacheReadTokens: _removedCacheReadTokens, ...usageWithoutCacheReadTokens } =
-      targetSession.usage ?? {};
+    const {
+      cacheReadTokens: _removedCacheReadTokens,
+      ...usageWithoutCacheReadTokens
+    } = targetSession.usage ?? {};
 
     targetSession.usage = usageWithoutCacheReadTokens;
 
     await runtime.cacheStore.writeRecord(record);
     await syncLatestSourceCacheRecordToEntityStore(runtime, source.sourceId);
 
-    const overview = await createTriageViewModelService({ runtime }).getOverview({
-      adapterId: "gemini-cli"
+    const overview = await createTriageViewModelService({
+      runtime,
+    }).getOverview({
+      adapterId: "gemini-cli",
     });
 
     expect(overview).toMatchObject({
@@ -239,10 +430,10 @@ describe("triage view model service", () => {
         tokenMetrics: {
           cacheReadTokens: {
             status: "unknown",
-            displayValue: "Unknown"
-          }
-        }
-      }
+            displayValue: "Unknown",
+          },
+        },
+      },
     });
   }, 15000);
 
@@ -259,19 +450,19 @@ describe("triage view model service", () => {
       listLatestRecords: async () => {
         latestRecordLoadCount += 1;
         return originalCacheStore.listLatestRecords();
-      }
+      },
     } as unknown as typeof runtime.cacheStore;
     runtime.rawArtifactIndex = {
       load: async () => {
         rawArtifactIndexLoadCount += 1;
         return originalRawArtifactIndex.load();
-      }
+      },
     } as unknown as typeof runtime.rawArtifactIndex;
     runtime.sourceRegistry = {
       listSources: async () => {
         sourceListCount += 1;
         return originalSourceRegistry.listSources();
-      }
+      },
     } as unknown as typeof runtime.sourceRegistry;
 
     const triageService = createTriageViewModelService({ runtime });
@@ -291,32 +482,35 @@ describe("triage view model service", () => {
         sourceRecords.map(async (sourceRecord) =>
           (
             await runtime.entityStore.listProjectRollups({
-              sourceId: sourceRecord.sourceId
+              sourceId: sourceRecord.sourceId,
             })
           )
             .filter(
               (
-                projectRollup
-              ): projectRollup is typeof projectRollup & { projectId: string } =>
-                Boolean(projectRollup.projectId)
+                projectRollup,
+              ): projectRollup is typeof projectRollup & {
+                projectId: string;
+              } => Boolean(projectRollup.projectId),
             )
             .map((projectRollup) => ({
               projectId: projectRollup.projectId,
-              sourceId: sourceRecord.sourceId
-            }))
-        )
+              sourceId: sourceRecord.sourceId,
+            })),
+        ),
       )
     ).flat();
     const failingPair = projectPairs[0];
     const healthyPair = projectPairs.find(
-      (projectPair) => projectPair.sourceId !== failingPair?.sourceId
+      (projectPair) => projectPair.sourceId !== failingPair?.sourceId,
     );
     const entityStore = runtime.entityStore as typeof runtime.entityStore & {
       getArchivePreflight?: typeof runtime.entityStore.getArchivePreflight;
     };
-    const baselineProjects = await createTriageViewModelService({ runtime }).listProjects();
+    const baselineProjects = await createTriageViewModelService({
+      runtime,
+    }).listProjects();
     const baselineHealthyProject = baselineProjects.find(
-      (project) => project.projectId === healthyPair?.projectId
+      (project) => project.projectId === healthyPair?.projectId,
     );
     const originalGetArchivePreflight = entityStore.getArchivePreflight;
 
@@ -324,7 +518,9 @@ describe("triage view model service", () => {
     expect(healthyPair).toBeDefined();
     expect(baselineHealthyProject).toBeDefined();
     if (!failingPair || !healthyPair || !baselineHealthyProject) {
-      throw new Error("Expected store-backed projects from at least two sources.");
+      throw new Error(
+        "Expected store-backed projects from at least two sources.",
+      );
     }
 
     entityStore.getArchivePreflight = async (scope) => {
@@ -338,27 +534,30 @@ describe("triage view model service", () => {
     const triageService = createTriageViewModelService({ runtime });
     const projects = await triageService.listProjects();
     const healthyProject = projects.find(
-      (project) => project.projectId === healthyPair.projectId
+      (project) => project.projectId === healthyPair.projectId,
     );
     const degradedProjects = projects.filter(
       (project) =>
         project.archiveExport.rawArtifactsReason ===
-        "Archive export availability could not be resolved for this scope."
+        "Archive export availability could not be resolved for this scope.",
     );
 
     expect(projects.length).toBeGreaterThan(0);
-    expect(healthyProject?.archiveExport).toEqual(baselineHealthyProject.archiveExport);
+    expect(healthyProject?.archiveExport).toEqual(
+      baselineHealthyProject.archiveExport,
+    );
     expect(degradedProjects.length).toBeGreaterThan(0);
   }, 15000);
 
   it("uses store-backed archive availability truth for v3-imported sources on Projects", async () => {
     const exportRuntime = await createScannedRuntime(tempDirs);
-    const geminiFixture = await loadGeminiArtifactFixtureFromStore(exportRuntime);
+    const geminiFixture =
+      await loadGeminiArtifactFixtureFromStore(exportRuntime);
     const exporter = new ArchiveExporter({
       cacheStore: exportRuntime.cacheStore,
       entityStore: exportRuntime.entityStore,
       rawArtifactIndex: exportRuntime.rawArtifactIndex,
-      sourceRegistry: exportRuntime.sourceRegistry
+      sourceRegistry: exportRuntime.sourceRegistry,
     });
     const archivePath = `${exportRuntime.appDataDir}/exports/imported-v3-project-truth.awb-archive.json`;
 
@@ -366,44 +565,50 @@ describe("triage view model service", () => {
       destinationPath: archivePath,
       includeRawArtifacts: true,
       privacyWarningAcknowledged: true,
-      scope: { kind: "session", sessionId: geminiFixture.sessionId }
+      scope: { kind: "session", sessionId: geminiFixture.sessionId },
     });
 
     const importRuntime = await createScannedRuntime(tempDirs);
-    const initialHydrationState = await importRuntime.getEntityStoreHydrationState();
+    const initialHydrationState =
+      await importRuntime.getEntityStoreHydrationState();
     const importer = new ArchiveImporter({
       appDataDir: importRuntime.appDataDir,
       cacheStore: importRuntime.cacheStore,
       entityStore: importRuntime.entityStore,
       rawArtifactIndex: importRuntime.rawArtifactIndex,
-      sourceRegistry: importRuntime.sourceRegistry
+      sourceRegistry: importRuntime.sourceRegistry,
     });
 
     const imported = await importer.importArchive({ archivePath });
     const importedProjectId = (
       await importRuntime.entityStore.listProjectRollups({
-        sourceId: imported.sourceId
+        sourceId: imported.sourceId,
       })
-    ).find((rollup): rollup is typeof rollup & { projectId: string } => Boolean(rollup.projectId))
-      ?.projectId;
+    ).find((rollup): rollup is typeof rollup & { projectId: string } =>
+      Boolean(rollup.projectId),
+    )?.projectId;
 
-    const triageService = createTriageViewModelService({ runtime: importRuntime });
+    const triageService = createTriageViewModelService({
+      runtime: importRuntime,
+    });
     const projects = await triageService.listProjects();
-    const importedProject = projects.find((project) => project.projectId === importedProjectId);
+    const importedProject = projects.find(
+      (project) => project.projectId === importedProjectId,
+    );
 
     expect(initialHydrationState.sourceStates.length).toBeGreaterThan(0);
     expect(
       (await importRuntime.getEntityStoreHydrationState()).sourceStates.some(
-        (state) => state.sourceId === imported.sourceId
-      )
+        (state) => state.sourceId === imported.sourceId,
+      ),
     ).toBe(false);
     expect(importedProjectId).toBeDefined();
     expect(projects.length).toBeGreaterThan(0);
     expect(importedProject?.archiveExport).toEqual(
       expect.objectContaining({
         rawArtifactsAvailable: true,
-        rawArtifactCount: expect.any(Number)
-      })
+        rawArtifactCount: expect.any(Number),
+      }),
     );
   }, 15000);
 
@@ -416,27 +621,31 @@ describe("triage view model service", () => {
     expect(
       sessions.some((session) =>
         ["Passed", "Unknown", "Unsupported", "Failed"].includes(
-          session.verificationState.label
-        )
-      )
+          session.verificationState.label,
+        ),
+      ),
     ).toBe(true);
     expect(
       sessions.some((session) =>
         ["Needs Review", "Active", "Cancelled", "Failed Verification"].includes(
-          session.runAuditState.label
-        )
-      )
+          session.runAuditState.label,
+        ),
+      ),
     ).toBe(true);
     expect(JSON.stringify(sessions)).not.toContain("artifactPath");
   }, 15000);
 
   it("keeps failed-source sessions and projects visible through cache fallback after restart", async () => {
     const seedRuntime = await createScannedRuntime(tempDirs);
-    const baselineOverview = await createTriageViewModelService({ runtime: seedRuntime }).getOverview();
-    const baselineProjects = await createTriageViewModelService({ runtime: seedRuntime }).listProjects();
-    const failingSourceId = (await seedRuntime.sourceRegistry.listSources()).find(
-      (source) => source.adapterId === "fake-test"
-    )?.sourceId;
+    const baselineOverview = await createTriageViewModelService({
+      runtime: seedRuntime,
+    }).getOverview();
+    const baselineProjects = await createTriageViewModelService({
+      runtime: seedRuntime,
+    }).listProjects();
+    const failingSourceId = (
+      await seedRuntime.sourceRegistry.listSources()
+    ).find((source) => source.adapterId === "fake-test")?.sourceId;
 
     expect(failingSourceId).toBeDefined();
     if (!failingSourceId) {
@@ -446,29 +655,35 @@ describe("triage view model service", () => {
     const runtime = await createHydrationDegradedRuntimeFromSeed(
       tempDirs,
       seedRuntime,
-      failingSourceId
+      failingSourceId,
     );
     const triageService = createTriageViewModelService({ runtime });
     const sessionService = createSessionViewModelService({ runtime });
     const overview = await triageService.getOverview();
     const projects = await triageService.listProjects();
     const sessions = await sessionService.listSessions();
-    const degradedSession = sessions.find((session) => session.sourceId === failingSourceId);
+    const degradedSession = sessions.find(
+      (session) => session.sourceId === failingSourceId,
+    );
 
     expect(overview.metrics.totalSessions.numericValue).toBe(
-      baselineOverview.metrics.totalSessions.numericValue
+      baselineOverview.metrics.totalSessions.numericValue,
     );
     expect(projects).toHaveLength(baselineProjects.length);
     expect(degradedSession).toBeDefined();
     await expect(
-      sessionService.getSessionById({ sessionId: degradedSession?.sessionId ?? "missing-session" })
+      sessionService.getSessionById({
+        sessionId: degradedSession?.sessionId ?? "missing-session",
+      }),
     ).resolves.toMatchObject({
-      sessionId: degradedSession?.sessionId
+      sessionId: degradedSession?.sessionId,
     });
     expect(
       projects.some((project) =>
-        (project.archiveExport.rawArtifactsReason ?? "").includes("entity-store hydration failed")
-      )
+        (project.archiveExport.rawArtifactsReason ?? "").includes(
+          "entity-store hydration failed",
+        ),
+      ),
     ).toBe(true);
   }, 15000);
 
@@ -479,16 +694,18 @@ describe("triage view model service", () => {
     const target = sessions.find(
       (session) =>
         session.verificationState.label !== "Unknown" ||
-        !session.attentionReasons.includes("Capability Missing")
+        !session.attentionReasons.includes("Capability Missing"),
     );
 
     expect(target).toBeDefined();
     if (!target) {
-      throw new Error("Expected at least one scanned session with non-stale truth.");
+      throw new Error(
+        "Expected at least one scanned session with non-stale truth.",
+      );
     }
 
     const expectedPreview = await sessionService.getSessionById({
-      sessionId: target.sessionId
+      sessionId: target.sessionId,
     });
 
     expect(expectedPreview).toBeDefined();
@@ -498,51 +715,63 @@ describe("triage view model service", () => {
 
     const records = await runtime.cacheStore.load();
     const record = records.find((candidate) =>
-      candidate.normalized.sessions.some((session) => session.id === target.sessionId)
+      candidate.normalized.sessions.some(
+        (session) => session.id === target.sessionId,
+      ),
     );
 
     expect(record).toBeDefined();
     if (!record) {
-      throw new Error("Expected a cache record for the selected session source.");
+      throw new Error(
+        "Expected a cache record for the selected session source.",
+      );
     }
 
     record.verificationResults = {
-      sessions: upsertBySessionId(record.verificationResults?.sessions ?? [], target.sessionId, {
-        sessionId: target.sessionId,
-        verification: {
-          status: "unknown",
-          confidence: {
-            level: "low",
-            normalizedLevel: "inferred"
+      sessions: upsertBySessionId(
+        record.verificationResults?.sessions ?? [],
+        target.sessionId,
+        {
+          sessionId: target.sessionId,
+          verification: {
+            status: "unknown",
+            confidence: {
+              level: "low",
+              normalizedLevel: "inferred",
+            },
+            commandIds: [],
+            intentResults: [],
+            reasonCodes: ["no-qualifying-commands"],
           },
-          commandIds: [],
-          intentResults: [],
-          reasonCodes: ["no-qualifying-commands"]
-        }
-      })
+        },
+      ),
     };
     record.runAudits = {
-      sessions: upsertBySessionId(record.runAudits?.sessions ?? [], target.sessionId, {
-        sessionId: target.sessionId,
-        audit: {
-          status: "needs-review",
-          attentionReasons: ["capability-missing"],
-          confidence: {
-            level: "medium",
-            normalizedLevel: "observed"
+      sessions: upsertBySessionId(
+        record.runAudits?.sessions ?? [],
+        target.sessionId,
+        {
+          sessionId: target.sessionId,
+          audit: {
+            status: "needs-review",
+            attentionReasons: ["capability-missing"],
+            confidence: {
+              level: "medium",
+              normalizedLevel: "observed",
+            },
+            completionClaim: "claimed",
+            supportingCommandIds: [],
+            supportingToolCallIds: [],
+            supportingMessageIds: [],
           },
-          completionClaim: "claimed",
-          supportingCommandIds: [],
-          supportingToolCallIds: [],
-          supportingMessageIds: []
-        }
-      })
+        },
+      ),
     };
 
     await runtime.cacheStore.save(records);
 
     const reloadedPreview = await sessionService.getSessionById({
-      sessionId: target.sessionId
+      sessionId: target.sessionId,
     });
 
     expect(reloadedPreview).toEqual(expectedPreview);
@@ -552,7 +781,7 @@ describe("triage view model service", () => {
 function upsertBySessionId<TItem extends { sessionId: string }>(
   items: TItem[],
   sessionId: string,
-  replacement: TItem
+  replacement: TItem,
 ): TItem[] {
   const index = items.findIndex((item) => item.sessionId === sessionId);
 
@@ -560,7 +789,9 @@ function upsertBySessionId<TItem extends { sessionId: string }>(
     return [...items, replacement];
   }
 
-  return items.map((item, itemIndex) => (itemIndex === index ? replacement : item));
+  return items.map((item, itemIndex) =>
+    itemIndex === index ? replacement : item,
+  );
 }
 
 async function seedHeatmapSource(
@@ -578,13 +809,13 @@ async function seedHeatmapSource(
       | "clean"
       | "unknown";
     sessionId: string;
-  }>
+  }>,
 ): Promise<void> {
   const run = await runtime.entityStore.beginIngestRun({
     adapterId,
     sourceId,
     ingestRunId: `run-${sourceId}`,
-    startedAt: sessions[0]?.lastUpdatedAt ?? "2026-05-28T00:00:00.000Z"
+    startedAt: sessions[0]?.lastUpdatedAt ?? "2026-05-28T00:00:00.000Z",
   });
 
   await runtime.entityStore.writeBatch({
@@ -604,9 +835,9 @@ async function seedHeatmapSource(
         completionClaim: "unknown",
         supportingCommandIds: [],
         supportingMessageIds: [],
-        supportingToolCallIds: []
+        supportingToolCallIds: [],
       },
-      confidence: createConfidenceScore("confirmed")
+      confidence: createConfidenceScore("confirmed"),
     })),
     runAuditSnapshots: sessions.map(({ sessionId, runAuditStatus }) => ({
       sessionId,
@@ -617,27 +848,29 @@ async function seedHeatmapSource(
         completionClaim: "unknown",
         supportingCommandIds: [],
         supportingMessageIds: [],
-        supportingToolCallIds: []
-      }
+        supportingToolCallIds: [],
+      },
     })),
-    sessionRollups: sessions.map(({ sessionId, lastUpdatedAt, runAuditStatus }) => ({
-      sourceId,
-      sessionId,
-      latestActivityAt: lastUpdatedAt,
-      runAudit: {
-        status: runAuditStatus,
-        attentionReasons: [],
-        confidence: createConfidenceScore("confirmed"),
-        completionClaim: "unknown",
-        supportingCommandIds: [],
-        supportingMessageIds: [],
-        supportingToolCallIds: []
-      }
-    }))
+    sessionRollups: sessions.map(
+      ({ sessionId, lastUpdatedAt, runAuditStatus }) => ({
+        sourceId,
+        sessionId,
+        latestActivityAt: lastUpdatedAt,
+        runAudit: {
+          status: runAuditStatus,
+          attentionReasons: [],
+          confidence: createConfidenceScore("confirmed"),
+          completionClaim: "unknown",
+          supportingCommandIds: [],
+          supportingMessageIds: [],
+          supportingToolCallIds: [],
+        },
+      }),
+    ),
   });
   await runtime.entityStore.publishIngestRun({
     ingestRunId: run.ingestRunId,
     sourceId,
-    publishedAt: sessions.at(-1)?.lastUpdatedAt ?? "2026-05-28T00:00:00.000Z"
+    publishedAt: sessions.at(-1)?.lastUpdatedAt ?? "2026-05-28T00:00:00.000Z",
   });
 }

@@ -3,11 +3,11 @@ import { deriveRunAuditForSession } from "../core/audit/run-audit-engine.js";
 import {
   ArchiveExporter,
   type ArchiveExportAvailability,
-  type ArchiveExportScope
+  type ArchiveExportScope,
 } from "../core/archive/archive-exporter.js";
 import type {
   DerivedProjectCacheRecord,
-  NormalizedCacheRecord
+  NormalizedCacheRecord,
 } from "../core/cache/file-backed-cache-store.js";
 import type { Diagnostic } from "../core/diagnostics/diagnostic.js";
 import { mergeNormalizedResults } from "../core/ingestion/index.js";
@@ -19,7 +19,7 @@ import type {
   SessionEvent,
   SessionMessage,
   ShellCommandEvidence,
-  ToolCall
+  ToolCall,
 } from "../core/model/entities.js";
 import { deriveVerificationForSession } from "../core/verification/verification-classifier.js";
 import {
@@ -42,26 +42,33 @@ import {
   type SessionPreviewViewModel,
   type SessionSummaryViewModel,
   type TokenMetricsViewModel,
-  type TruthStateViewModel
+  type TruthStateViewModel,
 } from "../ipc/view-models.js";
 import {
   getGroupedCapabilityState,
-  toCapabilityGroups
+  toCapabilityGroups,
 } from "./capability-view-models.js";
 import {
   createWorkbenchRuntime,
   type WorkbenchRuntime,
   type WorkbenchRuntimeOptions,
-  type WorkbenchSourceHydrationState
+  type WorkbenchSourceHydrationState,
 } from "./workbench-runtime.js";
 import {
   listAllStoreSessions,
   listStoreOverviewActivityHeatmapBuckets,
   loadStoreSourceCoverage,
-  listProjectRollupsBySourceId
+  listProjectRollupsBySourceId,
 } from "./store-session-query.js";
+import { isGithubUiEnabled } from "../../shared/feature-flags.js";
+import {
+  isGitHubHostedRemoteUrl,
+  isGitHubOnlyDiagnostic,
+} from "../../shared/github-ui.js";
 
-type DerivedSession = NonNullable<NormalizedCacheRecord["derived"]>["sessions"][number];
+type DerivedSession = NonNullable<
+  NormalizedCacheRecord["derived"]
+>["sessions"][number];
 type DerivedProject = NonNullable<
   NonNullable<NormalizedCacheRecord["derived"]>["projects"]
 >[number];
@@ -97,9 +104,11 @@ interface ProjectRollupInput {
 export interface TriageViewModelService {
   getOverview(request?: GetOverviewRequest): Promise<OverviewViewModel>;
   getOverviewActivityHeatmap(
-    request?: GetOverviewActivityHeatmapRequest
+    request?: GetOverviewActivityHeatmapRequest,
   ): Promise<OverviewActivityHeatmapViewModel>;
-  listProjects(request?: ListProjectsRequest): Promise<ProjectSummaryViewModel[]>;
+  listProjects(
+    request?: ListProjectsRequest,
+  ): Promise<ProjectSummaryViewModel[]>;
 }
 
 export interface TriageViewModelServiceOptions extends WorkbenchRuntimeOptions {
@@ -108,7 +117,7 @@ export interface TriageViewModelServiceOptions extends WorkbenchRuntimeOptions {
 }
 
 export function createTriageViewModelService(
-  options: TriageViewModelServiceOptions = {}
+  options: TriageViewModelServiceOptions = {},
 ): TriageViewModelService {
   const now = options.now ?? (() => new Date());
   const runtime = options.runtime ?? createWorkbenchRuntime(options);
@@ -116,7 +125,7 @@ export function createTriageViewModelService(
     cacheStore: runtime.cacheStore,
     entityStore: runtime.entityStore,
     rawArtifactIndex: runtime.rawArtifactIndex,
-    sourceRegistry: runtime.sourceRegistry
+    sourceRegistry: runtime.sourceRegistry,
   });
 
   return {
@@ -129,22 +138,31 @@ export function createTriageViewModelService(
       return overviewViewModelSchema.parse({
         metrics: {
           totalProjects: toMetricValue(
-            new Set(sessions.map((session) => session.projectId).filter(Boolean)).size
+            new Set(
+              sessions.map((session) => session.projectId).filter(Boolean),
+            ).size,
           ),
           totalSessions: toMetricValue(sessions.length),
           activeOrRecentSessions: toMetricValue(
-            sessions.filter((session) => isSessionActiveOrRecent(session, latestTimestamp)).length
+            sessions.filter((session) =>
+              isSessionActiveOrRecent(session, latestTimestamp),
+            ).length,
           ),
           failedVerification: toMetricValue(
-            sessions.filter((session) => getVerificationState(data, session).label === "Failed")
-              .length
+            sessions.filter(
+              (session) =>
+                getVerificationState(data, session).label === "Failed",
+            ).length,
           ),
           cancelledSessions: toMetricValue(
-            sessions.filter((session) => getSessionLifecycleStatus(session) === "cancelled")
-              .length
+            sessions.filter(
+              (session) => getSessionLifecycleStatus(session) === "cancelled",
+            ).length,
           ),
           needsAttentionSessions: toMetricValue(
-            sessions.filter((session) => needsAttention(getRunAuditState(data, session))).length
+            sessions.filter((session) =>
+              needsAttention(getRunAuditState(data, session)),
+            ).length,
           ),
           toolActivity: toMetricValue(
             sessions.reduce(
@@ -153,34 +171,36 @@ export function createTriageViewModelService(
                 (data.toolCallsBySessionId.get(session.id)?.length ??
                   session.toolCallIds?.length ??
                   0),
-              0
-            )
-          )
+              0,
+            ),
+          ),
         },
         usageSummary: buildOverviewUsageSummary(data, sessions),
         harnessFilters: buildHarnessFilters(data, sessions),
-        activity: buildActivitySeries(data, sessions)
+        activity: buildActivitySeries(data, sessions),
       });
     },
 
     async getOverviewActivityHeatmap(request) {
-      const parsed = getOverviewActivityHeatmapRequestSchema.parse(request ?? {});
+      const parsed = getOverviewActivityHeatmapRequestSchema.parse(
+        request ?? {},
+      );
       const window = buildLast30DayWindow(now());
       const coverage = await loadStoreSourceCoverage(runtime, parsed.adapterId);
       const buckets = await listStoreOverviewActivityHeatmapBuckets(
         runtime,
         {
           startDay: window.startDay,
-          endDay: window.endDay
+          endDay: window.endDay,
         },
-        coverage
+        coverage,
       );
 
       return overviewActivityHeatmapViewModelSchema.parse({
         buckets: buildFixedOverviewActivityBuckets(window.days, buckets),
         coverageState: buildOverviewActivityCoverageState(
-          coverage.degradedSourceStatesBySourceId
-        )
+          coverage.degradedSourceStatesBySourceId,
+        ),
       });
     },
 
@@ -203,7 +223,9 @@ export function createTriageViewModelService(
           const project = projectSessions[0]?.projectId
             ? data.projectsById.get(projectSessions[0].projectId)
             : undefined;
-          const latestSession = [...projectSessions].sort(compareSessionsByActivity)[0];
+          const latestSession = [...projectSessions].sort(
+            compareSessionsByActivity,
+          )[0];
 
           if (!latestSession) {
             return null;
@@ -211,19 +233,26 @@ export function createTriageViewModelService(
 
           const degradedSourceStates = unique(
             projectSessions
-              .map((session) => data.sourceHydrationStatesBySourceId.get(session.sourceId)?.reason)
-              .filter((reason): reason is string => typeof reason === "string" && reason.length > 0)
+              .map(
+                (session) =>
+                  data.sourceHydrationStatesBySourceId.get(session.sourceId)
+                    ?.reason,
+              )
+              .filter(
+                (reason): reason is string =>
+                  typeof reason === "string" && reason.length > 0,
+              ),
           );
 
           return {
             archiveScope: project?.id
               ? {
                   kind: "project",
-                  projectId: project.id
+                  projectId: project.id,
                 }
               : {
                   kind: "session",
-                  sessionId: latestSession.id
+                  sessionId: latestSession.id,
                 },
             ...(degradedSourceStates[0]
               ? { degradedArchiveReason: degradedSourceStates[0] }
@@ -232,13 +261,13 @@ export function createTriageViewModelService(
             key,
             latestSession,
             ...(project ? { project } : {}),
-            projectSessions
+            projectSessions,
           };
         })
         .filter((rollup): rollup is ProjectRollupInput => rollup !== null);
       const archiveExportsByScope = await getArchiveExportsForRollups(
         archiveExporter,
-        projectRollups.filter((rollup) => !rollup.includesDegradedSources)
+        projectRollups.filter((rollup) => !rollup.includesDegradedSources),
       );
 
       const projects = projectRollups.map(
@@ -249,79 +278,109 @@ export function createTriageViewModelService(
           key,
           latestSession,
           project,
-          projectSessions
+          projectSessions,
         }) => {
           const observedHarnesses = unique(
             projectSessions.map(
-              (session) => data.descriptors.get(session.adapterId)?.displayName ?? session.adapterId
-            )
+              (session) =>
+                data.descriptors.get(session.adapterId)?.displayName ??
+                session.adapterId,
+            ),
           );
 
           const projectSnapshot = getProjectGitSnapshot(data, project);
           const githubSnapshot = getProjectGitHubSnapshot(data, project);
-          const archiveExport =
-            includesDegradedSources
-              ? buildUnavailableArchiveExport(
-                  {
-                    archiveScope,
-                    latestSession,
-                    projectSessions
-                  },
-                  project,
-                  degradedArchiveReason
-                )
-              : archiveExportsByScope.get(getArchiveScopeKey(archiveScope)) ??
-                buildUnavailableArchiveExport(
-                  {
-                    archiveScope,
-                    latestSession,
-                    projectSessions
-                  },
-                  project
-                );
+          const archiveExport = includesDegradedSources
+            ? buildUnavailableArchiveExport(
+                {
+                  archiveScope,
+                  latestSession,
+                  projectSessions,
+                },
+                project,
+                degradedArchiveReason,
+              )
+            : (archiveExportsByScope.get(getArchiveScopeKey(archiveScope)) ??
+              buildUnavailableArchiveExport(
+                {
+                  archiveScope,
+                  latestSession,
+                  projectSessions,
+                },
+                project,
+              ));
 
-          const projectDisplayName = getProjectDisplayName(project) ?? "Unknown Project";
+          const projectDisplayName =
+            getProjectDisplayName(project) ?? "Unknown Project";
 
-          return projectSummaryViewModelSchema.parse({
-            projectId: project?.id ?? key,
-            projectDisplayName,
-            projectName: projectDisplayName,
-            primaryRootPath: toFieldValue(getProjectPrimaryRootPath(project)),
-            validatedRepoRoot: toGitValidatedRootField(projectSnapshot),
-            observedHarnesses,
-            latestActivityAt: getSessionActivityTimestamp(latestSession),
-            sessionCount: projectSessions.length,
-            latestVerification: getVerificationState(data, latestSession),
-            latestRunAudit: getRunAuditState(data, latestSession),
-            gitStatus: toGitStatusState(projectSnapshot),
-            githubStatus: toGitHubStatusState(githubSnapshot),
-            branch: toGitFieldValue(projectSnapshot, (snapshot) => snapshot.branch),
-            head: toGitFieldValue(projectSnapshot, (snapshot) => snapshot.headSha, {
-              displayValue: abbreviateSha
+          return sanitizeProjectSummaryForFeatureFlags(
+            projectSummaryViewModelSchema.parse({
+              projectId: project?.id ?? key,
+              projectDisplayName,
+              projectName: projectDisplayName,
+              primaryRootPath: toFieldValue(getProjectPrimaryRootPath(project)),
+              validatedRepoRoot: toGitValidatedRootField(projectSnapshot),
+              observedHarnesses,
+              latestActivityAt: getSessionActivityTimestamp(latestSession),
+              sessionCount: projectSessions.length,
+              latestVerification: getVerificationState(data, latestSession),
+              latestRunAudit: getRunAuditState(data, latestSession),
+              gitStatus: toGitStatusState(projectSnapshot),
+              githubStatus: toGitHubStatusState(githubSnapshot),
+              branch: toGitFieldValue(
+                projectSnapshot,
+                (snapshot) => snapshot.branch,
+              ),
+              head: toGitFieldValue(
+                projectSnapshot,
+                (snapshot) => snapshot.headSha,
+                {
+                  displayValue: abbreviateSha,
+                },
+              ),
+              dirtyState: toGitDirtyState(projectSnapshot),
+              changedFiles: toGitMetricState(
+                projectSnapshot,
+                (snapshot) => snapshot.changedFiles,
+              ),
+              untrackedFiles: toGitMetricState(
+                projectSnapshot,
+                (snapshot) => snapshot.untrackedFiles,
+              ),
+              additions: toGitMetricState(
+                projectSnapshot,
+                (snapshot) => snapshot.additions,
+              ),
+              deletions: toGitMetricState(
+                projectSnapshot,
+                (snapshot) => snapshot.deletions,
+              ),
+              remoteUrl: toGitRemoteField(projectSnapshot),
+              pullRequest: toGitHubPullRequestField(githubSnapshot),
+              checks: toGitHubSummaryField(
+                githubSnapshot,
+                (snapshot) => snapshot.checksSummary,
+              ),
+              reviewStatus: toGitHubSummaryField(
+                githubSnapshot,
+                (snapshot) => snapshot.reviewSummary,
+              ),
+              archiveExport,
             }),
-            dirtyState: toGitDirtyState(projectSnapshot),
-            changedFiles: toGitMetricState(projectSnapshot, (snapshot) => snapshot.changedFiles),
-            untrackedFiles: toGitMetricState(projectSnapshot, (snapshot) => snapshot.untrackedFiles),
-            additions: toGitMetricState(projectSnapshot, (snapshot) => snapshot.additions),
-            deletions: toGitMetricState(projectSnapshot, (snapshot) => snapshot.deletions),
-            remoteUrl: toGitRemoteField(projectSnapshot),
-            pullRequest: toGitHubPullRequestField(githubSnapshot),
-            checks: toGitHubSummaryField(githubSnapshot, (snapshot) => snapshot.checksSummary),
-            reviewStatus: toGitHubSummaryField(githubSnapshot, (snapshot) => snapshot.reviewSummary),
-            archiveExport
-          });
-        }
+          );
+        },
       );
 
-      return projects
-        .sort((left, right) => compareTimestampStrings(right.latestActivityAt, left.latestActivityAt));
-    }
+      return projects.sort((left, right) =>
+        compareTimestampStrings(right.latestActivityAt, left.latestActivityAt),
+      );
+    },
   };
 }
 
 async function getArchiveExportsForRollups(
   archiveExporter: ArchiveExporter,
-  rollups: ProjectRollupInput[]
+  rollups: ProjectRollupInput[],
 ): Promise<Map<string, ArchiveExportAvailability>> {
   const archiveExportsByScope = new Map<string, ArchiveExportAvailability>();
 
@@ -334,21 +393,24 @@ async function getArchiveExportsForRollups(
       rollups
         .filter(
           (
-            rollup
+            rollup,
           ): rollup is ProjectRollupInput & {
             archiveScope: Extract<ArchiveExportScope, { kind: "project" }>;
-          } => rollup.archiveScope.kind === "project"
+          } => rollup.archiveScope.kind === "project",
         )
-        .map((rollup) => [
-          rollup.archiveScope.projectId,
-          unique(rollup.projectSessions.map((session) => session.sourceId)).sort((left, right) =>
-            left.localeCompare(right)
-          )
-        ] as const)
+        .map(
+          (rollup) =>
+            [
+              rollup.archiveScope.projectId,
+              unique(
+                rollup.projectSessions.map((session) => session.sourceId),
+              ).sort((left, right) => left.localeCompare(right)),
+            ] as const,
+        ),
     );
     const archiveExports = await archiveExporter.getScopeAvailabilities(
       rollups.map((rollup) => rollup.archiveScope),
-      { projectSourceCoverageByProjectId }
+      { projectSourceCoverageByProjectId },
     );
 
     for (const archiveExport of archiveExports) {
@@ -363,7 +425,7 @@ async function getArchiveExportsForRollups(
     for (const rollup of rollups) {
       archiveExportsByScope.set(
         getArchiveScopeKey(rollup.archiveScope),
-        buildUnavailableArchiveExport(rollup, rollup.project)
+        buildUnavailableArchiveExport(rollup, rollup.project),
       );
     }
   }
@@ -377,7 +439,7 @@ export function buildUnavailableArchiveExport(
     "archiveScope" | "latestSession" | "projectSessions"
   >,
   project?: Project,
-  reason = "Archive export availability could not be resolved for this scope."
+  reason = "Archive export availability could not be resolved for this scope.",
 ): ArchiveExportAvailability {
   return {
     scopeKind: rollup.archiveScope.kind,
@@ -387,13 +449,15 @@ export function buildUnavailableArchiveExport(
         : rollup.archiveScope.sessionId,
     scopeLabel:
       rollup.archiveScope.kind === "project"
-        ? getProjectDisplayName(project) ?? "Project Archive"
-        : rollup.latestSession.title ?? rollup.latestSession.nativeId ?? "Session Archive",
+        ? (getProjectDisplayName(project) ?? "Project Archive")
+        : (rollup.latestSession.title ??
+          rollup.latestSession.nativeId ??
+          "Session Archive"),
     sessionCount: rollup.projectSessions.length,
     sourceCount: 0,
     rawArtifactsAvailable: false,
     rawArtifactCount: 0,
-    rawArtifactsReason: reason
+    rawArtifactsReason: reason,
   };
 }
 
@@ -404,7 +468,7 @@ function getArchiveScopeKey(scope: ArchiveExportScope): string {
 }
 
 export async function loadTriageData(
-  runtime: WorkbenchRuntime
+  runtime: WorkbenchRuntime,
 ): Promise<LoadedTriageData> {
   const records = await runtime.cacheStore.listLatestRecords();
   return buildLoadedTriageDataFromCacheRecords(runtime, records);
@@ -412,9 +476,11 @@ export async function loadTriageData(
 
 function buildLoadedTriageDataFromCacheRecords(
   runtime: WorkbenchRuntime,
-  records: NormalizedCacheRecord[]
+  records: NormalizedCacheRecord[],
 ): LoadedTriageData {
-  const merged = mergeNormalizedResults(records.map((record) => record.normalized));
+  const merged = mergeNormalizedResults(
+    records.map((record) => record.normalized),
+  );
   const projects = merged?.projects ?? [];
   const sessions = merged?.sessions ?? [];
   const events = merged?.events ?? [];
@@ -426,27 +492,36 @@ function buildLoadedTriageDataFromCacheRecords(
 
   return {
     descriptors: new Map(
-      runtime
-        .adapterRegistry
+      runtime.adapterRegistry
         .listDescriptors()
-        .map((descriptor) => [descriptor.id, descriptor] as const)
+        .map((descriptor) => [descriptor.id, descriptor] as const),
     ),
     records,
-    projectsById: new Map(projects.map((project) => [project.id, project] as const)),
-    sessionsById: new Map(sessions.map((session) => [session.id, session] as const)),
+    projectsById: new Map(
+      projects.map((project) => [project.id, project] as const),
+    ),
+    sessionsById: new Map(
+      sessions.map((session) => [session.id, session] as const),
+    ),
     eventsBySessionId: groupBy(events, (event) => event.sessionId),
     messagesBySessionId: groupBy(messages, (message) => message.sessionId),
     toolCallsBySessionId: groupBy(toolCalls, (toolCall) => toolCall.sessionId),
-    shellCommandsBySessionId: groupBy(shellCommands, (shellCommand) => shellCommand.sessionId),
+    shellCommandsBySessionId: groupBy(
+      shellCommands,
+      (shellCommand) => shellCommand.sessionId,
+    ),
     outputArtifactsBySessionId: groupBy(
       outputArtifacts.filter((artifact) => Boolean(artifact.sessionId)),
-      (artifact) => artifact.sessionId ?? ""
+      (artifact) => artifact.sessionId ?? "",
     ),
-    fileMutationsBySessionId: groupBy(fileMutations, (mutation) => mutation.sessionId),
+    fileMutationsBySessionId: groupBy(
+      fileMutations,
+      (mutation) => mutation.sessionId,
+    ),
     diagnosticsBySessionId: buildDiagnosticsBySession(records, sessions),
     derivedBySessionId: buildDerivedBySession(records),
     projectSnapshotsByProjectId: buildDerivedByProject(records),
-    sourceHydrationStatesBySourceId: new Map()
+    sourceHydrationStatesBySourceId: new Map(),
   };
 }
 
@@ -455,37 +530,40 @@ export async function loadStoreTriageData(
   adapterId?: string,
   options: {
     includeSessionDiagnostics?: boolean;
-  } = {}
+  } = {},
 ): Promise<LoadedTriageData> {
   const coveragePromise = loadStoreSourceCoverage(runtime, adapterId);
   const [descriptors, coverage] = await Promise.all([
     Promise.resolve(runtime.adapterRegistry.listDescriptors()),
-    coveragePromise
+    coveragePromise,
   ]);
   const sessionRows = await listAllStoreSessions(runtime, adapterId, coverage);
   const fallbackData = buildLoadedTriageDataFromCacheRecords(
     runtime,
-    coverage.cacheFallbackRecords
+    coverage.cacheFallbackRecords,
   );
   const sessions = sessionRows.map((row) => row.session);
   const projectRollups = (
     await Promise.all(
       coverage.storeSources.map((source) =>
-        listProjectRollupsBySourceId(runtime, source.sourceId)
-      )
+        listProjectRollupsBySourceId(runtime, source.sourceId),
+      ),
     )
   ).flatMap((rollupsByProjectId) => [...rollupsByProjectId.values()]);
   const diagnosticsBySessionId = new Map(fallbackData.diagnosticsBySessionId);
 
   if (options.includeSessionDiagnostics) {
     const diagnosticsBySession = await Promise.all(
-      sessions.map(async (session) => [
-        session.id,
-        await runtime.entityStore.listDiagnostics({
-          sourceId: session.sourceId,
-          sessionId: session.id
-        })
-      ] as const)
+      sessions.map(
+        async (session) =>
+          [
+            session.id,
+            await runtime.entityStore.listDiagnostics({
+              sourceId: session.sourceId,
+              sessionId: session.id,
+            }),
+          ] as const,
+      ),
     );
 
     for (const [sessionId, diagnostics] of diagnosticsBySession) {
@@ -495,15 +573,19 @@ export async function loadStoreTriageData(
 
   const storeData: LoadedTriageData = {
     descriptors: new Map(
-      descriptors.map((descriptor) => [descriptor.id, descriptor] as const)
+      descriptors.map((descriptor) => [descriptor.id, descriptor] as const),
     ),
     records: [],
     projectsById: new Map(
       projectRollups
-        .filter((rollup): rollup is typeof rollup & { project: Project } => Boolean(rollup.project))
-        .map((rollup) => [rollup.project.id, rollup.project] as const)
+        .filter((rollup): rollup is typeof rollup & { project: Project } =>
+          Boolean(rollup.project),
+        )
+        .map((rollup) => [rollup.project.id, rollup.project] as const),
     ),
-    sessionsById: new Map(sessions.map((session) => [session.id, session] as const)),
+    sessionsById: new Map(
+      sessions.map((session) => [session.id, session] as const),
+    ),
     eventsBySessionId: new Map(),
     messagesBySessionId: new Map(),
     toolCallsBySessionId: new Map(),
@@ -514,21 +596,26 @@ export async function loadStoreTriageData(
     derivedBySessionId: new Map(),
     projectSnapshotsByProjectId: new Map(
       projectRollups
-        .filter((rollup): rollup is typeof rollup & { projectId: string } => Boolean(rollup.projectId))
-        .map((rollup) => [
-          rollup.projectId,
-          {
-            projectId: rollup.projectId,
-            git: rollup.git ?? {
-              status: "unknown",
-              rootConfidence: "unknown",
-              diagnosticIds: []
-            },
-            ...(rollup.github ? { github: rollup.github } : {})
-          }
-        ] as const)
+        .filter((rollup): rollup is typeof rollup & { projectId: string } =>
+          Boolean(rollup.projectId),
+        )
+        .map(
+          (rollup) =>
+            [
+              rollup.projectId,
+              {
+                projectId: rollup.projectId,
+                git: rollup.git ?? {
+                  status: "unknown",
+                  rootConfidence: "unknown",
+                  diagnosticIds: [],
+                },
+                ...(rollup.github ? { github: rollup.github } : {}),
+              },
+            ] as const,
+        ),
     ),
-    sourceHydrationStatesBySourceId: coverage.degradedSourceStatesBySourceId
+    sourceHydrationStatesBySourceId: coverage.degradedSourceStatesBySourceId,
   };
 
   return mergeLoadedTriageData(storeData, fallbackData);
@@ -536,47 +623,59 @@ export async function loadStoreTriageData(
 
 function mergeLoadedTriageData(
   primary: LoadedTriageData,
-  fallback: LoadedTriageData
+  fallback: LoadedTriageData,
 ): LoadedTriageData {
   return {
     descriptors: mergeMaps(primary.descriptors, fallback.descriptors),
     records: [...primary.records, ...fallback.records],
     projectsById: mergeMaps(primary.projectsById, fallback.projectsById),
     sessionsById: mergeMaps(primary.sessionsById, fallback.sessionsById),
-    eventsBySessionId: mergeGroupedMaps(primary.eventsBySessionId, fallback.eventsBySessionId),
-    messagesBySessionId: mergeGroupedMaps(primary.messagesBySessionId, fallback.messagesBySessionId),
-    toolCallsBySessionId: mergeGroupedMaps(primary.toolCallsBySessionId, fallback.toolCallsBySessionId),
+    eventsBySessionId: mergeGroupedMaps(
+      primary.eventsBySessionId,
+      fallback.eventsBySessionId,
+    ),
+    messagesBySessionId: mergeGroupedMaps(
+      primary.messagesBySessionId,
+      fallback.messagesBySessionId,
+    ),
+    toolCallsBySessionId: mergeGroupedMaps(
+      primary.toolCallsBySessionId,
+      fallback.toolCallsBySessionId,
+    ),
     shellCommandsBySessionId: mergeGroupedMaps(
       primary.shellCommandsBySessionId,
-      fallback.shellCommandsBySessionId
+      fallback.shellCommandsBySessionId,
     ),
     outputArtifactsBySessionId: mergeGroupedMaps(
       primary.outputArtifactsBySessionId,
-      fallback.outputArtifactsBySessionId
+      fallback.outputArtifactsBySessionId,
     ),
     fileMutationsBySessionId: mergeGroupedMaps(
       primary.fileMutationsBySessionId,
-      fallback.fileMutationsBySessionId
+      fallback.fileMutationsBySessionId,
     ),
     diagnosticsBySessionId: mergeGroupedMaps(
       primary.diagnosticsBySessionId,
-      fallback.diagnosticsBySessionId
+      fallback.diagnosticsBySessionId,
     ),
-    derivedBySessionId: mergeMaps(primary.derivedBySessionId, fallback.derivedBySessionId),
+    derivedBySessionId: mergeMaps(
+      primary.derivedBySessionId,
+      fallback.derivedBySessionId,
+    ),
     projectSnapshotsByProjectId: mergeMaps(
       primary.projectSnapshotsByProjectId,
-      fallback.projectSnapshotsByProjectId
+      fallback.projectSnapshotsByProjectId,
     ),
     sourceHydrationStatesBySourceId: mergeMaps(
       primary.sourceHydrationStatesBySourceId,
-      fallback.sourceHydrationStatesBySourceId
-    )
+      fallback.sourceHydrationStatesBySourceId,
+    ),
   };
 }
 
 export function filterSessions(
   data: LoadedTriageData,
-  adapterId?: string
+  adapterId?: string,
 ): Session[] {
   return [...data.sessionsById.values()]
     .filter((session) => !adapterId || session.adapterId === adapterId)
@@ -585,76 +684,86 @@ export function filterSessions(
 
 export function buildSessionSummaryViewModel(
   data: LoadedTriageData,
-  session: Session
+  session: Session,
 ): SessionSummaryViewModel {
-  return sessionSummaryViewModelSchema.parse(buildSessionBaseViewModel(data, session));
+  return sessionSummaryViewModelSchema.parse(
+    buildSessionBaseViewModel(data, session),
+  );
 }
 
 export function buildSessionPreviewViewModel(
   data: LoadedTriageData,
-  session: Session
+  session: Session,
 ): SessionPreviewViewModel {
   return sessionPreviewViewModelSchema.parse({
     ...buildSessionBaseViewModel(data, session),
     diagnostics: getDiagnosticsForSession(data, session).map((diagnostic) => ({
       code: diagnostic.code,
       severity: diagnostic.severity,
-      message: sanitizeText(diagnostic.message)
-    }))
+      message: sanitizeText(diagnostic.message),
+    })),
   });
 }
 
 export function getDerivedSession(
   data: LoadedTriageData,
-  sessionId: string
+  sessionId: string,
 ): DerivedSession | undefined {
   return data.derivedBySessionId.get(sessionId);
 }
 
 export function getProjectForSession(
   data: LoadedTriageData,
-  session: Session
+  session: Session,
 ): Project | undefined {
-  return session.projectId ? data.projectsById.get(session.projectId) : undefined;
+  return session.projectId
+    ? data.projectsById.get(session.projectId)
+    : undefined;
 }
 
 export function getProjectGitSnapshot(
   data: LoadedTriageData,
-  project?: Project
+  project?: Project,
 ): DerivedProject["git"] | undefined {
-  return project ? data.projectSnapshotsByProjectId.get(project.id)?.git : undefined;
+  return project
+    ? data.projectSnapshotsByProjectId.get(project.id)?.git
+    : undefined;
 }
 
 export function getProjectGitHubSnapshot(
   data: LoadedTriageData,
-  project?: Project
+  project?: Project,
 ): DerivedProject["github"] | undefined {
-  return project ? data.projectSnapshotsByProjectId.get(project.id)?.github : undefined;
+  return project
+    ? data.projectSnapshotsByProjectId.get(project.id)?.github
+    : undefined;
 }
 
 export function getDiagnosticsForSession(
   data: LoadedTriageData,
-  session: Session
+  session: Session,
 ): Diagnostic[] {
-  return data.diagnosticsBySessionId.get(session.id) ?? [];
+  return (data.diagnosticsBySessionId.get(session.id) ?? []).filter(
+    shouldIncludeDiagnosticInUi,
+  );
 }
 
 export function getCapabilityEnvelope(
   data: LoadedTriageData,
-  session: Session
+  session: Session,
 ) {
   if (hasSessionCapabilities(session)) {
     return {
       adapterId: session.adapterId,
       sourceId: session.sourceId,
       sessionId: session.id,
-      capabilities: session.capabilities
+      capabilities: session.capabilities,
     };
   }
 
   for (const record of data.records) {
     const sessionCapability = record.normalized.capabilities.sessions.find(
-      (candidate) => candidate.sessionId === session.id
+      (candidate) => candidate.sessionId === session.id,
     );
 
     if (sessionCapability) {
@@ -662,19 +771,21 @@ export function getCapabilityEnvelope(
     }
   }
 
-  const sourceRecord = data.records.find((record) => record.sourceId === session.sourceId);
+  const sourceRecord = data.records.find(
+    (record) => record.sourceId === session.sourceId,
+  );
 
   if (sourceRecord) {
     return sourceRecord.normalized.capabilities.source;
   }
 
-  return data.records.find((record) => record.adapterId === session.adapterId)?.normalized
-    .capabilities.adapter;
+  return data.records.find((record) => record.adapterId === session.adapterId)
+    ?.normalized.capabilities.adapter;
 }
 
 export function getVerificationState(
   data: LoadedTriageData,
-  session: Session
+  session: Session,
 ): TruthStateViewModel {
   const derived = getDerivedSession(data, session.id);
   const sessionVerification = getSessionVerification(session);
@@ -682,7 +793,7 @@ export function getVerificationState(
   const capability = getGroupedCapabilityState(
     getCapabilityEnvelope(data, session)?.capabilities,
     "audit",
-    "verificationCommandEvidence"
+    "verificationCommandEvidence",
   )?.status;
 
   if (verification) {
@@ -695,19 +806,19 @@ export function getVerificationState(
         return {
           label: "Not Run",
           tone: "warning",
-          reason: toReasonText(verification.reasonCodes)
+          reason: toReasonText(verification.reasonCodes),
         };
       case "unknown":
         return {
           label: "Unknown",
           tone: "neutral",
-          reason: toReasonText(verification.reasonCodes)
+          reason: toReasonText(verification.reasonCodes),
         };
       case "unsupported":
         return {
           label: "Unsupported",
           tone: "neutral",
-          reason: toReasonText(verification.reasonCodes)
+          reason: toReasonText(verification.reasonCodes),
         };
     }
   }
@@ -719,8 +830,8 @@ export function getVerificationState(
       reason: getGroupedCapabilityState(
         getCapabilityEnvelope(data, session)?.capabilities,
         "audit",
-        "verificationCommandEvidence"
-      )?.reason
+        "verificationCommandEvidence",
+      )?.reason,
     };
   }
 
@@ -730,14 +841,14 @@ export function getVerificationState(
     reason: getGroupedCapabilityState(
       getCapabilityEnvelope(data, session)?.capabilities,
       "audit",
-      "verificationCommandEvidence"
-    )?.reason
+      "verificationCommandEvidence",
+    )?.reason,
   };
 }
 
 export function getRunAuditState(
   data: LoadedTriageData,
-  session: Session
+  session: Session,
 ): TruthStateViewModel {
   const derived = getDerivedSession(data, session.id);
   const runAudit = getSessionRunAudit(session) ?? derived?.audit;
@@ -753,25 +864,25 @@ export function getRunAuditState(
       return {
         label: "Cancelled",
         tone: "warning",
-        reason: toReasonText(runAudit.attentionReasons)
+        reason: toReasonText(runAudit.attentionReasons),
       };
     case "verification-failed":
       return {
         label: "Failed Verification",
         tone: "danger",
-        reason: toReasonText(runAudit.attentionReasons)
+        reason: toReasonText(runAudit.attentionReasons),
       };
     case "incomplete":
       return {
         label: "Incomplete",
         tone: "warning",
-        reason: toReasonText(runAudit.attentionReasons)
+        reason: toReasonText(runAudit.attentionReasons),
       };
     case "needs-review":
       return {
         label: "Needs Review",
         tone: "warning",
-        reason: toReasonText(runAudit.attentionReasons)
+        reason: toReasonText(runAudit.attentionReasons),
       };
     case "clean":
       return { label: "Clean", tone: "positive" };
@@ -779,7 +890,7 @@ export function getRunAuditState(
       return {
         label: "Unknown",
         tone: "neutral",
-        reason: toReasonText(runAudit.attentionReasons)
+        reason: toReasonText(runAudit.attentionReasons),
       };
   }
 }
@@ -801,12 +912,12 @@ export function toMetricValue(value: number): MetricStateViewModel {
   return {
     status: "value",
     displayValue: String(value),
-    numericValue: value
+    numericValue: value,
   };
 }
 
 export function toGitDirtyState(
-  gitSnapshot?: DerivedProject["git"]
+  gitSnapshot?: DerivedProject["git"],
 ): TruthStateViewModel {
   if (gitSnapshot?.status === "available" && gitSnapshot.snapshot) {
     return gitSnapshot.snapshot.dirty
@@ -818,24 +929,26 @@ export function toGitDirtyState(
     return {
       label: "Unsupported",
       tone: "neutral",
-      reason: gitSnapshot.reason
+      reason: gitSnapshot.reason,
     };
   }
 
   return {
     label: "Unknown",
     tone: "neutral",
-    reason: getGitUnavailableReason(gitSnapshot)
+    reason: getGitUnavailableReason(gitSnapshot),
   };
 }
 
 export function toGitFieldValue(
   gitSnapshot: DerivedProject["git"] | undefined,
-  selectValue: (snapshot: NonNullable<DerivedProject["git"]["snapshot"]>) => string | undefined,
+  selectValue: (
+    snapshot: NonNullable<DerivedProject["git"]["snapshot"]>,
+  ) => string | undefined,
   options: {
     displayValue?: (rawValue: string) => string;
     unavailableReason?: string;
-  } = {}
+  } = {},
 ): FieldValueViewModel {
   if (gitSnapshot?.status === "available" && gitSnapshot.snapshot) {
     const rawValue = selectValue(gitSnapshot.snapshot);
@@ -843,20 +956,22 @@ export function toGitFieldValue(
     if (rawValue) {
       return toFieldValueWithDisplay(
         rawValue,
-        options.displayValue ? options.displayValue(rawValue) : rawValue
+        options.displayValue ? options.displayValue(rawValue) : rawValue,
       );
     }
   }
 
   return toFieldState(
     gitSnapshot?.status === "unsupported" ? "Unsupported" : "Unknown",
-    options.unavailableReason ?? getGitUnavailableReason(gitSnapshot)
+    options.unavailableReason ?? getGitUnavailableReason(gitSnapshot),
   );
 }
 
 export function toGitMetricState(
   gitSnapshot: DerivedProject["git"] | undefined,
-  selectValue: (snapshot: NonNullable<DerivedProject["git"]["snapshot"]>) => number
+  selectValue: (
+    snapshot: NonNullable<DerivedProject["git"]["snapshot"]>,
+  ) => number,
 ): MetricStateViewModel {
   if (gitSnapshot?.status === "available" && gitSnapshot.snapshot) {
     return toMetricValue(selectValue(gitSnapshot.snapshot));
@@ -866,11 +981,15 @@ export function toGitMetricState(
     return toMetricState("unsupported", "Unsupported", gitSnapshot.reason);
   }
 
-  return toMetricState("unknown", "Unknown", getGitUnavailableReason(gitSnapshot));
+  return toMetricState(
+    "unknown",
+    "Unknown",
+    getGitUnavailableReason(gitSnapshot),
+  );
 }
 
 export function toGitRemoteField(
-  gitSnapshot?: DerivedProject["git"]
+  gitSnapshot?: DerivedProject["git"],
 ): FieldValueViewModel {
   if (gitSnapshot?.status === "available" && gitSnapshot.snapshot?.remoteUrl) {
     return toFieldValue(gitSnapshot.snapshot.remoteUrl);
@@ -879,18 +998,19 @@ export function toGitRemoteField(
   if (gitSnapshot?.status === "available") {
     return toFieldState(
       "Unknown",
-      gitSnapshot.remoteReason ?? "No remote URL is configured for this repository."
+      gitSnapshot.remoteReason ??
+        "No remote URL is configured for this repository.",
     );
   }
 
   return toFieldState(
     gitSnapshot?.status === "unsupported" ? "Unsupported" : "Unknown",
-    getGitUnavailableReason(gitSnapshot)
+    getGitUnavailableReason(gitSnapshot),
   );
 }
 
 export function toGitStatusState(
-  gitSnapshot?: DerivedProject["git"]
+  gitSnapshot?: DerivedProject["git"],
 ): TruthStateViewModel {
   if (gitSnapshot?.status === "available") {
     return { label: "Available", tone: "info" };
@@ -900,19 +1020,19 @@ export function toGitStatusState(
     return {
       label: "Unsupported",
       tone: "neutral",
-      reason: gitSnapshot.reason
+      reason: gitSnapshot.reason,
     };
   }
 
   return {
     label: "Unknown",
     tone: "neutral",
-    reason: getGitUnavailableReason(gitSnapshot)
+    reason: getGitUnavailableReason(gitSnapshot),
   };
 }
 
 export function toGitHubPullRequestField(
-  githubSnapshot?: DerivedProject["github"]
+  githubSnapshot?: DerivedProject["github"],
 ): FieldValueViewModel {
   if (
     githubSnapshot?.status === "available" &&
@@ -921,7 +1041,7 @@ export function toGitHubPullRequestField(
   ) {
     return toFieldValueWithDisplay(
       String(githubSnapshot.pullRequestNumber),
-      `#${githubSnapshot.pullRequestNumber} ${githubSnapshot.pullRequestTitle}`
+      `#${githubSnapshot.pullRequestNumber} ${githubSnapshot.pullRequestTitle}`,
     );
   }
 
@@ -931,12 +1051,12 @@ export function toGitHubPullRequestField(
 
   return toFieldState(
     githubSnapshot?.status === "unsupported" ? "Unsupported" : "Unknown",
-    getGitHubUnavailableReason(githubSnapshot)
+    getGitHubUnavailableReason(githubSnapshot),
   );
 }
 
 export function toGitHubStatusState(
-  githubSnapshot?: DerivedProject["github"]
+  githubSnapshot?: DerivedProject["github"],
 ): TruthStateViewModel {
   switch (githubSnapshot?.status) {
     case "available":
@@ -945,26 +1065,28 @@ export function toGitHubStatusState(
       return {
         label: "No Matching PR",
         tone: "neutral",
-        reason: githubSnapshot.reason
+        reason: githubSnapshot.reason,
       };
     case "unsupported":
       return {
         label: "Unsupported",
         tone: "neutral",
-        reason: githubSnapshot.reason
+        reason: githubSnapshot.reason,
       };
     default:
       return {
         label: "Unknown",
         tone: "neutral",
-        reason: getGitHubUnavailableReason(githubSnapshot)
+        reason: getGitHubUnavailableReason(githubSnapshot),
       };
   }
 }
 
 export function toGitHubSummaryField(
   githubSnapshot: DerivedProject["github"] | undefined,
-  selectValue: (snapshot: NonNullable<DerivedProject["github"]>) => string | undefined
+  selectValue: (
+    snapshot: NonNullable<DerivedProject["github"]>,
+  ) => string | undefined,
 ): FieldValueViewModel {
   if (githubSnapshot?.status === "available") {
     const value = selectValue(githubSnapshot);
@@ -980,12 +1102,12 @@ export function toGitHubSummaryField(
 
   return toFieldState(
     githubSnapshot?.status === "unsupported" ? "Unsupported" : "Unknown",
-    getGitHubUnavailableReason(githubSnapshot)
+    getGitHubUnavailableReason(githubSnapshot),
   );
 }
 
 export function toGitValidatedRootField(
-  gitSnapshot?: DerivedProject["git"]
+  gitSnapshot?: DerivedProject["git"],
 ): FieldValueViewModel {
   if (gitSnapshot?.validatedRootPath) {
     return toFieldValue(gitSnapshot.validatedRootPath);
@@ -993,23 +1115,26 @@ export function toGitValidatedRootField(
 
   return toFieldState(
     gitSnapshot?.status === "unsupported" ? "Unsupported" : "Unknown",
-    getGitUnavailableReason(gitSnapshot)
+    getGitUnavailableReason(gitSnapshot),
   );
 }
 
 export function toMetricState(
   status: MetricStateViewModel["status"],
   displayValue: string,
-  reason?: string
+  reason?: string,
 ): MetricStateViewModel {
   return {
     status,
     displayValue,
-    ...(reason ? { reason } : {})
+    ...(reason ? { reason } : {}),
   };
 }
 
-export function toFieldValue(value?: string, reason?: string): FieldValueViewModel {
+export function toFieldValue(
+  value?: string,
+  reason?: string,
+): FieldValueViewModel {
   if (value) {
     return toFieldValueWithDisplay(value, value);
   }
@@ -1019,36 +1144,36 @@ export function toFieldValue(value?: string, reason?: string): FieldValueViewMod
 
 export function toFieldValueWithDisplay(
   rawValue: string,
-  displayValue: string
+  displayValue: string,
 ): FieldValueViewModel {
   return {
     status: "value",
     displayValue,
-    rawValue
+    rawValue,
   };
 }
 
 export function toFieldState(
   displayValue: "Unknown" | "Unsupported",
-  reason?: string
+  reason?: string,
 ): FieldValueViewModel {
   return {
     status: displayValue === "Unknown" ? "unknown" : "unsupported",
     displayValue,
-    ...(reason ? { reason } : {})
+    ...(reason ? { reason } : {}),
   };
 }
 
 function mergeMaps<TKey, TValue>(
   primary: Map<TKey, TValue>,
-  fallback: Map<TKey, TValue>
+  fallback: Map<TKey, TValue>,
 ): Map<TKey, TValue> {
   return new Map([...fallback, ...primary]);
 }
 
 function mergeGroupedMaps<TKey, TValue>(
   primary: Map<TKey, TValue[]>,
-  fallback: Map<TKey, TValue[]>
+  fallback: Map<TKey, TValue[]>,
 ): Map<TKey, TValue[]> {
   return mergeMaps(primary, fallback);
 }
@@ -1061,75 +1186,93 @@ export function needsAttention(state: TruthStateViewModel): boolean {
   return !["Clean", "Passed", "Completed", "Supported"].includes(state.label);
 }
 
-function buildSessionBaseViewModel(
-  data: LoadedTriageData,
-  session: Session
-) {
+function buildSessionBaseViewModel(data: LoadedTriageData, session: Session) {
   const descriptor = data.descriptors.get(session.adapterId);
   const capabilityEnvelope = getCapabilityEnvelope(data, session);
   const diagnostics = getDiagnosticsForSession(data, session);
   const shellCapability = getGroupedCapabilityState(
     capabilityEnvelope?.capabilities,
     "tools",
-    "shellCommands"
+    "shellCommands",
   );
   const toolCallCapability = getGroupedCapabilityState(
     capabilityEnvelope?.capabilities,
     "tools",
-    "toolCalls"
+    "toolCalls",
   );
   const outputArtifactCapability = getGroupedCapabilityState(
     capabilityEnvelope?.capabilities,
     "tools",
-    "sidecarOutputs"
+    "sidecarOutputs",
   );
   const fileMutationCapability = getGroupedCapabilityState(
     capabilityEnvelope?.capabilities,
     "tools",
-    "fileMutations"
+    "fileMutations",
   );
   const tokenCountCapability = getGroupedCapabilityState(
     capabilityEnvelope?.capabilities,
     "usage",
-    "tokenCounts"
+    "tokenCounts",
   );
   const modelNameCapability = getGroupedCapabilityState(
     capabilityEnvelope?.capabilities,
     "usage",
-    "modelNames"
+    "modelNames",
   );
   const derived = getDerivedSession(data, session.id);
-  const parsedShellCommands = derived?.shellCommands ?? session.parsedShellCommands ?? [];
+  const parsedShellCommands =
+    derived?.shellCommands ?? session.parsedShellCommands ?? [];
   const firstUserPrompt =
     getSessionFirstUserPrompt(session) ?? getFirstPrompt(data, session.id);
-  const projectDisplayName = getProjectDisplayName(getProjectForSession(data, session));
+  const projectDisplayName = getProjectDisplayName(
+    getProjectForSession(data, session),
+  );
   const capabilityGroups = toCapabilityGroups(capabilityEnvelope?.capabilities);
   const messageCount =
-    data.messagesBySessionId.get(session.id)?.length ?? session.messageIds?.length ?? 0;
+    data.messagesBySessionId.get(session.id)?.length ??
+    session.messageIds?.length ??
+    0;
   const toolCallCount =
-    data.toolCallsBySessionId.get(session.id)?.length ?? session.toolCallIds?.length ?? 0;
+    data.toolCallsBySessionId.get(session.id)?.length ??
+    session.toolCallIds?.length ??
+    0;
   const shellCommandCount = parsedShellCommands.length;
   const rawShellCommandCount =
-    data.shellCommandsBySessionId.get(session.id)?.length ?? session.shellCommandIds?.length ?? 0;
+    data.shellCommandsBySessionId.get(session.id)?.length ??
+    session.shellCommandIds?.length ??
+    0;
   const outputArtifactCount =
-    data.outputArtifactsBySessionId.get(session.id)?.length ?? session.outputArtifactIds?.length ?? 0;
+    data.outputArtifactsBySessionId.get(session.id)?.length ??
+    session.outputArtifactIds?.length ??
+    0;
   const fileMutationCount =
-    data.fileMutationsBySessionId.get(session.id)?.length ?? session.fileMutationIds?.length ?? 0;
+    data.fileMutationsBySessionId.get(session.id)?.length ??
+    session.fileMutationIds?.length ??
+    0;
   const diagnosticCount = diagnostics.length;
-  const toolCallMetric = toCapabilityCountMetric(toolCallCount, toolCallCapability);
+  const toolCallMetric = toCapabilityCountMetric(
+    toolCallCount,
+    toolCallCapability,
+  );
   const shellCommandMetric =
-    shellCapability?.status === "supported" && rawShellCommandCount > 0 && shellCommandCount === 0
+    shellCapability?.status === "supported" &&
+    rawShellCommandCount > 0 &&
+    shellCommandCount === 0
       ? toMetricState(
           "unknown",
           "Unknown",
-          "Shell command evidence was captured, but parsed command truth was unavailable."
+          "Shell command evidence was captured, but parsed command truth was unavailable.",
         )
       : toCapabilityCountMetric(shellCommandCount, shellCapability);
   const outputArtifactMetric = toCapabilityCountMetric(
     outputArtifactCount,
-    outputArtifactCapability
+    outputArtifactCapability,
   );
-  const fileMutationMetric = toCapabilityCountMetric(fileMutationCount, fileMutationCapability);
+  const fileMutationMetric = toCapabilityCountMetric(
+    fileMutationCount,
+    fileMutationCapability,
+  );
 
   return {
     adapterId: session.adapterId,
@@ -1141,22 +1284,28 @@ function buildSessionBaseViewModel(
     lifecycleStatus: getSessionLifecycleStatus(session),
     lifecycleState: getLifecycleState(session),
     ...(session.startedAt ? { startedAt: session.startedAt } : {}),
-    ...(getSessionEndedAt(session) ? { endedAt: getSessionEndedAt(session) } : {}),
+    ...(getSessionEndedAt(session)
+      ? { endedAt: getSessionEndedAt(session) }
+      : {}),
     ...(projectDisplayName ? { projectDisplayName } : {}),
     ...(firstUserPrompt ? { firstUserPrompt } : {}),
     capabilityGroups,
-    diagnosticWarningCount: diagnostics.filter((diagnostic) => diagnostic.severity === "warning")
-      .length,
+    diagnosticWarningCount: diagnostics.filter(
+      (diagnostic) => diagnostic.severity === "warning",
+    ).length,
     verificationState: getVerificationState(data, session),
     runAuditState: getRunAuditState(data, session),
     attentionReasons: getAttentionReasons(session, derived),
     evidenceSummary: {
       messages: messageCount,
       toolCalls: toolCallCount,
-      shellCommands: data.shellCommandsBySessionId.get(session.id)?.length ?? session.shellCommandIds?.length ?? 0,
+      shellCommands:
+        data.shellCommandsBySessionId.get(session.id)?.length ??
+        session.shellCommandIds?.length ??
+        0,
       outputArtifacts: outputArtifactCount,
       fileMutations: fileMutationCount,
-      diagnostics: diagnosticCount
+      diagnostics: diagnosticCount,
     },
     evidenceMetrics: {
       messages: toMetricValue(messageCount),
@@ -1164,37 +1313,41 @@ function buildSessionBaseViewModel(
       shellCommands: shellCommandMetric,
       outputArtifacts: outputArtifactMetric,
       fileMutations: fileMutationMetric,
-      diagnostics: toMetricValue(diagnosticCount)
+      diagnostics: toMetricValue(diagnosticCount),
     },
     usageSummary: {
       models: toSessionModelsField(data, session, modelNameCapability),
       tokenMetrics: toSessionTokenMetrics(session, tokenCountCapability),
-      tokenCount: toTokenCountMetric(session, tokenCountCapability)
+      tokenCount: toTokenCountMetric(session, tokenCountCapability),
     },
     triageMetrics: {
       toolCalls: toolCallMetric,
       fileMutations: fileMutationMetric,
       commands: shellCommandMetric,
       failedCommands:
-        shellCapability?.status === "supported" && rawShellCommandCount > 0 && shellCommandCount === 0
+        shellCapability?.status === "supported" &&
+        rawShellCommandCount > 0 &&
+        shellCommandCount === 0
           ? toMetricState(
               "unknown",
               "Unknown",
-              "Shell command evidence was captured, but parsed command truth was unavailable."
+              "Shell command evidence was captured, but parsed command truth was unavailable.",
             )
           : shellCapability?.status === "supported"
             ? toMetricValue(
-                parsedShellCommands.filter((command) => command.result === "failed").length
+                parsedShellCommands.filter(
+                  (command) => command.result === "failed",
+                ).length,
               )
-          : toMetricStateFromCapability(shellCapability),
-      tokenCount: toTokenCountMetric(session, tokenCountCapability)
-    }
+            : toMetricStateFromCapability(shellCapability),
+      tokenCount: toTokenCountMetric(session, tokenCountCapability),
+    },
   };
 }
 
 function buildHarnessFilters(
   data: LoadedTriageData,
-  sessions: Session[]
+  sessions: Session[],
 ): OverviewViewModel["harnessFilters"] {
   const counts = new Map<string, number>();
 
@@ -1206,14 +1359,14 @@ function buildHarnessFilters(
     .map(([adapterId, sessionCount]) => ({
       adapterId,
       label: data.descriptors.get(adapterId)?.displayName ?? adapterId,
-      sessionCount
+      sessionCount,
     }))
     .sort((left, right) => right.sessionCount - left.sessionCount);
 }
 
 function buildActivitySeries(
   data: LoadedTriageData,
-  sessions: Session[]
+  sessions: Session[],
 ): OverviewViewModel["activity"] {
   const points = new Map<
     string,
@@ -1228,7 +1381,10 @@ function buildActivitySeries(
     }
 
     const day = stamp.slice(0, 10);
-    const current = points.get(day) ?? { sessionCount: 0, needsAttentionCount: 0 };
+    const current = points.get(day) ?? {
+      sessionCount: 0,
+      needsAttentionCount: 0,
+    };
 
     current.sessionCount += 1;
     if (needsAttention(getRunAuditState(data, session))) {
@@ -1242,7 +1398,7 @@ function buildActivitySeries(
     .map(([day, point]) => ({
       day,
       sessionCount: point.sessionCount,
-      needsAttentionCount: point.needsAttentionCount
+      needsAttentionCount: point.needsAttentionCount,
     }))
     .sort((left, right) => left.day.localeCompare(right.day));
 }
@@ -1253,9 +1409,11 @@ function buildFixedOverviewActivityBuckets(
     day: string;
     needsAttentionCount: number;
     sessionCount: number;
-  }>
+  }>,
 ): OverviewActivityHeatmapViewModel["buckets"] {
-  const bucketsByDay = new Map(buckets.map((bucket) => [bucket.day, bucket] as const));
+  const bucketsByDay = new Map(
+    buckets.map((bucket) => [bucket.day, bucket] as const),
+  );
 
   return days.map((day) => {
     const bucket = bucketsByDay.get(day);
@@ -1263,13 +1421,13 @@ function buildFixedOverviewActivityBuckets(
     return {
       day,
       sessionCount: bucket?.sessionCount ?? 0,
-      needsAttentionCount: bucket?.needsAttentionCount ?? 0
+      needsAttentionCount: bucket?.needsAttentionCount ?? 0,
     };
   });
 }
 
 function buildOverviewActivityCoverageState(
-  degradedSourceStatesBySourceId: Map<string, WorkbenchSourceHydrationState>
+  degradedSourceStatesBySourceId: Map<string, WorkbenchSourceHydrationState>,
 ): TruthStateViewModel {
   if (degradedSourceStatesBySourceId.size === 0) {
     return { label: "Available", tone: "info" };
@@ -1278,7 +1436,10 @@ function buildOverviewActivityCoverageState(
   const degradedReasons = unique(
     [...degradedSourceStatesBySourceId.values()]
       .map((state) => state.reason)
-      .filter((reason): reason is string => typeof reason === "string" && reason.length > 0)
+      .filter(
+        (reason): reason is string =>
+          typeof reason === "string" && reason.length > 0,
+      ),
   );
   const sourceLabel =
     degradedSourceStatesBySourceId.size === 1
@@ -1288,16 +1449,15 @@ function buildOverviewActivityCoverageState(
   return {
     label: "Unknown",
     tone: "neutral",
-    reason:
-      degradedReasons[0]
-        ? `Activity heatmap includes cache-fallback data for ${sourceLabel} because ${degradedReasons[0]}`
-        : `Activity heatmap includes cache-fallback data for ${sourceLabel} because not every source is store-ready.`
+    reason: degradedReasons[0]
+      ? `Activity heatmap includes cache-fallback data for ${sourceLabel} because ${degradedReasons[0]}`
+      : `Activity heatmap includes cache-fallback data for ${sourceLabel} because not every source is store-ready.`,
   };
 }
 
 function buildOverviewUsageSummary(
   data: LoadedTriageData,
-  sessions: Session[]
+  sessions: Session[],
 ): OverviewViewModel["usageSummary"] {
   const sessionUsage = sessions.map((session) => {
     const capabilityEnvelope = getCapabilityEnvelope(data, session);
@@ -1306,36 +1466,38 @@ function buildOverviewUsageSummary(
       modelCapability: getGroupedCapabilityState(
         capabilityEnvelope?.capabilities,
         "usage",
-        "modelNames"
+        "modelNames",
       ),
       tokenCapability: getGroupedCapabilityState(
         capabilityEnvelope?.capabilities,
         "usage",
-        "tokenCounts"
+        "tokenCounts",
       ),
       models: getSessionModelNames(data, session),
       tokenCount: getUsageTokenCount(session),
-      tokenMetrics: getUsageTokenMetrics(session)
+      tokenMetrics: getUsageTokenMetrics(session),
     };
   });
   const models = unique(sessionUsage.flatMap((item) => item.models));
-  const sessionsWithModels = sessionUsage.filter((item) => item.models.length > 0).length;
+  const sessionsWithModels = sessionUsage.filter(
+    (item) => item.models.length > 0,
+  ).length;
   const modelCoverageReason = buildUsageCoverageReason(
     "Model names",
     sessionsWithModels,
-    sessionUsage.length
+    sessionUsage.length,
   );
 
   return {
     models: buildOverviewModelsField(sessionUsage, models, modelCoverageReason),
     tokenMetrics: buildOverviewTokenMetrics(sessionUsage),
-    tokenCount: buildOverviewTokenMetric(sessionUsage)
+    tokenCount: buildOverviewTokenMetric(sessionUsage),
   };
 }
 
 function buildDiagnosticsBySession(
   records: NormalizedCacheRecord[],
-  sessions: Session[]
+  sessions: Session[],
 ): Map<string, Diagnostic[]> {
   const diagnosticsBySession = new Map<string, Diagnostic[]>();
 
@@ -1343,8 +1505,8 @@ function buildDiagnosticsBySession(
     const diagnostics = records
       .filter((record) => record.sourceId === session.sourceId)
       .flatMap((record) => record.normalized.diagnostics)
-      .filter(
-        (diagnostic) => isDiagnosticRelatedToSession(diagnostic, session)
+      .filter((diagnostic) =>
+        isDiagnosticRelatedToSession(diagnostic, session),
       );
 
     diagnosticsBySession.set(session.id, dedupeDiagnostics(diagnostics));
@@ -1353,7 +1515,10 @@ function buildDiagnosticsBySession(
   return diagnosticsBySession;
 }
 
-function isDiagnosticRelatedToSession(diagnostic: Diagnostic, session: Session): boolean {
+function isDiagnosticRelatedToSession(
+  diagnostic: Diagnostic,
+  session: Session,
+): boolean {
   const relatedEntityIds = new Set([
     session.id,
     ...(session.eventIds ?? []),
@@ -1361,20 +1526,28 @@ function isDiagnosticRelatedToSession(diagnostic: Diagnostic, session: Session):
     ...(session.toolCallIds ?? []),
     ...(session.shellCommandIds ?? []),
     ...(session.outputArtifactIds ?? []),
-    ...(session.fileMutationIds ?? [])
+    ...(session.fileMutationIds ?? []),
   ]);
 
-  if (diagnostic.relatedEntityIds?.some((entityId) => relatedEntityIds.has(entityId))) {
+  if (
+    diagnostic.relatedEntityIds?.some((entityId) =>
+      relatedEntityIds.has(entityId),
+    )
+  ) {
     return true;
   }
 
-  const nativeSessionId = getSessionNativeSessionId(session) ?? session.nativeId;
+  const nativeSessionId =
+    getSessionNativeSessionId(session) ?? session.nativeId;
 
-  return typeof diagnostic.metadata?.sessionId === "string" && diagnostic.metadata.sessionId === nativeSessionId;
+  return (
+    typeof diagnostic.metadata?.sessionId === "string" &&
+    diagnostic.metadata.sessionId === nativeSessionId
+  );
 }
 
 function buildDerivedBySession(
-  records: NormalizedCacheRecord[]
+  records: NormalizedCacheRecord[],
 ): Map<string, DerivedSession> {
   const derived = new Map<string, DerivedSession>();
 
@@ -1388,7 +1561,7 @@ function buildDerivedBySession(
 }
 
 function buildDerivedByProject(
-  records: NormalizedCacheRecord[]
+  records: NormalizedCacheRecord[],
 ): Map<string, DerivedProjectCacheRecord> {
   const derived = new Map<string, DerivedProjectCacheRecord>();
 
@@ -1402,7 +1575,7 @@ function buildDerivedByProject(
 }
 
 export function buildRecordDerivedSessions(
-  record: NormalizedCacheRecord
+  record: NormalizedCacheRecord,
 ): DerivedSession[] {
   const normalized = record.normalized;
   const adapterCapabilities =
@@ -1410,26 +1583,35 @@ export function buildRecordDerivedSessions(
   const sourceCapabilities =
     record.capabilitySnapshots?.source ?? normalized.capabilities.source;
   const sessionCapabilitiesBySessionId = new Map(
-    (record.capabilitySnapshots?.sessions ?? normalized.capabilities.sessions).map((snapshot) => [
-      snapshot.sessionId,
-      snapshot
-    ] as const)
+    (
+      record.capabilitySnapshots?.sessions ?? normalized.capabilities.sessions
+    ).map((snapshot) => [snapshot.sessionId, snapshot] as const),
   );
-  const messagesBySessionId = groupBy(normalized.messages, (message) => message.sessionId);
-  const eventsBySessionId = groupBy(normalized.events, (event) => event.sessionId);
-  const toolCallsBySessionId = groupBy(normalized.toolCalls, (toolCall) => toolCall.sessionId);
+  const messagesBySessionId = groupBy(
+    normalized.messages,
+    (message) => message.sessionId,
+  );
+  const eventsBySessionId = groupBy(
+    normalized.events,
+    (event) => event.sessionId,
+  );
+  const toolCallsBySessionId = groupBy(
+    normalized.toolCalls,
+    (toolCall) => toolCall.sessionId,
+  );
   const fileMutationsBySessionId = groupBy(
     normalized.fileMutations,
-    (fileMutation) => fileMutation.sessionId
+    (fileMutation) => fileMutation.sessionId,
   );
   const shellCommandsBySessionId = new Map(
-    (record.shellCommands?.sessions ?? []).map((session) => [
-      session.sessionId,
-      session.shellCommands
-    ] as const)
+    (record.shellCommands?.sessions ?? []).map(
+      (session) => [session.sessionId, session.shellCommands] as const,
+    ),
   );
   const projectGitSnapshotsByProjectId = new Map(
-    (record.gitSnapshots?.projects ?? []).map((project) => [project.projectId, project.git] as const)
+    (record.gitSnapshots?.projects ?? []).map(
+      (project) => [project.projectId, project.git] as const,
+    ),
   );
   const diagnostics = record.diagnostics?.entries ?? normalized.diagnostics;
 
@@ -1442,7 +1624,7 @@ export function buildRecordDerivedSessions(
     const sessionDiagnostics = collectRecordSessionDiagnostics(
       diagnostics,
       session,
-      shellCommands
+      shellCommands,
     );
     const sessionCapabilities = sessionCapabilitiesBySessionId.get(session.id);
     const verification = deriveVerificationForSession({
@@ -1451,7 +1633,7 @@ export function buildRecordDerivedSessions(
       session,
       sessionMessages,
       ...(sessionCapabilities ? { sessionCapabilities } : {}),
-      sourceCapabilities
+      sourceCapabilities,
     });
     const projectGitSnapshot = session.projectId
       ? projectGitSnapshotsByProjectId.get(session.projectId)
@@ -1473,21 +1655,21 @@ export function buildRecordDerivedSessions(
         sessionToolCalls,
         verification,
         ...(sessionCapabilities ? { sessionCapabilities } : {}),
-        sourceCapabilities
-      })
+        sourceCapabilities,
+      }),
     };
   });
 }
 
 function buildRecordDerivedProjects(
-  record: NormalizedCacheRecord
+  record: NormalizedCacheRecord,
 ): DerivedProjectCacheRecord[] {
   const projectsById = new Map<string, DerivedProjectCacheRecord>();
 
   for (const project of record.gitSnapshots?.projects ?? []) {
     projectsById.set(project.projectId, {
       projectId: project.projectId,
-      git: project.git
+      git: project.git,
     });
   }
 
@@ -1499,9 +1681,9 @@ function buildRecordDerivedProjects(
       git: current?.git ?? {
         status: "unknown",
         rootConfidence: "unknown",
-        diagnosticIds: []
+        diagnosticIds: [],
       },
-      github: project.github
+      github: project.github,
     });
   }
 
@@ -1511,7 +1693,7 @@ function buildRecordDerivedProjects(
 function collectRecordSessionDiagnostics(
   diagnostics: Diagnostic[],
   session: Session,
-  shellCommands: DerivedSession["shellCommands"]
+  shellCommands: DerivedSession["shellCommands"],
 ): Diagnostic[] {
   const relatedEntityIds = new Set([
     session.id,
@@ -1525,34 +1707,34 @@ function collectRecordSessionDiagnostics(
       shellCommand.shellCommandId,
       ...(shellCommand.toolCallId ? [shellCommand.toolCallId] : []),
       ...(shellCommand.artifactIds ?? []),
-      ...(shellCommand.diagnosticIds ?? [])
-    ])
+      ...(shellCommand.diagnosticIds ?? []),
+    ]),
   ]);
-  const nativeSessionId = getSessionNativeSessionId(session) ?? session.nativeId;
+  const nativeSessionId =
+    getSessionNativeSessionId(session) ?? session.nativeId;
 
   return dedupeDiagnostics(
     diagnostics.filter(
       (diagnostic) =>
         relatedEntityIds.has(diagnostic.id) ||
-        diagnostic.relatedEntityIds?.some((entityId) => relatedEntityIds.has(entityId)) === true ||
+        diagnostic.relatedEntityIds?.some((entityId) =>
+          relatedEntityIds.has(entityId),
+        ) === true ||
         session.diagnosticIds?.includes(diagnostic.id) === true ||
         (typeof diagnostic.metadata?.sessionId === "string" &&
-          diagnostic.metadata.sessionId === nativeSessionId)
-    )
+          diagnostic.metadata.sessionId === nativeSessionId),
+    ),
   );
 }
 
 function compareSessionsByActivity(left: Session, right: Session): number {
   return compareTimestampStrings(
     getSessionActivityTimestamp(right),
-    getSessionActivityTimestamp(left)
+    getSessionActivityTimestamp(left),
   );
 }
 
-function compareTimestampStrings(
-  left?: string,
-  right?: string
-): number {
+function compareTimestampStrings(left?: string, right?: string): number {
   if (!left && !right) {
     return 0;
   }
@@ -1578,13 +1760,59 @@ function dedupeDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {
   return [...seen.values()];
 }
 
+export function shouldIncludeDiagnosticInUi(diagnostic: Diagnostic): boolean {
+  if (isGithubUiEnabled()) {
+    return true;
+  }
+
+  return !isGitHubOnlyDiagnostic(diagnostic);
+}
+
+function sanitizeProjectSummaryForFeatureFlags(
+  project: ProjectSummaryViewModel,
+): ProjectSummaryViewModel {
+  if (isGithubUiEnabled()) {
+    return project;
+  }
+
+  const githubFieldsHiddenReason =
+    "GitHub UI is disabled for this build, so GitHub-only project fields are hidden.";
+  const remoteUrlIsGitHubHosted =
+    project.remoteUrl.status === "value" &&
+    isGitHubHostedRemoteUrl(
+      project.remoteUrl.rawValue ?? project.remoteUrl.displayValue,
+    );
+
+  return {
+    ...project,
+    githubStatus: {
+      label: "Unknown",
+      tone: "neutral",
+      reason: githubFieldsHiddenReason,
+    },
+    remoteUrl: remoteUrlIsGitHubHosted
+      ? toFieldState("Unknown", githubFieldsHiddenReason)
+      : project.remoteUrl,
+    pullRequest: toFieldState("Unknown", githubFieldsHiddenReason),
+    checks: toFieldState("Unknown", githubFieldsHiddenReason),
+    reviewStatus: toFieldState("Unknown", githubFieldsHiddenReason),
+  };
+}
+
 function abbreviateSha(value: string): string {
   return value.length > 8 ? value.slice(0, 8) : value;
 }
 
-function getFirstPrompt(data: LoadedTriageData, sessionId: string): string | undefined {
+function getFirstPrompt(
+  data: LoadedTriageData,
+  sessionId: string,
+): string | undefined {
   const firstUserMessage = [...(data.messagesBySessionId.get(sessionId) ?? [])]
-    .sort((left, right) => getMessageOrderKey(data, sessionId, left).localeCompare(getMessageOrderKey(data, sessionId, right)))
+    .sort((left, right) =>
+      getMessageOrderKey(data, sessionId, left).localeCompare(
+        getMessageOrderKey(data, sessionId, right),
+      ),
+    )
     .find((message) => message.role === "user");
 
   return firstUserMessage
@@ -1601,8 +1829,8 @@ function buildLast30DayWindow(currentDate: Date): {
     Date.UTC(
       currentDate.getUTCFullYear(),
       currentDate.getUTCMonth(),
-      currentDate.getUTCDate()
-    )
+      currentDate.getUTCDate(),
+    ),
   );
   const startDate = addUtcDays(endDate, -29);
   const days: string[] = [];
@@ -1614,7 +1842,7 @@ function buildLast30DayWindow(currentDate: Date): {
   return {
     days,
     endDay: toIsoDay(endDate),
-    startDay: toIsoDay(startDate)
+    startDay: toIsoDay(startDate),
   };
 }
 
@@ -1638,7 +1866,7 @@ function addUtcDays(date: Date, dayDelta: number): Date {
 
 function groupBy<TItem>(
   items: TItem[],
-  selectKey: (item: TItem) => string
+  selectKey: (item: TItem) => string,
 ): Map<string, TItem[]> {
   const grouped = new Map<string, TItem[]>();
 
@@ -1659,7 +1887,10 @@ function humanizeAttentionReason(reason: string): string {
     .replace(/\b\w/gu, (letter) => letter.toUpperCase());
 }
 
-function isSessionActiveOrRecent(session: Session, latestTimestamp?: string): boolean {
+function isSessionActiveOrRecent(
+  session: Session,
+  latestTimestamp?: string,
+): boolean {
   if (getSessionLifecycleStatus(session) === "active") {
     return true;
   }
@@ -1676,12 +1907,15 @@ function isSessionActiveOrRecent(session: Session, latestTimestamp?: string): bo
   }
 
   const currentTime = new Date(current).getTime();
-  return Number.isFinite(currentTime) && latest - currentTime <= 24 * 60 * 60 * 1000;
+  return (
+    Number.isFinite(currentTime) && latest - currentTime <= 24 * 60 * 60 * 1000
+  );
 }
 
-function toMetricStateFromCapability(
-  state?: { status: "supported" | "unsupported" | "unknown"; reason?: string }
-): MetricStateViewModel {
+function toMetricStateFromCapability(state?: {
+  status: "supported" | "unsupported" | "unknown";
+  reason?: string;
+}): MetricStateViewModel {
   if (state?.status === "unsupported") {
     return toMetricState("unsupported", "Unsupported", state.reason);
   }
@@ -1691,7 +1925,7 @@ function toMetricStateFromCapability(
 
 function toCapabilityCountMetric(
   value: number,
-  state?: { status: "supported" | "unsupported" | "unknown"; reason?: string }
+  state?: { status: "supported" | "unsupported" | "unknown"; reason?: string },
 ): MetricStateViewModel {
   if (state?.status === "supported") {
     return toMetricValue(value);
@@ -1731,7 +1965,9 @@ function getGitUnavailableReason(gitSnapshot?: DerivedProject["git"]): string {
   );
 }
 
-function getGitHubUnavailableReason(githubSnapshot?: DerivedProject["github"]): string {
+function getGitHubUnavailableReason(
+  githubSnapshot?: DerivedProject["github"],
+): string {
   return (
     githubSnapshot?.reason ??
     "GitHub context is unavailable because the shared read-only `gh` snapshot could not be collected for this project."
@@ -1763,7 +1999,7 @@ function getSessionNativeSessionId(session: Session): string | undefined {
 }
 
 function getSessionLifecycleStatus(
-  session: Session
+  session: Session,
 ): "active" | "completed" | "cancelled" | "unknown" {
   return session.lifecycleStatus ?? "unknown";
 }
@@ -1780,46 +2016,56 @@ function getSessionFirstUserPrompt(session: Session): string | undefined {
   return candidate.firstUserPrompt;
 }
 
-function getSessionVerification(session: Session): {
-  status: "passed" | "failed" | "not-run" | "unknown" | "unsupported";
-  reasonCodes?: string[];
-} | undefined {
+function getSessionVerification(session: Session):
+  | {
+      status: "passed" | "failed" | "not-run" | "unknown" | "unsupported";
+      reasonCodes?: string[];
+    }
+  | undefined {
   const verification = session.verification;
   const status = verification?.status;
 
   return status
     ? {
         status,
-        ...(verification?.reasonCodes ? { reasonCodes: verification.reasonCodes } : {})
+        ...(verification?.reasonCodes
+          ? { reasonCodes: verification.reasonCodes }
+          : {}),
       }
     : undefined;
 }
 
-function getSessionRunAudit(session: Session): {
-  status:
-    | "active"
-    | "cancelled"
-    | "verification-failed"
-    | "incomplete"
-    | "needs-review"
-    | "clean"
-    | "unknown";
-  attentionReasons: string[];
-} | undefined {
+function getSessionRunAudit(session: Session):
+  | {
+      status:
+        | "active"
+        | "cancelled"
+        | "verification-failed"
+        | "incomplete"
+        | "needs-review"
+        | "clean"
+        | "unknown";
+      attentionReasons: string[];
+    }
+  | undefined {
   const runAudit = session.runAudit;
   const status = runAudit?.status;
 
   return status
     ? {
         status,
-        attentionReasons: runAudit?.attentionReasons ?? []
+        attentionReasons: runAudit?.attentionReasons ?? [],
       }
     : undefined;
 }
 
-function getAttentionReasons(session: Session, derived?: DerivedSession): string[] {
+function getAttentionReasons(
+  session: Session,
+  derived?: DerivedSession,
+): string[] {
   const candidate = session as Session & { attentionReasons?: string[] };
-  const reasons = candidate.attentionReasons ?? derived?.audit?.attentionReasons ?? [];
+  const reasons =
+    candidate.attentionReasons ?? derived?.audit?.attentionReasons ?? [];
 
   return reasons.map(humanizeAttentionReason);
 }
@@ -1827,10 +2073,12 @@ function getAttentionReasons(session: Session, derived?: DerivedSession): string
 function getMessageOrderKey(
   data: LoadedTriageData,
   sessionId: string,
-  message: SessionMessage
+  message: SessionMessage,
 ): string {
   const eventsById = new Map(
-    (data.eventsBySessionId.get(sessionId) ?? []).map((event) => [event.id, event] as const)
+    (data.eventsBySessionId.get(sessionId) ?? []).map(
+      (event) => [event.id, event] as const,
+    ),
   );
   const orderKeys = (message.eventIds ?? [])
     .map((eventId) => eventsById.get(eventId)?.orderKey)
@@ -1846,7 +2094,10 @@ function getMessageText(message: SessionMessage): string | undefined {
 
 function toTokenCountMetric(
   session: Session,
-  capability?: { status: "supported" | "unsupported" | "unknown"; reason?: string }
+  capability?: {
+    status: "supported" | "unsupported" | "unknown";
+    reason?: string;
+  },
 ): MetricStateViewModel {
   const tokenCount = getUsageTokenCount(session);
 
@@ -1855,7 +2106,11 @@ function toTokenCountMetric(
   }
 
   if (capability?.status === "supported") {
-    return toMetricState("unknown", "Unknown", "Token counts were expected but not observed.");
+    return toMetricState(
+      "unknown",
+      "Unknown",
+      "Token counts were expected but not observed.",
+    );
   }
 
   return toMetricStateFromCapability(capability);
@@ -1863,40 +2118,55 @@ function toTokenCountMetric(
 
 function toSessionTokenMetrics(
   session: Session,
-  capability?: { status: "supported" | "unsupported" | "unknown"; reason?: string }
+  capability?: {
+    status: "supported" | "unsupported" | "unknown";
+    reason?: string;
+  },
 ): TokenMetricsViewModel {
   return {
     totalTokens: toUsageTokenMetric(session, "totalTokens", capability, {
-      unsupportedReason: "Total token counts are not available for this harness.",
-      unknownReason: "Total token counts were expected but not observed."
+      unsupportedReason:
+        "Total token counts are not available for this harness.",
+      unknownReason: "Total token counts were expected but not observed.",
     }),
     inputTokens: toUsageTokenMetric(session, "inputTokens", capability, {
-      unsupportedReason: "Input token counts are not available for this harness.",
-      unknownReason: "Input tokens were expected but not observed."
+      unsupportedReason:
+        "Input token counts are not available for this harness.",
+      unknownReason: "Input tokens were expected but not observed.",
     }),
     outputTokens: toUsageTokenMetric(session, "outputTokens", capability, {
-      unsupportedReason: "Output token counts are not available for this harness.",
-      unknownReason: "Output tokens were expected but not observed."
+      unsupportedReason:
+        "Output token counts are not available for this harness.",
+      unknownReason: "Output tokens were expected but not observed.",
     }),
     thoughtTokens: toUsageTokenMetric(session, "thoughtTokens", capability, {
-      unsupportedReason: "Thought token counts are not available for this harness.",
-      unknownReason: "Thought tokens were expected but not observed."
+      unsupportedReason:
+        "Thought token counts are not available for this harness.",
+      unknownReason: "Thought tokens were expected but not observed.",
     }),
-    cacheReadTokens: toUsageTokenMetric(session, "cacheReadTokens", capability, {
-      unsupportedReason: "Cached input tokens are not available for this harness.",
-      unknownReason: "Cached input tokens were expected but not observed."
-    })
+    cacheReadTokens: toUsageTokenMetric(
+      session,
+      "cacheReadTokens",
+      capability,
+      {
+        unsupportedReason:
+          "Cached input tokens are not available for this harness.",
+        unknownReason: "Cached input tokens were expected but not observed.",
+      },
+    ),
   };
 }
 
 function toUsageTokenMetric(
   session: Session,
   key: TokenMetricKey,
-  capability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined,
+  capability:
+    | { status: "supported" | "unsupported" | "unknown"; reason?: string }
+    | undefined,
   copy: {
     unsupportedReason: string;
     unknownReason: string;
-  }
+  },
 ): MetricStateViewModel {
   const value = getUsageTokenMetric(session, key);
 
@@ -1918,7 +2188,10 @@ function toUsageTokenMetric(
 function toSessionModelsField(
   data: LoadedTriageData,
   session: Session,
-  capability?: { status: "supported" | "unsupported" | "unknown"; reason?: string }
+  capability?: {
+    status: "supported" | "unsupported" | "unknown";
+    reason?: string;
+  },
 ): FieldValueViewModel {
   const models = getSessionModelNames(data, session);
 
@@ -1927,12 +2200,15 @@ function toSessionModelsField(
   }
 
   if (capability?.status === "supported") {
-    return toFieldState("Unknown", "Model names were expected but not observed.");
+    return toFieldState(
+      "Unknown",
+      "Model names were expected but not observed.",
+    );
   }
 
   return toFieldState(
     capability?.status === "unsupported" ? "Unsupported" : "Unknown",
-    capability?.reason
+    capability?.reason,
   );
 }
 
@@ -1940,7 +2216,10 @@ function getUsageTokenCount(session: Session): number | undefined {
   return getUsageTokenMetric(session, "totalTokens");
 }
 
-function getUsageTokenMetric(session: Session, key: TokenMetricKey): number | undefined {
+function getUsageTokenMetric(
+  session: Session,
+  key: TokenMetricKey,
+): number | undefined {
   const candidate = session as Session & {
     usage?: {
       inputTokens?: number;
@@ -1961,85 +2240,97 @@ function getUsageTokenMetric(session: Session, key: TokenMetricKey): number | un
   return candidate.usage?.[key];
 }
 
-function getUsageTokenMetrics(session: Session): Record<TokenMetricKey, number | undefined> {
+function getUsageTokenMetrics(
+  session: Session,
+): Record<TokenMetricKey, number | undefined> {
   return {
     totalTokens: getUsageTokenMetric(session, "totalTokens"),
     inputTokens: getUsageTokenMetric(session, "inputTokens"),
     outputTokens: getUsageTokenMetric(session, "outputTokens"),
     thoughtTokens: getUsageTokenMetric(session, "thoughtTokens"),
-    cacheReadTokens: getUsageTokenMetric(session, "cacheReadTokens")
+    cacheReadTokens: getUsageTokenMetric(session, "cacheReadTokens"),
   };
 }
 
 function getSessionModelNames(
   data: LoadedTriageData,
-  session: Session
+  session: Session,
 ): string[] {
   const metadataModelNames = session.metadata?.modelNames;
 
   if (Array.isArray(metadataModelNames) && metadataModelNames.length > 0) {
     return unique(
       metadataModelNames
-        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        .map((value) => sanitizeText(value))
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && value.trim().length > 0,
+        )
+        .map((value) => sanitizeText(value)),
     );
   }
 
   return unique(
     (data.messagesBySessionId.get(session.id) ?? [])
       .map((message) => message.modelName)
-      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-      .map((value) => sanitizeText(value))
+      .filter(
+        (value): value is string =>
+          typeof value === "string" && value.trim().length > 0,
+      )
+      .map((value) => sanitizeText(value)),
   );
 }
 
 function buildOverviewModelsField(
   sessionUsage: Array<{
-    modelCapability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined;
+    modelCapability:
+      | { status: "supported" | "unsupported" | "unknown"; reason?: string }
+      | undefined;
     models: string[];
   }>,
   models: string[],
-  coverageReason?: string
+  coverageReason?: string,
 ): FieldValueViewModel {
   if (models.length > 0) {
     return {
       ...toFieldValueWithDisplay(models.join(", "), models.join(", ")),
-      ...(coverageReason ? { reason: coverageReason } : {})
+      ...(coverageReason ? { reason: coverageReason } : {}),
     };
   }
 
   const modelStatus = summarizeUsageCapability(
     sessionUsage,
     "modelCapability",
-    (item) => item.models.length > 0
+    (item) => item.models.length > 0,
   );
 
   return toFieldState(
     modelStatus === "unsupported" ? "Unsupported" : "Unknown",
     modelStatus === "unsupported"
       ? "Selected sessions do not expose model names."
-      : "Model names are not available for the selected sessions."
+      : "Model names are not available for the selected sessions.",
   );
 }
 
 function buildOverviewTokenMetric(
   sessionUsage: Array<{
-    tokenCapability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined;
+    tokenCapability:
+      | { status: "supported" | "unsupported" | "unknown"; reason?: string }
+      | undefined;
     tokenCount: number | undefined;
     tokenMetrics: Record<TokenMetricKey, number | undefined>;
-  }>
+  }>,
 ): MetricStateViewModel {
   const tokenStatus = summarizeUsageCapability(
     sessionUsage,
     "tokenCapability",
-    (item) => typeof item.tokenCount === "number"
+    (item) => typeof item.tokenCount === "number",
   );
 
   if (tokenStatus === "unsupported") {
     return toMetricState(
       "unsupported",
       "Unsupported",
-      "Selected sessions do not expose token counts."
+      "Selected sessions do not expose token counts.",
     );
   }
 
@@ -2048,46 +2339,61 @@ function buildOverviewTokenMetric(
     "totalTokens",
     {
       unsupportedReason: "Selected sessions do not expose total token counts.",
-      missingReason: "Selected sessions are missing total token counts."
+      missingReason: "Selected sessions are missing total token counts.",
     },
     "Token counts",
-    (item) => item.tokenCount
+    (item) => item.tokenCount,
   );
 }
 
 function buildOverviewTokenMetrics(
   sessionUsage: Array<{
-    tokenCapability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined;
+    tokenCapability:
+      | { status: "supported" | "unsupported" | "unknown"; reason?: string }
+      | undefined;
     tokenMetrics: Record<TokenMetricKey, number | undefined>;
-  }>
+  }>,
 ): TokenMetricsViewModel {
   return {
     totalTokens: buildOverviewTokenMetricByKey(sessionUsage, "totalTokens", {
       unsupportedReason: "Selected sessions do not expose total token counts.",
-      missingReason: "Selected sessions are missing total token counts."
+      missingReason: "Selected sessions are missing total token counts.",
     }),
     inputTokens: buildOverviewTokenMetricByKey(sessionUsage, "inputTokens", {
       unsupportedReason: "Selected sessions do not expose input token counts.",
-      missingReason: "Selected sessions are missing input token counts."
+      missingReason: "Selected sessions are missing input token counts.",
     }),
     outputTokens: buildOverviewTokenMetricByKey(sessionUsage, "outputTokens", {
       unsupportedReason: "Selected sessions do not expose output token counts.",
-      missingReason: "Selected sessions are missing output token counts."
+      missingReason: "Selected sessions are missing output token counts.",
     }),
-    thoughtTokens: buildOverviewTokenMetricByKey(sessionUsage, "thoughtTokens", {
-      unsupportedReason: "Selected sessions do not expose thought token counts.",
-      missingReason: "Selected sessions are missing thought token counts."
-    }),
-    cacheReadTokens: buildOverviewTokenMetricByKey(sessionUsage, "cacheReadTokens", {
-      unsupportedReason: "Selected sessions do not expose cached input tokens.",
-      missingReason: "Selected sessions are missing cached input token counts."
-    })
+    thoughtTokens: buildOverviewTokenMetricByKey(
+      sessionUsage,
+      "thoughtTokens",
+      {
+        unsupportedReason:
+          "Selected sessions do not expose thought token counts.",
+        missingReason: "Selected sessions are missing thought token counts.",
+      },
+    ),
+    cacheReadTokens: buildOverviewTokenMetricByKey(
+      sessionUsage,
+      "cacheReadTokens",
+      {
+        unsupportedReason:
+          "Selected sessions do not expose cached input tokens.",
+        missingReason:
+          "Selected sessions are missing cached input token counts.",
+      },
+    ),
   };
 }
 
 function buildOverviewTokenMetricByKey(
   sessionUsage: Array<{
-    tokenCapability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined;
+    tokenCapability:
+      | { status: "supported" | "unsupported" | "unknown"; reason?: string }
+      | undefined;
     tokenCount?: number | undefined;
     tokenMetrics: Record<TokenMetricKey, number | undefined>;
   }>,
@@ -2097,36 +2403,38 @@ function buildOverviewTokenMetricByKey(
     missingReason: string;
   },
   coverageLabel = getOverviewTokenMetricLabel(key),
-  selectValue: (
-    item: {
-      tokenCapability: { status: "supported" | "unsupported" | "unknown"; reason?: string } | undefined;
-      tokenCount?: number | undefined;
-      tokenMetrics: Record<TokenMetricKey, number | undefined>;
-    }
-  ) => number | undefined = (item) => item.tokenMetrics[key]
+  selectValue: (item: {
+    tokenCapability:
+      | { status: "supported" | "unsupported" | "unknown"; reason?: string }
+      | undefined;
+    tokenCount?: number | undefined;
+    tokenMetrics: Record<TokenMetricKey, number | undefined>;
+  }) => number | undefined = (item) => item.tokenMetrics[key],
 ): MetricStateViewModel {
-  const supportedSessions = sessionUsage.filter((item) => item.tokenCapability?.status === "supported");
+  const supportedSessions = sessionUsage.filter(
+    (item) => item.tokenCapability?.status === "supported",
+  );
   const supportedWithMetric = supportedSessions.filter(
-    (item) => typeof selectValue(item) === "number"
+    (item) => typeof selectValue(item) === "number",
   );
   const unsupportedSessions = sessionUsage.filter(
-    (item) => item.tokenCapability?.status === "unsupported"
+    (item) => item.tokenCapability?.status === "unsupported",
   );
 
   if (supportedWithMetric.length > 0) {
     const total = supportedWithMetric.reduce(
       (sum, item) => sum + (selectValue(item) ?? 0),
-      0
+      0,
     );
     const coverageReason = buildUsageCoverageReason(
       coverageLabel,
       supportedWithMetric.length,
-      sessionUsage.length
+      sessionUsage.length,
     );
 
     return {
       ...toMetricValue(total),
-      ...(coverageReason ? { reason: coverageReason } : {})
+      ...(coverageReason ? { reason: coverageReason } : {}),
     };
   }
 
@@ -2134,7 +2442,10 @@ function buildOverviewTokenMetricByKey(
     return toMetricState("unknown", "Unknown", copy.missingReason);
   }
 
-  if (unsupportedSessions.length === sessionUsage.length && sessionUsage.length > 0) {
+  if (
+    unsupportedSessions.length === sessionUsage.length &&
+    sessionUsage.length > 0
+  ) {
     return toMetricState("unsupported", "Unsupported", copy.unsupportedReason);
   }
 
@@ -2159,9 +2470,13 @@ function getOverviewTokenMetricLabel(key: TokenMetricKey): string {
 function buildUsageCoverageReason(
   label: string,
   availableCount: number,
-  totalCount: number
+  totalCount: number,
 ): string | undefined {
-  if (totalCount === 0 || availableCount === 0 || availableCount === totalCount) {
+  if (
+    totalCount === 0 ||
+    availableCount === 0 ||
+    availableCount === totalCount
+  ) {
     return undefined;
   }
 
@@ -2171,7 +2486,7 @@ function buildUsageCoverageReason(
 function summarizeUsageCapability<TItem>(
   items: readonly TItem[],
   capabilityKey: keyof TItem,
-  hasValue: (item: TItem) => boolean
+  hasValue: (item: TItem) => boolean,
 ): "value" | "unknown" | "unsupported" {
   if (items.length === 0) {
     return "unknown";

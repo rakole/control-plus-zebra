@@ -1,3 +1,4 @@
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -14,7 +15,9 @@ import {
 import {
   collectGeminiArtifacts,
   collectGeminiSources,
+  cleanupTempGeminiFixtureRoot,
   createGeminiAdapterContext,
+  createTempGeminiFixtureRoot,
   geminiFixtureRoot,
   requireGeminiSource
 } from "./test-helpers.js";
@@ -117,6 +120,53 @@ describe("gemini-cli discovery", () => {
           "tool-outputs/session-22222222-2222-4222-8222-222222222222/update_topic_update_topic_1700000003000_0_a7b8c9.txt"
       }
     ]);
+  });
+
+  it("applies session-start retention before yielding old chats and matching tool outputs", async () => {
+    const alphaSource = await requireGeminiSource(geminiFixtureRoot, "alpha-project");
+    const artifacts = await collectGeminiArtifacts(alphaSource, {
+      ...createGeminiAdapterContext(alphaSource.rootPath),
+      sessionStartedAtCutoff: "2026-05-23T09:15:00.000Z"
+    });
+
+    expect(artifacts.map((artifact) => artifact.nativeId)).toEqual([
+      ".project_root",
+      "logs.json",
+      "chats/session-2026-05-23T09-20-22222222-2222-4222-8222-222222222222.jsonl",
+      "tool-outputs/session-22222222-2222-4222-8222-222222222222/update_topic_update_topic_1700000003000_0_a7b8c9.txt"
+    ]);
+  });
+
+  it("retains Gemini chats with unknown session start time under retention cutoff", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const alphaSource = await requireGeminiSource(rootPath, "alpha-project");
+      const chatPath = path.join(
+        alphaSource.rootPath,
+        "chats",
+        "session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+      );
+      const [headerLine, ...remainingLines] = (await readFile(chatPath, "utf8")).trimEnd().split("\n");
+      const header = JSON.parse(headerLine ?? "{}") as Record<string, unknown>;
+
+      delete header.startTime;
+      await writeFile(chatPath, `${[JSON.stringify(header), ...remainingLines].join("\n")}\n`, "utf8");
+
+      const artifacts = await collectGeminiArtifacts(alphaSource, {
+        ...createGeminiAdapterContext(alphaSource.rootPath),
+        sessionStartedAtCutoff: "2026-05-23T09:15:00.000Z"
+      });
+
+      expect(artifacts.map((artifact) => artifact.nativeId)).toContain(
+        "chats/session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+      );
+      expect(artifacts.map((artifact) => artifact.nativeId)).toContain(
+        "tool-outputs/session-11111111-1111-4111-8111-111111111111/run_shell_command_1700000001000_1.txt"
+      );
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
   });
 
   it("registers Gemini CLI through the bundled adapter composition root", () => {

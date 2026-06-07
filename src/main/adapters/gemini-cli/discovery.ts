@@ -12,6 +12,7 @@ import { HIGH_CONFIDENCE, MEDIUM_CONFIDENCE } from "../../core/model/confidence.
 import { createRawArtifactId, createSourceId } from "../../core/model/identifiers.js";
 import { createSafeFilesystem } from "../../core/security/safe-filesystem.js";
 import { geminiCliCapabilities, geminiCliDescriptor } from "./descriptor.js";
+import { sessionHeaderSchema } from "./types.js";
 
 const CHAT_FILENAME_PATTERN = /^session-.*\.(?:json|jsonl)$/u;
 const TOOL_OUTPUT_SESSION_DIR_PATTERN = /^session-[0-9a-f-]+$/u;
@@ -231,6 +232,9 @@ export async function* discoverGeminiCliArtifacts(
   }
 
   const chatsPath = path.join(source.rootPath, "chats");
+  const retainedSessionIds = new Set<string>();
+  const skippedSessionIds = new Set<string>();
+
   if (rootEntries.has("chats")) {
     const chatEntries = await safeFilesystem.listDirectory(chatsPath);
     const chatFiles = chatEntries
@@ -238,6 +242,20 @@ export async function* discoverGeminiCliArtifacts(
       .sort((left, right) => left.path.localeCompare(right.path));
 
     for (const chatFile of chatFiles) {
+      const retention = await inspectChatRetention(chatFile.path, safeFilesystem, context.sessionStartedAtCutoff);
+
+      if (retention.sessionId) {
+        if (retention.retain) {
+          retainedSessionIds.add(retention.sessionId);
+        } else {
+          skippedSessionIds.add(retention.sessionId);
+        }
+      }
+
+      if (!retention.retain) {
+        continue;
+      }
+
       const mediaType =
         path.extname(chatFile.path).toLowerCase() === ".json"
           ? "application/json"
@@ -268,6 +286,15 @@ export async function* discoverGeminiCliArtifacts(
     .sort((left, right) => left.path.localeCompare(right.path));
 
   for (const sessionDirectory of sessionDirectories) {
+    const nativeSessionId = path.basename(sessionDirectory.path).replace(/^session-/u, "");
+
+    if (
+      skippedSessionIds.has(nativeSessionId) &&
+      !retainedSessionIds.has(nativeSessionId)
+    ) {
+      continue;
+    }
+
     const sessionEntries = await safeFilesystem.listDirectory(sessionDirectory.path);
     const files = sessionEntries
       .filter(
@@ -288,6 +315,93 @@ export async function* discoverGeminiCliArtifacts(
       });
     }
   }
+}
+
+async function inspectChatRetention(
+  chatPath: string,
+  safeFilesystem: NonNullable<AdapterContext["safeFilesystem"]>,
+  cutoff?: string
+): Promise<{ retain: boolean; sessionId?: string }> {
+  if (!cutoff) {
+    const sessionId = deriveSessionIdFromChatPath(chatPath);
+
+    return {
+      retain: true,
+      ...(sessionId ? { sessionId } : {})
+    };
+  }
+
+  const header = await readChatHeader(chatPath, safeFilesystem);
+
+  if (!header) {
+    const sessionId = deriveSessionIdFromChatPath(chatPath);
+
+    return {
+      retain: true,
+      ...(sessionId ? { sessionId } : {})
+    };
+  }
+
+  if (!header.startTime) {
+    return {
+      retain: true,
+      sessionId: header.sessionId
+    };
+  }
+
+  const startedAt = Date.parse(header.startTime);
+  const cutoffTime = Date.parse(cutoff);
+
+  return {
+    retain: Number.isNaN(startedAt) || Number.isNaN(cutoffTime) || startedAt >= cutoffTime,
+    sessionId: header.sessionId
+  };
+}
+
+async function readChatHeader(
+  chatPath: string,
+  safeFilesystem: NonNullable<AdapterContext["safeFilesystem"]>
+): Promise<{ sessionId: string; startTime?: string } | undefined> {
+  try {
+    if (path.extname(chatPath).toLowerCase() === ".json") {
+      const parsed = JSON.parse(await safeFilesystem.readTextFile(chatPath));
+      const header = sessionHeaderSchema.safeParse(parsed);
+
+      return header.success ? toRetentionHeader(header.data) : undefined;
+    }
+
+    for await (const line of safeFilesystem.readTextLines(chatPath)) {
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        continue;
+      }
+
+      const header = sessionHeaderSchema.safeParse(JSON.parse(trimmed));
+
+      return header.success ? toRetentionHeader(header.data) : undefined;
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function toRetentionHeader(header: {
+  sessionId: string;
+  startTime?: string | undefined;
+}): { sessionId: string; startTime?: string } {
+  return {
+    sessionId: header.sessionId,
+    ...(header.startTime ? { startTime: header.startTime } : {})
+  };
+}
+
+function deriveSessionIdFromChatPath(chatPath: string): string | undefined {
+  const match = path.basename(chatPath).match(/^session-(?<sessionId>.+?)\.(?:json|jsonl)$/u);
+
+  return match?.groups?.sessionId;
 }
 
 function buildArtifact(

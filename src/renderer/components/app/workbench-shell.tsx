@@ -5,6 +5,7 @@ import { GradientDots } from "./gradient-dots.js";
 import { WorkbenchSidebar } from "./workbench-sidebar.js";
 
 export interface WorkbenchShellProps extends React.ComponentProps<"div"> {
+  blocked?: boolean | undefined;
   navigation: React.ReactNode;
   topbar?: React.ReactNode;
   sidebarHeader?: React.ReactNode;
@@ -15,6 +16,7 @@ export interface WorkbenchShellProps extends React.ComponentProps<"div"> {
 }
 
 export function WorkbenchShell({
+  blocked = false,
   navigation,
   topbar,
   sidebarHeader,
@@ -26,8 +28,20 @@ export function WorkbenchShell({
   children,
   ...props
 }: WorkbenchShellProps) {
+  const shellRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (!shellRef.current) {
+      return;
+    }
+
+    shellRef.current.toggleAttribute("inert", blocked);
+  }, [blocked]);
+
   return (
     <div
+      ref={shellRef}
+      aria-hidden={blocked ? "true" : undefined}
       data-slot="workbench-shell"
       className={cn(
         "grid min-h-screen bg-background text-foreground transition-[grid-template-columns] duration-300 md:grid-cols-[18rem_minmax(0,1fr)]",

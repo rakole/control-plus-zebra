@@ -95,7 +95,7 @@ interface SQLiteArtifactBlobRow {
 }
 
 export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityWriter {
-  static readonly SCHEMA_VERSION = 1;
+  static readonly SCHEMA_VERSION = 2;
 
   readonly #artifactBlobStore: ArtifactBlobStore;
   readonly #db: DatabaseSync;
@@ -118,6 +118,7 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
     this.#db = new DatabaseSync(options.databasePath, {
       timeout: 5_000
     });
+    this.#db.exec("PRAGMA foreign_keys = ON");
     this.#db.exec("PRAGMA journal_mode = WAL");
     this.#db.exec("PRAGMA synchronous = NORMAL");
 
@@ -191,11 +192,17 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
       return !(preservePublished && row.status === "published");
     });
 
+    const removableRunIds = removable.map((row) => row.ingest_run_id);
+    const removableBlobRefs =
+      removableRunIds.length > 0 ? this.#listArtifactBlobReferencesForRuns(removableRunIds) : [];
+
     this.#withTransaction(() => {
       for (const row of removable) {
         this.#prepare("DELETE FROM ingest_runs WHERE ingest_run_id = ?").run(row.ingest_run_id);
       }
     });
+
+    await this.#deleteUnreferencedArtifactBlobs(removableBlobRefs);
 
     return {
       removedCount: removable.length,
@@ -787,6 +794,7 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
     input: WriteWorkbenchArtifactBlobInput
   ): Promise<WorkbenchArtifactBlobRecord> {
     const createdAt = input.createdAt ?? new Date().toISOString();
+    const previousBlobRef = this.#getArtifactBlobReference(input.blobId);
     const blob = await this.#artifactBlobStore.writeTextBlob(input);
 
     this.#prepare(
@@ -804,6 +812,10 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
          created_at = excluded.created_at`
     ).run(blob.blobId, blob.relativePath, blob.previewText, blob.byteLength, createdAt);
 
+    if (previousBlobRef && previousBlobRef.relativePath !== blob.relativePath) {
+      await this.#artifactBlobStore.deleteBlob(previousBlobRef.relativePath);
+    }
+
     return {
       ...blob,
       createdAt
@@ -813,8 +825,9 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
   async writeBatch(batch: EntityWriteBatch): Promise<void> {
     this.#assertBatchBounded(batch);
     const run = this.#requireRunForScope(batch);
+    const replacedBlobRefs = this.#withTransaction(() => {
+      const blobRefsToCleanup: Array<{ blobId: string; relativePath: string }> = [];
 
-    this.#withTransaction(() => {
       if (batch.projects) {
         this.#writeProjects(run.ingestRunId, batch.sourceId, batch.adapterId, batch.projects);
       }
@@ -868,7 +881,9 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
       }
 
       if (batch.rawArtifacts) {
-        this.#writeRawArtifacts(run.ingestRunId, batch.sourceId, batch.rawArtifacts);
+        blobRefsToCleanup.push(
+          ...this.#writeRawArtifacts(run.ingestRunId, batch.sourceId, batch.rawArtifacts)
+        );
       }
 
       if (batch.overviewRollup) {
@@ -905,7 +920,13 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
         mostRecentTimestamp(run.updatedAt, batch),
         run.ingestRunId
       );
+
+      return blobRefsToCleanup;
     });
+
+    if (replacedBlobRefs.length > 0) {
+      await this.#deleteUnreferencedArtifactBlobs(replacedBlobRefs);
+    }
   }
 
   #assertBatchBounded(batch: EntityWriteBatch): void {
@@ -1109,6 +1130,7 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
             adapter_id TEXT NOT NULL,
             session_id TEXT NOT NULL,
             project_id TEXT,
+            started_at TEXT NOT NULL,
             last_updated_at TEXT NOT NULL,
             payload_json TEXT NOT NULL,
             PRIMARY KEY (ingest_run_id, session_id)
@@ -1296,6 +1318,8 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
             ON sources (current_ingest_run_id);
           CREATE INDEX IF NOT EXISTS idx_sessions_source_activity
             ON sessions (source_id, ingest_run_id, last_updated_at DESC, session_id DESC);
+          CREATE INDEX IF NOT EXISTS idx_sessions_source_started
+            ON sessions (source_id, ingest_run_id, started_at DESC, session_id DESC);
           CREATE INDEX IF NOT EXISTS idx_sessions_source_project_activity
             ON sessions (source_id, ingest_run_id, project_id, last_updated_at DESC, session_id DESC);
           CREATE INDEX IF NOT EXISTS idx_timeline_session_order
@@ -1314,6 +1338,25 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
             ON session_rollups (source_id, ingest_run_id, latest_activity_at DESC, session_id ASC);
 
           PRAGMA user_version = ${SQLiteWorkbenchEntityStore.SCHEMA_VERSION};
+        `);
+      });
+    }
+
+    if (currentVersion > 0 && currentVersion < 2) {
+      this.#withTransaction(() => {
+        this.#db.exec(`
+          ALTER TABLE sessions ADD COLUMN started_at TEXT NOT NULL DEFAULT '';
+
+          UPDATE sessions
+          SET started_at = CASE
+            WHEN json_valid(payload_json) THEN COALESCE(json_extract(payload_json, '$.startedAt'), '')
+            ELSE ''
+          END;
+
+          CREATE INDEX IF NOT EXISTS idx_sessions_source_started
+            ON sessions (source_id, ingest_run_id, started_at DESC, session_id DESC);
+
+          PRAGMA user_version = 2;
         `);
       });
     }
@@ -1386,6 +1429,89 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
       this.#db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  #listArtifactBlobReferencesForRuns(ingestRunIds: string[]): Array<{ blobId: string; relativePath: string }> {
+    const placeholders = ingestRunIds.map(() => "?").join(", ");
+    const rows = this.#prepare(
+      `SELECT DISTINCT
+         json_extract(payload_json, '$.blob.blobId') AS blob_id,
+         artifact_blobs.relative_path AS relative_path
+       FROM raw_artifact_entries
+       INNER JOIN artifact_blobs
+         ON artifact_blobs.blob_id = json_extract(raw_artifact_entries.payload_json, '$.blob.blobId')
+       WHERE ingest_run_id IN (${placeholders})
+         AND json_valid(payload_json)
+         AND json_extract(payload_json, '$.blob.blobId') IS NOT NULL
+         AND artifact_blobs.relative_path IS NOT NULL`
+    ).all(...ingestRunIds) as Array<{ blob_id: string | null; relative_path: string | null }>;
+
+    return rows.flatMap((row) =>
+      typeof row.blob_id === "string" && typeof row.relative_path === "string"
+        ? [{
+            blobId: row.blob_id,
+            relativePath: row.relative_path
+          }]
+        : []
+    );
+  }
+
+  async #deleteUnreferencedArtifactBlobs(
+    blobRefs: Array<{ blobId: string; relativePath: string }>
+  ): Promise<void> {
+    for (const blobRef of blobRefs) {
+      if (this.#isArtifactBlobReferenced(blobRef.blobId)) {
+        continue;
+      }
+
+      this.#prepare("DELETE FROM artifact_blobs WHERE blob_id = ?").run(blobRef.blobId);
+      await this.#artifactBlobStore.deleteBlob(blobRef.relativePath);
+    }
+  }
+
+  #isArtifactBlobReferenced(blobId: string): boolean {
+    const row = this.#prepare(
+      `SELECT 1 AS referenced
+       FROM raw_artifact_entries
+       WHERE json_valid(payload_json)
+         AND json_extract(payload_json, '$.blob.blobId') = ?
+       LIMIT 1`
+    ).get(blobId) as { referenced: number } | undefined;
+
+    return Boolean(row);
+  }
+
+  #getArtifactBlobReference(blobId: string): { blobId: string; relativePath: string } | undefined {
+    const row = this.#prepare(
+      `SELECT blob_id, relative_path
+       FROM artifact_blobs
+       WHERE blob_id = ?`
+    ).get(blobId) as { blob_id: string; relative_path: string } | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    return {
+      blobId: row.blob_id,
+      relativePath: row.relative_path
+    };
+  }
+
+  #getRawArtifactBlobId(
+    ingestRunId: string,
+    artifactId: string
+  ): string | undefined {
+    const row = this.#prepare(
+      `SELECT json_extract(payload_json, '$.blob.blobId') AS blob_id
+       FROM raw_artifact_entries
+       WHERE ingest_run_id = ?
+         AND artifact_id = ?
+         AND json_valid(payload_json)
+       LIMIT 1`
+    ).get(ingestRunId, artifactId) as { blob_id: string | null } | undefined;
+
+    return typeof row?.blob_id === "string" ? row.blob_id : undefined;
   }
 
   #writeDiagnostics(ingestRunId: string, sourceId: string, adapterId: string, diagnostics: Diagnostic[]): void {
@@ -1591,7 +1717,7 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
     ingestRunId: string,
     sourceId: string,
     rawArtifacts: WorkbenchRawArtifactMetadataRecord[]
-  ): void {
+  ): Array<{ blobId: string; relativePath: string }> {
     const statement = this.#prepare(
       `INSERT INTO raw_artifact_entries (
          ingest_run_id, source_id, artifact_id, session_id, output_artifact_id, status, reason, payload_json
@@ -1603,8 +1729,12 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
          reason = excluded.reason,
          payload_json = excluded.payload_json`
     );
+    const replacedBlobRefs: Array<{ blobId: string; relativePath: string }> = [];
 
     for (const rawArtifact of rawArtifacts) {
+      const previousBlobId = this.#getRawArtifactBlobId(ingestRunId, rawArtifact.artifactId);
+      const nextBlobId = rawArtifact.blob?.blobId;
+
       statement.run(
         ingestRunId,
         sourceId,
@@ -1615,7 +1745,17 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
         rawArtifact.reason ?? null,
         JSON.stringify(rawArtifact)
       );
+
+      if (previousBlobId && previousBlobId !== nextBlobId) {
+        const previousBlobRef = this.#getArtifactBlobReference(previousBlobId);
+
+        if (previousBlobRef) {
+          replacedBlobRefs.push(previousBlobRef);
+        }
+      }
     }
+
+    return replacedBlobRefs;
   }
 
   #writeSessionRollups(
@@ -1652,10 +1792,11 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
   #writeSessions(ingestRunId: string, sourceId: string, adapterId: string, sessions: Session[]): void {
     const statement = this.#prepare(
       `INSERT INTO sessions (
-         ingest_run_id, source_id, adapter_id, session_id, project_id, last_updated_at, payload_json
-       ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ingest_run_id, source_id, adapter_id, session_id, project_id, started_at, last_updated_at, payload_json
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(ingest_run_id, session_id) DO UPDATE SET
          project_id = excluded.project_id,
+         started_at = excluded.started_at,
          last_updated_at = excluded.last_updated_at,
          payload_json = excluded.payload_json`
     );
@@ -1667,6 +1808,7 @@ export class SQLiteWorkbenchEntityStore implements WorkbenchEntityStore, EntityW
         adapterId,
         session.id,
         session.projectId ?? null,
+        session.startedAt ?? "",
         session.lastUpdatedAt ?? session.startedAt ?? "",
         JSON.stringify(session)
       );

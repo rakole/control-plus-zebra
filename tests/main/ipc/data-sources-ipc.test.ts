@@ -5,6 +5,7 @@ import type { ArchiveExportService } from "../../../src/main/app/archive-export-
 import type { DiagnosticsViewModelService } from "../../../src/main/app/diagnostics-view-model-service.js";
 import type { DataSourcesViewModelService } from "../../../src/main/app/data-sources-view-model-service.js";
 import type { OutputArtifactViewModelService } from "../../../src/main/app/output-artifact-view-model-service.js";
+import type { RetentionMaintenanceService } from "../../../src/main/app/retention-maintenance-service.js";
 import type { RunAuditViewModelService } from "../../../src/main/app/run-audit-view-model-service.js";
 import type { SessionViewModelService } from "../../../src/main/app/session-view-model-service.js";
 import type { SessionDetailViewModelService } from "../../../src/main/app/session-detail-view-model-service.js";
@@ -192,6 +193,9 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
         IPC_CHANNELS.disableSource,
         IPC_CHANNELS.validateSource,
         IPC_CHANNELS.rescanSource,
+        IPC_CHANNELS.getSettings,
+        IPC_CHANNELS.updateSettings,
+        IPC_CHANNELS.getRetentionJobStatus,
         IPC_CHANNELS.getThemeState,
         IPC_CHANNELS.setThemePreference
       ],
@@ -295,6 +299,23 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
     unregisterWindow() {},
     dispose() {}
   };
+  const retentionService: RetentionMaintenanceService = {
+    async getSettings() {
+      return { retentionDays: 7 };
+    },
+    getStatus() {
+      return { state: "idle" };
+    },
+    onStatusChanged() {
+      return () => {};
+    },
+    async updateSettings(request) {
+      return {
+        status: "applied",
+        settings: { retentionDays: request.retentionDays }
+      };
+    }
+  };
 
   return {
     archiveImportService,
@@ -302,6 +323,7 @@ function createServices(overrides: Partial<DataSourcesViewModelService> = {}) {
     dataSourcesService,
     diagnosticsService,
     outputArtifactService,
+    retentionService,
     runAuditService,
     sessionService,
     sessionDetailService,

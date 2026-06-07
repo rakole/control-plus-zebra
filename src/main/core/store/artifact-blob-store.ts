@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -51,7 +52,7 @@ export class ArtifactBlobStore {
     }
 
     const extension = normalizeExtension(input.extension);
-    const relativePath = path.join(input.blobId.slice(0, 2) || "bl", `${sanitizeBlobId(input.blobId)}${extension}`);
+    const relativePath = buildBlobRelativePath(input.blobId, extension);
     const absolutePath = path.join(this.#rootDir, relativePath);
 
     await mkdir(path.dirname(absolutePath), { recursive: true });
@@ -67,6 +68,12 @@ export class ArtifactBlobStore {
 
   async readTextBlob(relativePath: string): Promise<string> {
     return readFile(this.resolveAbsolutePath(relativePath), "utf8");
+  }
+
+  async deleteBlob(relativePath: string): Promise<void> {
+    await rm(this.resolveAbsolutePath(relativePath), {
+      force: true
+    });
   }
 
   resolveAbsolutePath(relativePath: string): string {
@@ -94,6 +101,13 @@ function normalizeExtension(extension: string | undefined): string {
 
 function sanitizeBlobId(blobId: string): string {
   return blobId.replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
+function buildBlobRelativePath(blobId: string, extension: string): string {
+  const sanitized = sanitizeBlobId(blobId).slice(0, 64) || "blob";
+  const digest = createHash("sha256").update(blobId).digest("hex");
+
+  return path.join(digest.slice(0, 2), digest.slice(2, 4), `${sanitized}-${digest}${extension}`);
 }
 
 function truncateUtf8ByBytes(value: string, maxBytes: number): string {

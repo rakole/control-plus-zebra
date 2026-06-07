@@ -21,6 +21,8 @@ import type {
   GetSessionResponse,
   GetSessionTimelineRequest,
   GetSessionByIdRequest,
+  GetShellCommandsRequest,
+  GetToolCallsRequest,
   GetRunAuditResponse,
   ListDiagnosticsRequest,
   ListDiagnosticsResponse,
@@ -35,7 +37,10 @@ import type {
   OutputArtifactRequest,
   OutputArtifactLoadResponse,
   RescanSourceRequest,
+  RetentionJobStatusResponse,
+  RetentionJobStatusViewModel,
   ScannerStatusResponse,
+  SettingsResponse,
   ShellStateViewModel,
   ShellCommandsResponse,
   SessionTimelineResponse,
@@ -43,6 +48,8 @@ import type {
   SourcesResponse,
   ToolCallsResponse,
   UpdateSourceRequest,
+  UpdateSettingsRequest,
+  UpdateSettingsResponse,
   ValidateSourceRequest
 } from "../main/ipc/view-models.js";
 
@@ -82,8 +89,8 @@ export interface AgentWorkbenchBridge {
   getSession(request: GetSessionRequest): Promise<GetSessionResponse>;
   getSessionTimeline(request: GetSessionTimelineRequest): Promise<SessionTimelineResponse>;
   getEvents(request: GetEventsRequest): Promise<EventsResponse>;
-  getToolCalls(request: GetSessionTimelineRequest): Promise<ToolCallsResponse>;
-  getShellCommands(request: GetSessionTimelineRequest): Promise<ShellCommandsResponse>;
+  getToolCalls(request: GetToolCallsRequest): Promise<ToolCallsResponse>;
+  getShellCommands(request: GetShellCommandsRequest): Promise<ShellCommandsResponse>;
   getOutputArtifactPreview(
     request: OutputArtifactRequest
   ): Promise<OutputArtifactPreviewResponse>;
@@ -92,6 +99,10 @@ export interface AgentWorkbenchBridge {
   getGitSnapshot(request: GitSnapshotRequest): Promise<GitSnapshotResponse>;
   getGitHubSnapshot(request: GitHubSnapshotRequest): Promise<GitHubSnapshotResponse>;
   listDiagnostics(request?: ListDiagnosticsRequest): Promise<ListDiagnosticsResponse>;
+  getSettings(): Promise<SettingsResponse>;
+  updateSettings(request: UpdateSettingsRequest): Promise<UpdateSettingsResponse>;
+  getRetentionJobStatus(): Promise<RetentionJobStatusResponse>;
+  onRetentionJobChanged(callback: (status: RetentionJobStatusViewModel) => void): () => void;
   onSourceDataChanged(callback: (event: SourceDataChangedEvent) => void): () => void;
 }
 

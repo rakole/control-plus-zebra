@@ -31,6 +31,9 @@ const operationChannelSchema = z.enum([
   "git:getSnapshot",
   "github:getSnapshot",
   "diagnostics:list",
+  "settings:get",
+  "settings:update",
+  "retention:getJobStatus",
   "theme:getState",
   "theme:setPreference"
 ]);
@@ -157,6 +160,115 @@ export const sanitizedErrorViewModelSchema = z
   })
   .strict();
 export type SanitizedErrorViewModel = z.infer<typeof sanitizedErrorViewModelSchema>;
+
+export const retentionDaysSchema = z.union([z.literal(3), z.literal(7), z.literal(30)]);
+export type RetentionDays = z.infer<typeof retentionDaysSchema>;
+
+export const settingsViewModelSchema = z
+  .object({
+    retentionDays: retentionDaysSchema
+  })
+  .strict();
+export type SettingsViewModel = z.infer<typeof settingsViewModelSchema>;
+
+export const getSettingsRequestSchema = z.undefined();
+export type GetSettingsRequest = z.infer<typeof getSettingsRequestSchema>;
+
+export const settingsResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      settings: settingsViewModelSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type SettingsResponse = z.infer<typeof settingsResponseSchema>;
+
+export const updateSettingsRequestSchema = z
+  .object({
+    retentionDays: retentionDaysSchema,
+    confirmDestructiveRescan: z.boolean().optional()
+  })
+  .strict();
+export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
+
+export const retentionJobStatusViewModelSchema = z
+  .object({
+    state: z.enum(["idle", "trimming", "clearing", "rescanning", "failed"]),
+    retentionDays: retentionDaysSchema.optional(),
+    startedAt: z.string().min(1).optional(),
+    completedAt: z.string().min(1).optional(),
+    completedSources: z.number().int().nonnegative().optional(),
+    totalSources: z.number().int().nonnegative().optional(),
+    message: z.string().min(1).optional()
+  })
+  .strict();
+export type RetentionJobStatusViewModel = z.infer<typeof retentionJobStatusViewModelSchema>;
+
+export const getRetentionJobStatusRequestSchema = z.undefined();
+export type GetRetentionJobStatusRequest = z.infer<typeof getRetentionJobStatusRequestSchema>;
+
+export const retentionJobStatusResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      job: retentionJobStatusViewModelSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type RetentionJobStatusResponse = z.infer<typeof retentionJobStatusResponseSchema>;
+
+export const updateSettingsResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("applied"),
+      settings: settingsViewModelSchema
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("confirmation-required"),
+      settings: settingsViewModelSchema,
+      requestedSettings: settingsViewModelSchema
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("job-started"),
+      settings: settingsViewModelSchema,
+      job: retentionJobStatusViewModelSchema
+    })
+    .strict()
+]);
+export type UpdateSettingsResult = z.infer<typeof updateSettingsResultSchema>;
+
+export const updateSettingsResponseSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      result: updateSettingsResultSchema
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: sanitizedErrorViewModelSchema
+    })
+    .strict()
+]);
+export type UpdateSettingsResponse = z.infer<typeof updateSettingsResponseSchema>;
 
 export const pagedRequestSchema = z
   .object({

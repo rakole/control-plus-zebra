@@ -36,6 +36,10 @@ import {
   createTriageViewModelService,
   type TriageViewModelService
 } from "../app/triage-view-model-service.js";
+import {
+  createRetentionMaintenanceService,
+  type RetentionMaintenanceService
+} from "../app/retention-maintenance-service.js";
 import { createWorkbenchRuntime } from "../app/workbench-runtime.js";
 import { PaginationValidationError } from "../core/store/index.js";
 import { createThemeService, type ThemeService } from "../theme/theme-service.js";
@@ -63,10 +67,12 @@ import {
   getSessionByIdRequestSchema,
   getSessionTimelineRequestSchema,
   getRunAuditResponseSchema,
+  getRetentionJobStatusRequestSchema,
   gitSnapshotRequestSchema,
   gitSnapshotResponseSchema,
   githubSnapshotRequestSchema,
   githubSnapshotResponseSchema,
+  getSettingsRequestSchema,
   listDiagnosticsRequestSchema,
   listDiagnosticsResponseSchema,
   listHarnessesRequestSchema,
@@ -80,8 +86,10 @@ import {
   outputArtifactRequestSchema,
   rescanAllSourcesRequestSchema,
   rescanSourceRequestSchema,
+  retentionJobStatusResponseSchema,
   scannerStatusResponseSchema,
   getScannerStatusRequestSchema,
+  settingsResponseSchema,
   shellStateViewModelSchema,
   shellCommandsResponseSchema,
   getShellCommandsRequestSchema,
@@ -90,6 +98,8 @@ import {
   toolCallsResponseSchema,
   getToolCallsRequestSchema,
   updateSourceRequestSchema,
+  updateSettingsRequestSchema,
+  updateSettingsResponseSchema,
   validateSourceRequestSchema,
   type DashboardStatsResponse,
   type EventsResponse,
@@ -110,11 +120,13 @@ import {
   type SanitizedErrorViewModel,
   type ScannerStatusViewModel,
   type ScannerStatusResponse,
+  type SettingsResponse,
   type SessionTimelineResponse,
   type ShellCommandsResponse,
   type ShellStateViewModel,
   type SourcesResponse,
-  type ToolCallsResponse
+  type ToolCallsResponse,
+  type UpdateSettingsResponse
 } from "./view-models.js";
 
 type IpcHandler = (event: unknown, payload?: unknown) => unknown | Promise<unknown>;
@@ -134,6 +146,7 @@ export interface IpcServices {
   sessionService: SessionViewModelService;
   sessionDetailService: SessionDetailViewModelService;
   outputArtifactService: OutputArtifactViewModelService;
+  retentionService: RetentionMaintenanceService;
   triageService: TriageViewModelService;
   themeService: ThemeService;
 }
@@ -663,6 +676,57 @@ export function registerIpcHandlers(
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.getSettings, async (_event, payload) => {
+    const request = getSettingsRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies SettingsResponse;
+    }
+
+    try {
+      return settingsResponseSchema.parse({
+        ok: true,
+        settings: await services.retentionService.getSettings()
+      }) satisfies SettingsResponse;
+    } catch {
+      return buildSettingsLoadFailedError() satisfies SettingsResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.updateSettings, async (_event, payload) => {
+    const request = updateSettingsRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError() satisfies UpdateSettingsResponse;
+    }
+
+    try {
+      return updateSettingsResponseSchema.parse({
+        ok: true,
+        result: await services.retentionService.updateSettings(request.data)
+      }) satisfies UpdateSettingsResponse;
+    } catch {
+      return buildSettingsLoadFailedError() satisfies UpdateSettingsResponse;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getRetentionJobStatus, async (_event, payload) => {
+    const request = getRetentionJobStatusRequestSchema.safeParse(payload);
+
+    if (!request.success) {
+      return buildInvalidRequestError();
+    }
+
+    try {
+      return retentionJobStatusResponseSchema.parse({
+        ok: true,
+        job: services.retentionService.getStatus()
+      });
+    } catch {
+      return buildSettingsLoadFailedError();
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.getThemeState, (_event, payload) => {
     const request = z.undefined().safeParse(payload);
 
@@ -697,6 +761,7 @@ function createDefaultIpcServices(): IpcServices {
     triageService: createTriageViewModelService({ runtime }),
     diagnosticsService: createDiagnosticsViewModelService({ runtime }),
     dataSourcesService: createDataSourcesViewModelService({ runtime }),
+    retentionService: createRetentionMaintenanceService({ runtime }),
     themeService: createThemeService({
       nativeTheme: {
         themeSource: "system",
@@ -800,6 +865,16 @@ function buildDataSourcesLoadFailedError(): IpcErrorResponse {
     error: {
       code: "data-sources-load-failed",
       message: "Data sources could not be loaded."
+    }
+  };
+}
+
+function buildSettingsLoadFailedError(): IpcErrorResponse {
+  return {
+    ok: false,
+    error: {
+      code: "settings-load-failed",
+      message: "Settings could not be loaded or updated."
     }
   };
 }

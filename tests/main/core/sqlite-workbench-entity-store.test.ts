@@ -67,6 +67,125 @@ describe("SQLiteWorkbenchEntityStore", () => {
     secondDb.close();
   });
 
+  it("guards the v1 session started_at migration against malformed legacy payloads", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-sqlite-migrate-v1-"));
+    tempDirs.push(tempDir);
+
+    const databasePath = path.join(tempDir, "workbench.sqlite");
+    const db = new DatabaseSync(databasePath);
+
+    db.exec(`
+      CREATE TABLE sessions (
+        ingest_run_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        adapter_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        project_id TEXT,
+        last_updated_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        PRIMARY KEY (ingest_run_id, session_id)
+      );
+      INSERT INTO sessions (
+        ingest_run_id,
+        source_id,
+        adapter_id,
+        session_id,
+        project_id,
+        last_updated_at,
+        payload_json
+      ) VALUES (
+        'run-1',
+        'source-1',
+        'fake-test',
+        'session-1',
+        NULL,
+        '2026-05-25T09:01:00.000Z',
+        '{not valid json'
+      );
+      PRAGMA user_version = 1;
+    `);
+    db.close();
+
+    const store = new SQLiteWorkbenchEntityStore({
+      artifactBlobRootDir: path.join(tempDir, "blobs"),
+      databasePath
+    });
+
+    store.close();
+
+    const reopenedDb = new DatabaseSync(databasePath);
+    const row = reopenedDb.prepare("SELECT started_at FROM sessions WHERE session_id = ?").get("session-1") as {
+      started_at: string;
+    };
+    const versionRow = reopenedDb.prepare("PRAGMA user_version").get() as { user_version: number };
+
+    expect(row.started_at).toBe("");
+    expect(versionRow.user_version).toBe(SQLiteWorkbenchEntityStore.SCHEMA_VERSION);
+    reopenedDb.close();
+  });
+
+  it("removes unreferenced artifact blob rows and files when stale runs are cleaned up", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-sqlite-blob-cleanup-"));
+    tempDirs.push(tempDir);
+
+    const store = new SQLiteWorkbenchEntityStore({
+      artifactBlobRootDir: path.join(tempDir, "blobs"),
+      databasePath: path.join(tempDir, "workbench.sqlite")
+    });
+    const sourceId = "source-blob-cleanup";
+    const run = await store.beginIngestRun({
+      adapterId: "fake-test",
+      sourceId,
+      ingestRunId: "run-blob-cleanup",
+      startedAt: "2026-05-25T09:00:00.000Z"
+    });
+    const blob = await store.writeArtifactBlob({
+      blobId: "blob-cleanup",
+      text: "blob cleanup content"
+    });
+    const blobPath = path.join(tempDir, "blobs", blob.relativePath);
+
+    await store.writeBatch({
+      ingestRunId: run.ingestRunId,
+      adapterId: "fake-test",
+      sourceId,
+      rawArtifacts: [{
+        artifactId: "artifact-blob-cleanup",
+        sourceId,
+        status: "available",
+        blob
+      }]
+    });
+    const db = new DatabaseSync(path.join(tempDir, "workbench.sqlite"));
+
+    db.prepare(
+      `UPDATE raw_artifact_entries
+       SET payload_json = json_set(payload_json, '$.blob.relativePath', ?)
+       WHERE ingest_run_id = ?
+         AND artifact_id = ?`
+    ).run("payload/path-that-should-not-be-used.txt", run.ingestRunId, "artifact-blob-cleanup");
+    db.close();
+    await store.clearCurrentIngestRun({ sourceId });
+
+    await expect(store.getArtifactBlob(blob.blobId)).resolves.toBeDefined();
+    await expect(readFile(blobPath, "utf8")).resolves.toBe("blob cleanup content");
+
+    const result = await store.cleanupStaleRuns({
+      beforeUpdatedAt: "2026-05-25T10:00:00.000Z",
+      preservePublished: false,
+      sourceId
+    });
+
+    expect(result).toEqual({
+      removedCount: 1,
+      removedIngestRunIds: ["run-blob-cleanup"]
+    });
+    await expect(store.getArtifactBlob(blob.blobId)).resolves.toBeUndefined();
+    await expect(readFile(blobPath, "utf8")).rejects.toThrow();
+
+    store.close();
+  });
+
   it("lists session summaries without hydrating timeline payload rows", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-sqlite-summary-"));
     tempDirs.push(tempDir);
@@ -303,6 +422,59 @@ describe("SQLiteWorkbenchEntityStore", () => {
     ).rejects.toThrow("bounded ingestion limit");
   });
 
+  it("derives collision-resistant relative blob paths from the full blob id", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-blob-store-collision-"));
+    tempDirs.push(tempDir);
+
+    const blobStore = new ArtifactBlobStore({
+      rootDir: path.join(tempDir, "artifact-blobs")
+    });
+    const first = await blobStore.writeTextBlob({
+      blobId: "blob:a",
+      text: "first"
+    });
+    const second = await blobStore.writeTextBlob({
+      blobId: "blob?a",
+      text: "second"
+    });
+
+    expect(first.relativePath).not.toBe(second.relativePath);
+    await expect(blobStore.readTextBlob(first.relativePath)).resolves.toBe("first");
+    await expect(blobStore.readTextBlob(second.relativePath)).resolves.toBe("second");
+  });
+
+  it("deletes the previous blob file when the same blob id is rewritten with a new extension", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-blob-store-rewrite-"));
+    tempDirs.push(tempDir);
+
+    const store = new SQLiteWorkbenchEntityStore({
+      artifactBlobRootDir: path.join(tempDir, "artifact-blobs"),
+      databasePath: path.join(tempDir, "workbench.sqlite")
+    });
+
+    try {
+      const first = await store.writeArtifactBlob({
+        blobId: "blob-extension-change",
+        extension: "txt",
+        text: "first text"
+      });
+      const firstAbsolutePath = path.join(tempDir, "artifact-blobs", first.relativePath);
+      const second = await store.writeArtifactBlob({
+        blobId: "blob-extension-change",
+        extension: "json",
+        text: "{\"ok\":true}"
+      });
+
+      expect(second.relativePath).not.toBe(first.relativePath);
+      await expect(readFile(firstAbsolutePath, "utf8")).rejects.toThrow();
+      await expect(store.getArtifactBlob("blob-extension-change")).resolves.toMatchObject({
+        relativePath: second.relativePath
+      });
+    } finally {
+      store.close();
+    }
+  });
+
   it("returns archive preflight section counts without hydrating payload rows", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-sqlite-preflight-"));
     tempDirs.push(tempDir);
@@ -443,6 +615,111 @@ describe("SQLiteWorkbenchEntityStore", () => {
         createdAt: "2026-05-25T09:00:00.000Z"
       })
     });
+
+    store.close();
+  });
+
+  it("deletes superseded raw artifact blobs after an entry is replaced with a different blob", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-sqlite-blob-replace-"));
+    tempDirs.push(tempDir);
+
+    const store = new SQLiteWorkbenchEntityStore({
+      artifactBlobRootDir: path.join(tempDir, "blobs"),
+      databasePath: path.join(tempDir, "workbench.sqlite")
+    });
+    const firstBlob = await store.writeArtifactBlob({
+      blobId: "artifact-blob-old",
+      text: "old blob"
+    });
+    const secondBlob = await store.writeArtifactBlob({
+      blobId: "artifact-blob-new",
+      text: "new blob"
+    });
+    const sourceId = "source-blob-replace";
+    const run = await store.beginIngestRun({
+      adapterId: "fake-test",
+      sourceId,
+      ingestRunId: "run-blob-replace",
+      startedAt: "2026-05-25T09:01:00.000Z"
+    });
+    const firstBlobPath = path.join(tempDir, "blobs", firstBlob.relativePath);
+
+    await store.writeBatch({
+      ingestRunId: run.ingestRunId,
+      adapterId: "fake-test",
+      sourceId,
+      rawArtifacts: [{
+        artifactId: "artifact-1",
+        sourceId,
+        status: "available",
+        blob: firstBlob
+      }]
+    });
+    await store.writeBatch({
+      ingestRunId: run.ingestRunId,
+      adapterId: "fake-test",
+      sourceId,
+      rawArtifacts: [{
+        artifactId: "artifact-1",
+        sourceId,
+        status: "available",
+        blob: secondBlob
+      }]
+    });
+
+    await expect(store.getArtifactBlob(firstBlob.blobId)).resolves.toBeUndefined();
+    await expect(store.getArtifactBlob(secondBlob.blobId)).resolves.toBeDefined();
+    await expect(readFile(firstBlobPath, "utf8")).rejects.toThrow();
+
+    store.close();
+  });
+
+  it("deletes superseded raw artifact blobs after an entry becomes missing", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "awb-sqlite-blob-missing-"));
+    tempDirs.push(tempDir);
+
+    const store = new SQLiteWorkbenchEntityStore({
+      artifactBlobRootDir: path.join(tempDir, "blobs"),
+      databasePath: path.join(tempDir, "workbench.sqlite")
+    });
+    const blob = await store.writeArtifactBlob({
+      blobId: "artifact-blob-missing",
+      text: "old blob"
+    });
+    const sourceId = "source-blob-missing";
+    const run = await store.beginIngestRun({
+      adapterId: "fake-test",
+      sourceId,
+      ingestRunId: "run-blob-missing",
+      startedAt: "2026-05-25T09:01:00.000Z"
+    });
+    const blobPath = path.join(tempDir, "blobs", blob.relativePath);
+
+    await store.writeBatch({
+      ingestRunId: run.ingestRunId,
+      adapterId: "fake-test",
+      sourceId,
+      rawArtifacts: [{
+        artifactId: "artifact-1",
+        sourceId,
+        status: "available",
+        blob
+      }]
+    });
+    await store.writeBatch({
+      ingestRunId: run.ingestRunId,
+      adapterId: "fake-test",
+      sourceId,
+      rawArtifacts: [{
+        artifactId: "artifact-1",
+        sourceId,
+        status: "missing",
+        reason: "blob unavailable"
+      }]
+    });
+
+    await expect(store.getArtifactBlob(blob.blobId)).resolves.toBeUndefined();
+    await expect(readFile(blobPath, "utf8")).rejects.toThrow();
 
     store.close();
   });

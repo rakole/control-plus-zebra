@@ -1,10 +1,11 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import { geminiCliAdapter } from "../../../src/main/adapters/gemini-cli/index.js";
 import type { GeminiRawEvent } from "../../../src/main/adapters/gemini-cli/parse.js";
+import type { RawArtifactRef } from "../../../src/main/core/adapter-contract/index.js";
 
 import { collectAsync, exerciseAdapter } from "../../contract/run-adapter-contract.js";
 
@@ -450,6 +451,438 @@ describe("gemini-cli normalization", () => {
     }
   });
 
+  it("coalesces repeated Gemini transcript snapshots before counting sidecar-backed tool calls", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const chatPath = path.join(
+        rootPath,
+        "alpha-project",
+        "chats",
+        "session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+      );
+      const rows = (await readFile(chatPath, "utf8"))
+        .split(/\r?\n/u)
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as { id: string });
+      const repeatedSnapshot = rows.find((row) => row.id === "assistant-tools-111");
+
+      expect(repeatedSnapshot).toBeDefined();
+
+      await writeFile(
+        chatPath,
+        `${rows.map((row) => JSON.stringify(row)).join("\n")}\n${JSON.stringify(repeatedSnapshot)}\n${JSON.stringify(repeatedSnapshot)}\n`,
+        "utf8"
+      );
+
+      const alphaSource = await requireGeminiSource(rootPath, "alpha-project");
+      const artifacts = await collectGeminiArtifacts(alphaSource);
+      const rawEvents = (
+        await Promise.all(
+          artifacts.map((artifact) =>
+            collectAsync(
+              geminiCliAdapter.parseArtifact(
+                artifact,
+                createGeminiAdapterContext(alphaSource.rootPath)
+              )
+            )
+          )
+        )
+      ).flat();
+      const normalized = await geminiCliAdapter.normalize(
+        {
+          source: alphaSource,
+          artifacts,
+          rawEvents
+        },
+        createGeminiAdapterContext(alphaSource.rootPath)
+      );
+      const ambiguousDiagnostics = normalized.diagnostics.filter(
+        (diagnostic) => diagnostic.code === "gemini-cli.normalize.ambiguous-sidecar"
+      );
+      const shellToolCalls = normalized.toolCalls.filter(
+        (toolCall) => toolCall.nativeToolCallId === "run_shell_command_1700000001000_1"
+      );
+
+      expect(ambiguousDiagnostics).toHaveLength(0);
+      expect(shellToolCalls).toHaveLength(1);
+      expect(shellToolCalls[0]?.outputArtifactIds ?? []).toHaveLength(1);
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
+  });
+
+  it("coalesces repeated sidecar events for the same physical Gemini output artifact", async () => {
+    const alphaSource = await requireGeminiSource(geminiFixtureRoot, "alpha-project");
+    const artifacts = await collectGeminiArtifacts(alphaSource);
+    const rawEvents = (
+      await Promise.all(
+        artifacts.map((artifact) =>
+          collectAsync(
+            geminiCliAdapter.parseArtifact(
+              artifact,
+              createGeminiAdapterContext(alphaSource.rootPath)
+            )
+          )
+        )
+      )
+    ).flat();
+    const repeatedSidecar = rawEvents.find(
+      (event) =>
+        event.payload.kind === "tool-output-sidecar" &&
+        event.payload.toolCallId === "run_shell_command_1700000001000_1"
+    );
+
+    expect(repeatedSidecar?.payload.kind).toBe("tool-output-sidecar");
+
+    if (!repeatedSidecar || repeatedSidecar.payload.kind !== "tool-output-sidecar") {
+      throw new Error("Expected the alpha fixture to include a shell-command sidecar.");
+    }
+
+    const repeatedRelativePath = repeatedSidecar.payload.relativePath;
+
+    const normalized = await geminiCliAdapter.normalize(
+      {
+        source: alphaSource,
+        artifacts,
+        rawEvents: [...rawEvents, repeatedSidecar, repeatedSidecar]
+      },
+      createGeminiAdapterContext(alphaSource.rootPath)
+    );
+    const shellToolCall = normalized.toolCalls.find(
+      (toolCall) => toolCall.nativeToolCallId === "run_shell_command_1700000001000_1"
+    );
+    const toolResultEvents = normalized.events.filter(
+      (event) =>
+        event.kind === "tool-result" &&
+        event.nativeId === `artifact:${repeatedRelativePath}`
+    );
+
+    expect(shellToolCall?.outputArtifactIds).toHaveLength(1);
+    expect(toolResultEvents).toHaveLength(1);
+    expect(
+      normalized.outputArtifacts.filter(
+        (artifact) => artifact.nativeId === repeatedRelativePath
+      )
+    ).toHaveLength(1);
+  });
+
+  it("prefers the freshest sidecar snapshot when duplicate Gemini sidecars disagree across artifacts", async () => {
+    const alphaSource = await requireGeminiSource(geminiFixtureRoot, "alpha-project");
+    const artifacts = await collectGeminiArtifacts(alphaSource);
+    const rawEvents = (
+      await Promise.all(
+        artifacts.map((artifact) =>
+          collectAsync(
+            geminiCliAdapter.parseArtifact(
+              artifact,
+              createGeminiAdapterContext(alphaSource.rootPath)
+            )
+          )
+        )
+      )
+    ).flat();
+    const repeatedSidecar = rawEvents.find(
+      (event) =>
+        event.payload.kind === "tool-output-sidecar" &&
+        event.payload.toolCallId === "run_shell_command_1700000001000_1"
+    );
+
+    expect(repeatedSidecar?.payload.kind).toBe("tool-output-sidecar");
+
+    if (!repeatedSidecar || repeatedSidecar.payload.kind !== "tool-output-sidecar") {
+      throw new Error("Expected the alpha fixture to include a shell-command sidecar.");
+    }
+
+    const repeatedRelativePath = repeatedSidecar.payload.relativePath;
+    const originalArtifact = artifacts.find((artifact) => artifact.id === repeatedSidecar.artifactId);
+
+    expect(originalArtifact).toBeDefined();
+
+    if (!originalArtifact) {
+      throw new Error("Expected the repeated Gemini sidecar to resolve to a raw artifact.");
+    }
+
+    const fresherMtimeMs =
+      (originalArtifact.mtimeMs ?? Date.parse(originalArtifact.mtime ?? "2026-05-23T09:11:30.000Z")) +
+      60_000;
+    const fresherArtifact = {
+      ...originalArtifact,
+      id: `${originalArtifact.id}:fresh-snapshot`,
+      mtime: new Date(fresherMtimeMs).toISOString(),
+      mtimeMs: fresherMtimeMs
+    } satisfies RawArtifactRef;
+    const fresherSource = repeatedSidecar.source
+      ? {
+          ...repeatedSidecar.source,
+          artifactId: fresherArtifact.id,
+          nativeId: `000-fresh-${repeatedSidecar.source.nativeId ?? repeatedSidecar.payload.relativePath}`
+        }
+      : {
+          artifactId: fresherArtifact.id,
+          ...(originalArtifact.path ? { artifactPath: originalArtifact.path } : {}),
+          nativeId: `000-fresh-${repeatedSidecar.payload.relativePath}`
+        };
+    const fresherSidecar = {
+      ...repeatedSidecar,
+      id: `${repeatedSidecar.id ?? repeatedSidecar.payload.relativePath}:fresh-snapshot`,
+      artifactId: fresherArtifact.id,
+      source: fresherSource,
+      payload: {
+        ...repeatedSidecar.payload,
+        exitCode: 17,
+        textPreview: "Freshest sidecar snapshot preview"
+      }
+    } satisfies GeminiRawEvent;
+
+    const normalized = await geminiCliAdapter.normalize(
+      {
+        source: alphaSource,
+        artifacts: [fresherArtifact, ...artifacts],
+        rawEvents: [fresherSidecar, ...rawEvents]
+      },
+      createGeminiAdapterContext(alphaSource.rootPath)
+    );
+    const shellToolCall = normalized.toolCalls.find(
+      (toolCall) => toolCall.nativeToolCallId === "run_shell_command_1700000001000_1"
+    );
+    const linkedOutputArtifact = normalized.outputArtifacts.find((artifact) =>
+      (shellToolCall?.outputArtifactIds ?? []).includes(artifact.id)
+    );
+    const toolResultEvent = normalized.events.find(
+      (event) =>
+        event.kind === "tool-result" &&
+        event.nativeId === `artifact:${repeatedRelativePath}`
+    );
+    const shellCommand = normalized.shellCommands.find(
+      (command) => command.nativeId === "shell:run_shell_command_1700000001000_1"
+    );
+
+    expect(shellToolCall?.outputArtifactIds).toHaveLength(1);
+    expect(linkedOutputArtifact?.preview).toBe("Freshest sidecar snapshot preview");
+    expect(linkedOutputArtifact?.mtime).toBe(fresherArtifact.mtime);
+    expect(toolResultEvent?.raw).toMatchObject({
+      artifactId: fresherArtifact.id
+    });
+    expect(shellCommand?.rawExitCode).toBe(17);
+  });
+
+  it("prefers the freshest chat artifact when a shared transcript record id appears across JSONL and JSON snapshots", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const jsonlChatPath = path.join(
+        rootPath,
+        "alpha-project",
+        "chats",
+        "session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+      );
+      const jsonChatPath = jsonlChatPath.replace(/\.jsonl$/u, ".json");
+      const rows = (await readFile(jsonlChatPath, "utf8"))
+        .split(/\r?\n/u)
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const finalAssistantRecord = rows.find((row) => row.id === "assistant-final-111");
+
+      expect(finalAssistantRecord).toBeDefined();
+
+      if (!finalAssistantRecord) {
+        throw new Error("Expected the alpha fixture to include assistant-final-111.");
+      }
+
+      await writeFile(
+        jsonChatPath,
+        `${JSON.stringify(
+          [
+            rows[0],
+            {
+              ...finalAssistantRecord,
+              content: "Updated from fresher JSON snapshot."
+            },
+            ...rows.slice(1).filter((row) => row.id !== "assistant-final-111")
+          ],
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+      await utimes(
+        jsonlChatPath,
+        new Date("2026-05-23T09:11:30.000Z"),
+        new Date("2026-05-23T09:11:30.000Z")
+      );
+      await utimes(
+        jsonChatPath,
+        new Date("2026-05-23T09:12:30.000Z"),
+        new Date("2026-05-23T09:12:30.000Z")
+      );
+
+      const alphaSource = await requireGeminiSource(rootPath, "alpha-project");
+      const artifacts = await collectGeminiArtifacts(alphaSource);
+      const rawEvents = (
+        await Promise.all(
+          artifacts.map((artifact) =>
+            collectAsync(
+              geminiCliAdapter.parseArtifact(
+                artifact,
+                createGeminiAdapterContext(alphaSource.rootPath)
+              )
+            )
+          )
+        )
+      ).flat();
+      const jsonSnapshotEvent = rawEvents.find(
+        (event) =>
+          event.payload.kind === "transcript-record" &&
+          event.payload.record.id === "assistant-final-111" &&
+          event.source?.artifactPath === jsonChatPath
+      );
+      const jsonlSnapshotEvent = rawEvents.find(
+        (event) =>
+          event.payload.kind === "transcript-record" &&
+          event.payload.record.id === "assistant-final-111" &&
+          event.source?.artifactPath === jsonlChatPath
+      );
+      const normalized = await geminiCliAdapter.normalize(
+        {
+          source: alphaSource,
+          artifacts,
+          rawEvents
+        },
+        createGeminiAdapterContext(alphaSource.rootPath)
+      );
+      const finalMessages = normalized.messages.filter((message) =>
+        message.nativeId?.startsWith("assistant-final-111:")
+      );
+      const jsonSnapshotSequence =
+        jsonSnapshotEvent?.source?.recordIndex ?? jsonSnapshotEvent?.source?.lineNumber ?? -1;
+      const jsonlSnapshotSequence =
+        jsonlSnapshotEvent?.source?.recordIndex ?? jsonlSnapshotEvent?.source?.lineNumber ?? -1;
+
+      expect(jsonSnapshotSequence).toBe(1);
+      expect(jsonlSnapshotSequence).toBeGreaterThan(jsonSnapshotSequence);
+      expect(finalMessages).toHaveLength(1);
+      expect(finalMessages[0]?.text).toBe("Updated from fresher JSON snapshot.");
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
+  });
+
+  it("backfills transcript-backed message toolCallIds from the coalesced Gemini record", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const chatPath = path.join(
+        rootPath,
+        "alpha-project",
+        "chats",
+        "session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+      );
+      const sourceText = await readFile(chatPath, "utf8");
+
+      await writeFile(
+        chatPath,
+        sourceText.replace(
+          '"content":"","thoughts":[{"subject":"Applying edits"',
+          '"content":"Applying edits now.","thoughts":[{"subject":"Applying edits"'
+        ),
+        "utf8"
+      );
+
+      const alphaSource = await requireGeminiSource(rootPath, "alpha-project");
+      const artifacts = await collectGeminiArtifacts(alphaSource);
+      const rawEvents = (
+        await Promise.all(
+          artifacts.map((artifact) =>
+            collectAsync(
+              geminiCliAdapter.parseArtifact(
+                artifact,
+                createGeminiAdapterContext(alphaSource.rootPath)
+              )
+            )
+          )
+        )
+      ).flat();
+      const normalized = await geminiCliAdapter.normalize(
+        {
+          source: alphaSource,
+          artifacts,
+          rawEvents
+        },
+        createGeminiAdapterContext(alphaSource.rootPath)
+      );
+      const toolMessage = normalized.messages.find((message) =>
+        message.nativeId?.startsWith("assistant-tools-111:")
+      );
+      const linkedToolCalls = normalized.toolCalls.filter((toolCall) =>
+        (toolMessage?.toolCallIds ?? []).includes(toolCall.id)
+      );
+
+      expect(toolMessage?.toolCallIds).toHaveLength(3);
+      expect(linkedToolCalls.map((toolCall) => toolCall.nativeToolCallId).sort()).toEqual([
+        "read_file_1700000000000_0",
+        "replace_1700000002000_2",
+        "run_shell_command_1700000001000_1"
+      ]);
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
+  });
+
+  it("falls back to the earliest transcript timestamp when a Gemini session header omits startTime", async () => {
+    const { rootPath, tempDir } = await createTempGeminiFixtureRoot();
+
+    try {
+      const chatPath = path.join(
+        rootPath,
+        "alpha-project",
+        "chats",
+        "session-2026-05-23T09-11-11111111-1111-4111-8111-111111111111.jsonl"
+      );
+      const rows = (await readFile(chatPath, "utf8"))
+        .split(/\r?\n/u)
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+      if (rows[0]) {
+        delete rows[0].startTime;
+      }
+
+      await writeFile(
+        chatPath,
+        `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`,
+        "utf8"
+      );
+
+      const alphaSource = await requireGeminiSource(rootPath, "alpha-project");
+      const artifacts = await collectGeminiArtifacts(alphaSource);
+      const rawEvents = (
+        await Promise.all(
+          artifacts.map((artifact) =>
+            collectAsync(
+              geminiCliAdapter.parseArtifact(
+                artifact,
+                createGeminiAdapterContext(alphaSource.rootPath)
+              )
+            )
+          )
+        )
+      ).flat();
+      const normalized = await geminiCliAdapter.normalize(
+        {
+          source: alphaSource,
+          artifacts,
+          rawEvents
+        },
+        createGeminiAdapterContext(alphaSource.rootPath)
+      );
+
+      expect(normalized.sessions[0]?.startedAt).toBe("2026-05-23T09:12:30.745Z");
+    } finally {
+      await cleanupTempGeminiFixtureRoot(tempDir);
+    }
+  });
+
   it("preserves parse diagnostics while still normalizing remaining valid evidence", async () => {
     const gammaSource = await requireGeminiSource(geminiFixtureRoot, "gamma-project");
     const artifacts = await collectGeminiArtifacts(gammaSource);
@@ -559,6 +992,10 @@ describe("gemini-cli normalization", () => {
       expect(malformedRowDiagnostics.map((diagnostic) => diagnostic.message)).toEqual([
         expect.stringContaining("row 3"),
         expect.stringContaining("row 5")
+      ]);
+      expect(malformedRowDiagnostics.map((diagnostic) => diagnostic.relatedEntityIds)).toEqual([
+        [normalized.sessions[0]?.id],
+        [normalized.sessions[0]?.id]
       ]);
       expect(normalized.messages.map((message) => message.nativeId)).toEqual(
         expect.arrayContaining(["assistant-valid-2:6", "user-valid-1:2"])

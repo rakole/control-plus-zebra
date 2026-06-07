@@ -4,6 +4,7 @@ import { DataSourcesRoute } from "../features/data-sources/routes/data-sources-r
 import { DiagnosticsRoute } from "../features/diagnostics/routes/diagnostics-route.js";
 import { OverviewRoute } from "../features/overview/routes/overview-route.js";
 import { ProjectsRoute } from "../features/projects/routes/projects-route.js";
+import { SettingsRoute } from "../features/settings/routes/settings-route.js";
 import { RunAuditRoute } from "../features/sessions/routes/run-audit-route.js";
 import { SessionDetailRoute } from "../features/sessions/routes/session-detail-route.js";
 import { SessionsRoute } from "../features/sessions/routes/sessions-route.js";
@@ -16,6 +17,7 @@ export function RouteRegistry() {
       <Route path="/projects" element={<ProjectsRoute />} />
       <Route path="/data-sources" element={<DataSourcesRoute />} />
       <Route path="/sessions" element={<SessionsRoute />} />
+      <Route path="/settings" element={<SettingsRoute />} />
       <Route path="/sessions/:sessionId" element={<SessionDetailRoute />} />
       <Route path="/sessions/:sessionId/run-audit" element={<RunAuditRoute />} />
       <Route path="/diagnostics" element={<DiagnosticsRoute />} />

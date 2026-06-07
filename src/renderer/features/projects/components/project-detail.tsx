@@ -6,10 +6,17 @@ import { StatusChipTooltip } from "../../../components/app/status-chip-tooltip.j
 import { getTruthTooltip } from "../../../components/app/status-chip-tooltips.js";
 import { SectionCard } from "../../../components/app/section-card.js";
 import { TruthStateBadge } from "../../../components/app/truth-state-badge.js";
+import { isGithubUiEnabled } from "../../../../shared/feature-flags.js";
+import { isGitHubHostedRemoteUrl } from "../../../../shared/github-ui.js";
 import { TooltipProvider } from "../../../components/ui/tooltip.js";
 
-type ProjectsResponse = Awaited<ReturnType<Window["agentWorkbench"]["listProjects"]>>;
-type ProjectSummary = Extract<ProjectsResponse, { ok: true }>["projects"][number];
+type ProjectsResponse = Awaited<
+  ReturnType<Window["agentWorkbench"]["listProjects"]>
+>;
+type ProjectSummary = Extract<
+  ProjectsResponse,
+  { ok: true }
+>["projects"][number];
 
 interface ProjectDetailProps {
   project: ProjectSummary | null;
@@ -32,14 +39,20 @@ export function ProjectDetail({
   isExporting,
   onIncludeRawArtifactsChange,
   onToggleExportPanel,
-  onExport
+  onExport,
 }: ProjectDetailProps) {
+  const githubUiEnabled = isGithubUiEnabled();
+
   if (!project) {
     return (
       <div className="flex h-full items-center p-4">
         <EmptyState
           title="Select a project to inspect repository truth."
-          description="Review git, GitHub, and archive-export coverage for the selected project."
+          description={
+            githubUiEnabled
+              ? "Review git, GitHub, and archive-export coverage for the selected project."
+              : "Review git and archive-export coverage for the selected project."
+          }
         />
       </div>
     );
@@ -47,9 +60,36 @@ export function ProjectDetail({
 
   const truthBadges = [
     { key: "git", label: "Git status", state: project.gitStatus },
-    { key: "github", label: "GitHub status", state: project.githubStatus },
-    { key: "dirty", label: "Dirty state", state: project.dirtyState }
+    ...(githubUiEnabled
+      ? [{ key: "github", label: "GitHub status", state: project.githubStatus }]
+      : []),
+    { key: "dirty", label: "Dirty state", state: project.dirtyState },
   ].filter(({ state }) => state.label !== "Unknown");
+  const metadataItems = [
+    { label: "Repo Path", value: project.primaryRootPath.displayValue },
+    {
+      label: "Validated Repo Root",
+      value: project.validatedRepoRoot.displayValue,
+    },
+    { label: "Branch", value: project.branch.displayValue },
+    { label: "HEAD", value: project.head.displayValue },
+    { label: "Changed Files", value: project.changedFiles.displayValue },
+    { label: "Untracked Files", value: project.untrackedFiles.displayValue },
+    { label: "Additions", value: project.additions.displayValue },
+    { label: "Deletions", value: project.deletions.displayValue },
+    ...((githubUiEnabled ||
+      !isGitHubHostedRemoteUrl(project.remoteUrl.displayValue)) &&
+    project.remoteUrl.displayValue !== "Unknown"
+      ? [{ label: "Remote URL", value: project.remoteUrl.displayValue }]
+      : []),
+    ...(githubUiEnabled
+      ? [
+          { label: "Pull Request", value: project.pullRequest.displayValue },
+          { label: "Checks", value: project.checks.displayValue },
+          { label: "Review / Merge", value: project.reviewStatus.displayValue },
+        ]
+      : []),
+  ];
 
   return (
     <TooltipProvider>
@@ -64,7 +104,8 @@ export function ProjectDetail({
                 {project.projectDisplayName}
               </h2>
               <p className="text-sm text-muted-foreground">
-                {project.observedHarnesses.join(", ")} · {project.sessionCount} session
+                {project.observedHarnesses.join(", ")} · {project.sessionCount}{" "}
+                session
                 {project.sessionCount === 1 ? "" : "s"}
               </p>
             </div>
@@ -85,22 +126,7 @@ export function ProjectDetail({
 
           <section aria-label="Repository Metadata">
             <SectionCard title={<h3>Repository Metadata</h3>}>
-              <MetadataGrid
-                items={[
-                  { label: "Repo Path", value: project.primaryRootPath.displayValue },
-                  { label: "Validated Repo Root", value: project.validatedRepoRoot.displayValue },
-                  { label: "Branch", value: project.branch.displayValue },
-                  { label: "HEAD", value: project.head.displayValue },
-                  { label: "Changed Files", value: project.changedFiles.displayValue },
-                  { label: "Untracked Files", value: project.untrackedFiles.displayValue },
-                  { label: "Additions", value: project.additions.displayValue },
-                  { label: "Deletions", value: project.deletions.displayValue },
-                  { label: "Remote URL", value: project.remoteUrl.displayValue },
-                  { label: "Pull Request", value: project.pullRequest.displayValue },
-                  { label: "Checks", value: project.checks.displayValue },
-                  { label: "Review / Merge", value: project.reviewStatus.displayValue }
-                ]}
-              />
+              <MetadataGrid items={metadataItems} />
             </SectionCard>
           </section>
 
@@ -110,7 +136,7 @@ export function ProjectDetail({
                 summary={formatArchiveScopeSummary(
                   project.archiveExport.scopeLabel,
                   project.archiveExport.sessionCount,
-                  project.archiveExport.sourceCount
+                  project.archiveExport.sourceCount,
                 )}
                 toggleLabel="Export Project Archive"
                 exportLabel="Export Project Archive"
@@ -122,7 +148,9 @@ export function ProjectDetail({
                 isExporting={isExporting}
                 exportMessage={exportMessage}
                 errorMessage={exportError}
-                rawArtifactsAvailable={project.archiveExport.rawArtifactsAvailable}
+                rawArtifactsAvailable={
+                  project.archiveExport.rawArtifactsAvailable
+                }
                 rawArtifactCount={project.archiveExport.rawArtifactCount}
                 rawArtifactsReason={project.archiveExport.rawArtifactsReason}
               />

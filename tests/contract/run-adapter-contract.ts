@@ -205,6 +205,50 @@ function assertRawPointers(normalized: AdapterNormalizationResult) {
   });
 }
 
+export function assertNormalizedRelationshipIntegrity(
+  normalized: AdapterNormalizationResult
+) {
+  const toolCallIds = new Set(normalized.toolCalls.map((toolCall) => toolCall.id));
+  const outputArtifactIds = new Set(normalized.outputArtifacts.map((artifact) => artifact.id));
+  const toolResultNativeIds = normalized.events
+    .filter((event) => event.kind === "tool-result" && typeof event.nativeId === "string")
+    .map((event) => event.nativeId as string);
+
+  expect(new Set(toolResultNativeIds).size).toBe(toolResultNativeIds.length);
+
+  for (const message of normalized.messages) {
+    const messageToolCallIds = message.toolCallIds ?? [];
+
+    expect(new Set(messageToolCallIds).size).toBe(messageToolCallIds.length);
+
+    for (const toolCallId of messageToolCallIds) {
+      expect(toolCallIds.has(toolCallId)).toBe(true);
+    }
+  }
+
+  for (const toolCall of normalized.toolCalls) {
+    const toolCallOutputArtifactIds = toolCall.outputArtifactIds ?? [];
+
+    expect(new Set(toolCallOutputArtifactIds).size).toBe(toolCallOutputArtifactIds.length);
+
+    for (const outputArtifactId of toolCallOutputArtifactIds) {
+      expect(outputArtifactIds.has(outputArtifactId)).toBe(true);
+    }
+  }
+
+  for (const shellCommand of normalized.shellCommands) {
+    const shellCommandOutputArtifactIds = shellCommand.outputArtifactIds ?? [];
+
+    expect(new Set(shellCommandOutputArtifactIds).size).toBe(
+      shellCommandOutputArtifactIds.length
+    );
+
+    for (const outputArtifactId of shellCommandOutputArtifactIds) {
+      expect(outputArtifactIds.has(outputArtifactId)).toBe(true);
+    }
+  }
+}
+
 function defaultAssertSupported<TRawEvent extends RawHarnessEvent>(
   scenario: AdapterScenarioManifestEntry<TRawEvent>,
   adapterRun: ExercisedAdapter<TRawEvent>

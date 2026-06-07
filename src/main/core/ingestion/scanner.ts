@@ -55,6 +55,7 @@ export interface ScannerOptions {
   adapterRegistry: AdapterRegistry;
   cacheStore: FileBackedCacheStore;
   entityStore: WorkbenchEntityStore & EntityWriter;
+  getSessionStartedAtCutoff?: () => Promise<string | undefined> | string | undefined;
   githubSnapshotProvider?: GitHubSnapshotProvider;
   gitSnapshotProvider?: GitSnapshotProvider;
   projectDir: string;
@@ -73,11 +74,13 @@ export interface SourceScanExecution {
 }
 
 type RuntimeAdapterContext = AdapterContext & { safeFilesystem: SafeFilesystem };
+type SourceScanOptions = { sessionStartedAtCutoff?: string | undefined };
 
 export class Scanner {
   readonly #adapterRegistry: AdapterRegistry;
   readonly #cacheStore: FileBackedCacheStore;
   readonly #entityStore: WorkbenchEntityStore & EntityWriter;
+  readonly #getSessionStartedAtCutoff: () => Promise<string | undefined> | string | undefined;
   readonly #githubSnapshotProvider: GitHubSnapshotProvider;
   readonly #gitSnapshotProvider: GitSnapshotProvider;
   readonly #projectDir: string;
@@ -89,6 +92,7 @@ export class Scanner {
     this.#adapterRegistry = options.adapterRegistry;
     this.#cacheStore = options.cacheStore;
     this.#entityStore = options.entityStore;
+    this.#getSessionStartedAtCutoff = options.getSessionStartedAtCutoff ?? (() => undefined);
     this.#githubSnapshotProvider = options.githubSnapshotProvider ?? new GitHubSnapshotProvider();
     this.#gitSnapshotProvider = options.gitSnapshotProvider ?? new GitSnapshotProvider();
     this.#projectDir = options.projectDir;
@@ -154,8 +158,10 @@ export class Scanner {
     }
 
     const adapter = this.#adapterRegistry.require(source.adapterId);
+    const sessionStartedAtCutoff = await this.#getSessionStartedAtCutoff();
     const validationContext = this.createContext({
-      allowedRootPaths: [source.rootPath]
+      allowedRootPaths: [source.rootPath],
+      sessionStartedAtCutoff
     });
     const discoveredSources = await collectAsync(
       adapter.discoverSources(
@@ -173,7 +179,8 @@ export class Scanner {
 
     for (const discoveredSource of discoveredSources) {
       const artifactContext = this.createContext({
-        allowedRootPaths: [discoveredSource.rootPath]
+        allowedRootPaths: [discoveredSource.rootPath],
+        sessionStartedAtCutoff
       });
       const artifacts = await collectAsync(adapter.discoverArtifacts(discoveredSource, artifactContext));
 
@@ -222,7 +229,10 @@ export class Scanner {
     );
   }
 
-  async scanSource(sourceId: string): Promise<SourceScanExecution> {
+  async scanSource(
+    sourceId: string,
+    scanOptions: SourceScanOptions = {}
+  ): Promise<SourceScanExecution> {
     const source = await this.requireSource(sourceId);
 
     if (!source.enabled) {
@@ -234,8 +244,11 @@ export class Scanner {
     }
 
     const adapter = this.#adapterRegistry.require(source.adapterId);
+    const sessionStartedAtCutoff =
+      scanOptions.sessionStartedAtCutoff ?? (await this.#getSessionStartedAtCutoff());
     const validationContext = this.createContext({
-      allowedRootPaths: [source.rootPath]
+      allowedRootPaths: [source.rootPath],
+      sessionStartedAtCutoff
     });
     const configuredRoot = {
       rootPath: source.rootPath,
@@ -311,7 +324,8 @@ export class Scanner {
 
       for (const discoveredSource of discoveredSources) {
         const discoveryContext = this.createContext({
-          allowedRootPaths: [discoveredSource.rootPath]
+          allowedRootPaths: [discoveredSource.rootPath],
+          sessionStartedAtCutoff
         });
         const artifacts = await collectAsync(
           adapter.discoverArtifacts(discoveredSource, discoveryContext)
@@ -320,7 +334,8 @@ export class Scanner {
         const artifactPaths = artifacts.flatMap((artifact) => (artifact.path ? [artifact.path] : []));
         const parseContext = this.createContext({
           allowedArtifactPaths: artifactPaths,
-          allowedRootPaths: [discoveredSource.rootPath]
+          allowedRootPaths: [discoveredSource.rootPath],
+          sessionStartedAtCutoff
         });
         const artifactsWithMetadata: RawArtifactRef[] = await Promise.all(
           artifacts.map(async (artifact) => {
@@ -359,6 +374,7 @@ export class Scanner {
             githubSnapshotProvider: this.#githubSnapshotProvider,
             ingestRunId: streamedIngestRun.ingestRunId,
             parseContext,
+            sessionStartedAtCutoff,
             sourceId: source.sourceId,
             streamingInput: {
               source: discoveredSource,
@@ -437,7 +453,11 @@ export class Scanner {
           },
           parseContext
         );
-        const validation = validateNormalizedResult(normalized);
+        const filteredNormalized = filterNormalizedResultBySessionStartedAt(
+          normalized,
+          sessionStartedAtCutoff
+        );
+        const validation = validateNormalizedResult(filteredNormalized);
 
         if (!validation.ok) {
           scanDiagnostics = [...scanDiagnostics, ...validation.diagnostics];
@@ -461,12 +481,12 @@ export class Scanner {
         const shellDerivation = await deriveShellSessions({
           adapter,
           context: parseContext,
-          normalized
+          normalized: filteredNormalized
         });
         const normalizedWithShellDiagnostics = {
-          ...normalized,
+          ...filteredNormalized,
           diagnostics: dedupeDiagnostics([
-            ...normalized.diagnostics,
+            ...filteredNormalized.diagnostics,
             ...shellDerivation.diagnostics
           ])
         };
@@ -622,43 +642,45 @@ export class Scanner {
               schemaVersion: RAW_ARTIFACT_SCHEMA_VERSION
             })
           : [];
-      const changedArtifactFallbackReason =
-        rawArtifactEntries.length > 0
-          ? await getChangedArtifactFallbackReasonForSource({
-              adapter,
-              entityStore: this.#entityStore,
-              rawArtifactEntries,
-              rawArtifactIndex: this.#rawArtifactIndex,
-              source
-            })
-          : undefined;
-
-      if (merged) {
-        await this.#rawArtifactIndex.replaceSourceEntries(source.sourceId, rawArtifactEntries);
-      }
+      let changedArtifactFallbackReason: string | undefined;
 
       if (streamedIngestRun) {
         const now = new Date().toISOString();
-        const streamedRecord = buildStreamingCompatibilityRecord({
-          adapterId: source.adapterId,
-          sourceId: source.sourceId,
-          capabilitySnapshots,
-          diagnostics: finalDiagnostics,
-          gitSnapshots,
-          githubSnapshots,
-          outputArtifacts: [...streamedOutputArtifacts.values()],
-          projects: [...streamedProjects.values()],
-          rawArtifactEntries,
-          runAudits,
-          sessions: [...streamedSessions.values()],
-          verificationResults
-        });
+        const streamedRecord = filterNormalizedCacheRecordBySessionStartedAt(
+          buildStreamingCompatibilityRecord({
+            adapterId: source.adapterId,
+            sourceId: source.sourceId,
+            capabilitySnapshots,
+            diagnostics: finalDiagnostics,
+            gitSnapshots,
+            githubSnapshots,
+            outputArtifacts: [...streamedOutputArtifacts.values()],
+            projects: [...streamedProjects.values()],
+            rawArtifactEntries,
+            runAudits,
+            sessions: [...streamedSessions.values()],
+            verificationResults
+          }),
+          sessionStartedAtCutoff
+        );
         const rawArtifactMetadata = buildRawArtifactMetadata(streamedRecord);
         const projectRollups = buildProjectRollups(streamedRecord, rawArtifactMetadata);
         const sessionRollups = buildSessionRollups(streamedRecord, rawArtifactMetadata);
         const latestActivityAt = maxIsoTimestamp(
           streamedRecord.normalized.sessions.map((session) => session.lastUpdatedAt ?? session.startedAt)
         );
+        const retainedRawArtifactEntries = streamedRecord.rawArtifactIndex?.entries ?? [];
+
+        changedArtifactFallbackReason =
+          retainedRawArtifactEntries.length > 0
+            ? await getChangedArtifactFallbackReasonForSource({
+                adapter,
+                entityStore: this.#entityStore,
+                rawArtifactEntries: retainedRawArtifactEntries,
+                rawArtifactIndex: this.#rawArtifactIndex,
+                source
+              })
+            : undefined;
 
         await this.#entityStore.writeBatch({
           ingestRunId: streamedIngestRun.ingestRunId,
@@ -702,46 +724,65 @@ export class Scanner {
         const derivedSessions = buildDerivedSessionsCompatibility(shellSessions, verificationResults, runAudits);
         const derivedProjects = buildDerivedProjectsCompatibility(gitSnapshots, githubSnapshots);
 
-        cacheRecord = {
-          cacheKey,
-          adapterId: merged.adapterId,
-          sourceId: merged.sourceId,
-          artifactFingerprint,
-          createdAt: now,
-          updatedAt: now,
-          normalized: merged,
-          shellCommands: {
-            sessions: [...shellSessions.values()]
+        cacheRecord = filterNormalizedCacheRecordBySessionStartedAt(
+          {
+            cacheKey,
+            adapterId: merged.adapterId,
+            sourceId: merged.sourceId,
+            artifactFingerprint,
+            createdAt: now,
+            updatedAt: now,
+            normalized: merged,
+            shellCommands: {
+              sessions: [...shellSessions.values()]
+            },
+            verificationResults: {
+              sessions: [...verificationResults.values()]
+            },
+            runAudits: {
+              sessions: [...runAudits.values()]
+            },
+            gitSnapshots: {
+              projects: [...gitSnapshots.values()]
+            },
+            githubSnapshots: {
+              projects: [...githubSnapshots.values()]
+            },
+            diagnostics: {
+              entries: merged.diagnostics
+            },
+            rawArtifactIndex: {
+              entries: rawArtifactEntries
+            },
+            capabilitySnapshots: capabilitySnapshots ?? merged.capabilities,
+            derived: {
+              sessions: derivedSessions,
+              ...(derivedProjects.length > 0 ? { projects: derivedProjects } : {})
+            }
           },
-          verificationResults: {
-            sessions: [...verificationResults.values()]
-          },
-          runAudits: {
-            sessions: [...runAudits.values()]
-          },
-          gitSnapshots: {
-            projects: [...gitSnapshots.values()]
-          },
-          githubSnapshots: {
-            projects: [...githubSnapshots.values()]
-          },
-          diagnostics: {
-            entries: merged.diagnostics
-          },
-          rawArtifactIndex: {
-            entries: rawArtifactEntries
-          },
-          capabilitySnapshots: capabilitySnapshots ?? merged.capabilities,
-          derived: {
-            sessions: derivedSessions,
-            ...(derivedProjects.length > 0 ? { projects: derivedProjects } : {})
-          }
-        };
+          sessionStartedAtCutoff
+        );
 
+        const retainedRawArtifactEntries = cacheRecord.rawArtifactIndex?.entries ?? [];
+
+        changedArtifactFallbackReason =
+          retainedRawArtifactEntries.length > 0
+            ? await getChangedArtifactFallbackReasonForSource({
+                adapter,
+                entityStore: this.#entityStore,
+                rawArtifactEntries: retainedRawArtifactEntries,
+                rawArtifactIndex: this.#rawArtifactIndex,
+                source
+              })
+            : undefined;
+
+        await this.#rawArtifactIndex.replaceSourceEntries(source.sourceId, retainedRawArtifactEntries);
         await this.#cacheStore.writeRecord(cacheRecord);
       }
 
-      const scanSucceeded = streamedIngestRun ? totalSessions > 0 : normalizedResults.length > 0;
+      const scanSucceeded = streamedIngestRun
+        ? streamedSessions.size > 0 || finalDiagnostics.every((diagnostic) => diagnostic.severity !== "error")
+        : normalizedResults.length > 0;
       const nextScanStatus = !scanSucceeded
         ? "scan-failed"
         : finalDiagnostics.some((diagnostic) => diagnostic.severity === "error") ||
@@ -753,7 +794,9 @@ export class Scanner {
         status: nextScanStatus,
         diagnostics: finalDiagnostics,
         artifactCount: totalArtifacts,
-        sessionCount: totalSessions,
+        sessionCount: streamedIngestRun
+          ? streamedSessions.size
+          : cacheRecord?.normalized.sessions.length ?? totalSessions,
         ...(changedArtifactFallbackReason ? { reason: changedArtifactFallbackReason } : {})
       });
 
@@ -806,10 +849,12 @@ export class Scanner {
   private createContext(input: {
     allowedArtifactPaths?: string[];
     allowedRootPaths: string[];
+    sessionStartedAtCutoff?: string | undefined;
   }): RuntimeAdapterContext {
     return {
       projectDir: this.#projectDir,
       platform: process.platform,
+      ...(input.sessionStartedAtCutoff ? { sessionStartedAtCutoff: input.sessionStartedAtCutoff } : {}),
       safeFilesystem: createSafeFilesystem({
         allowedRootPaths: input.allowedRootPaths,
         ...(input.allowedArtifactPaths ? { allowedArtifactPaths: input.allowedArtifactPaths } : {})
@@ -881,6 +926,187 @@ async function collectRawEvents(
   return rawEvents;
 }
 
+function filterNormalizedResultBySessionStartedAt(
+  normalized: AdapterNormalizationResult,
+  cutoff?: string | undefined
+): AdapterNormalizationResult {
+  if (!cutoff) {
+    return normalized;
+  }
+
+  const sessions = normalized.sessions.filter((session) => isSessionRetained(session, cutoff));
+  const retainedSessionIds = new Set(sessions.map((session) => session.id));
+  const retainedProjectIds = new Set(
+    sessions
+      .map((session) => session.projectId)
+      .filter((projectId): projectId is string => typeof projectId === "string" && projectId.length > 0)
+  );
+  const outputArtifacts = normalized.outputArtifacts.filter((artifact) =>
+    artifact.sessionId ? retainedSessionIds.has(artifact.sessionId) : false
+  );
+  const retainedOutputArtifactIds = new Set(outputArtifacts.map((artifact) => artifact.id));
+  const retainedEntityIds = new Set<string>([
+    ...retainedSessionIds,
+    ...retainedProjectIds,
+    ...retainedOutputArtifactIds
+  ]);
+
+  return {
+    ...normalized,
+    capabilities: {
+      ...normalized.capabilities,
+      sessions: normalized.capabilities.sessions.filter((capability) =>
+        retainedSessionIds.has(capability.sessionId)
+      )
+    },
+    projects: normalized.projects
+      .filter((project) => retainedProjectIds.has(project.id))
+      .map((project) => filterProjectSessionIds(project, retainedSessionIds)),
+    sessions,
+    events: normalized.events.filter((event) => retainedSessionIds.has(event.sessionId)),
+    messages: normalized.messages.filter((message) => retainedSessionIds.has(message.sessionId)),
+    toolCalls: normalized.toolCalls.filter((toolCall) => retainedSessionIds.has(toolCall.sessionId)),
+    shellCommands: normalized.shellCommands.filter((command) => retainedSessionIds.has(command.sessionId)),
+    outputArtifacts,
+    fileMutations: normalized.fileMutations.filter((mutation) => retainedSessionIds.has(mutation.sessionId)),
+    diagnostics: normalized.diagnostics.filter((diagnostic) => {
+      const relatedIds = diagnostic.relatedEntityIds ?? [];
+
+      return relatedIds.length === 0 || relatedIds.some((id) => retainedEntityIds.has(id));
+    })
+  };
+}
+
+function filterProjectSessionIds(project: Project, retainedSessionIds: Set<string>): Project {
+  if (!project.sessionIds) {
+    return project;
+  }
+
+  return {
+    ...project,
+    sessionIds: project.sessionIds.filter((sessionId) => retainedSessionIds.has(sessionId))
+  };
+}
+
+function filterNormalizedCacheRecordBySessionStartedAt(
+  record: NormalizedCacheRecord,
+  cutoff?: string | undefined
+): NormalizedCacheRecord {
+  if (!cutoff) {
+    return record;
+  }
+
+  const normalized = filterNormalizedResultBySessionStartedAt(record.normalized, cutoff);
+  const retainedSessionIds = new Set(normalized.sessions.map((session) => session.id));
+  const retainedProjectIds = new Set(normalized.projects.map((project) => project.id));
+  const retainedOutputArtifactIds = new Set(normalized.outputArtifacts.map((artifact) => artifact.id));
+  const retainedEntityIds = new Set<string>([
+    ...retainedSessionIds,
+    ...retainedProjectIds,
+    ...retainedOutputArtifactIds
+  ]);
+  const retainedRawArtifactIds = new Set<string>();
+
+  for (const project of normalized.projects) {
+    for (const ref of project.harnessRefs ?? []) {
+      for (const rawArtifactRef of ref.rawArtifactRefs ?? []) {
+        retainedRawArtifactIds.add(rawArtifactRef.id);
+      }
+    }
+  }
+
+  for (const session of normalized.sessions) {
+    for (const rawArtifactRef of session.rawArtifactRefs ?? []) {
+      retainedRawArtifactIds.add(rawArtifactRef.id);
+    }
+  }
+
+  for (const outputArtifact of normalized.outputArtifacts) {
+    if (outputArtifact.ref?.id) {
+      retainedRawArtifactIds.add(outputArtifact.ref.id);
+    }
+  }
+
+  return {
+    ...record,
+    normalized,
+    verificationResults: {
+      sessions: (record.verificationResults?.sessions ?? []).filter((entry) =>
+        retainedSessionIds.has(entry.sessionId)
+      )
+    },
+    shellCommands: {
+      sessions: (record.shellCommands?.sessions ?? []).filter((entry) =>
+        retainedSessionIds.has(entry.sessionId)
+      )
+    },
+    runAudits: {
+      sessions: (record.runAudits?.sessions ?? []).filter((entry) =>
+        retainedSessionIds.has(entry.sessionId)
+      )
+    },
+    gitSnapshots: {
+      projects: (record.gitSnapshots?.projects ?? []).filter((entry) =>
+        retainedProjectIds.has(entry.projectId)
+      )
+    },
+    githubSnapshots: {
+      projects: (record.githubSnapshots?.projects ?? []).filter((entry) =>
+        retainedProjectIds.has(entry.projectId)
+      )
+    },
+    diagnostics: {
+      entries: (record.diagnostics?.entries ?? normalized.diagnostics).filter((diagnostic) => {
+        const relatedIds = diagnostic.relatedEntityIds ?? [];
+
+        return relatedIds.length === 0 || relatedIds.some((id) => retainedEntityIds.has(id));
+      })
+    },
+    rawArtifactIndex: {
+      entries: (record.rawArtifactIndex?.entries ?? []).filter((entry) =>
+        retainedRawArtifactIds.has(entry.id)
+      )
+    },
+    derived: {
+      sessions: (record.derived?.sessions ?? []).filter((session) =>
+        retainedSessionIds.has(session.sessionId)
+      ),
+      ...((record.derived?.projects ?? []).length > 0
+        ? {
+            projects: (record.derived?.projects ?? []).filter((project) =>
+              retainedProjectIds.has(project.projectId)
+            )
+          }
+        : {})
+    },
+    ...(record.capabilitySnapshots
+      ? {
+          capabilitySnapshots: {
+            ...record.capabilitySnapshots,
+            sessions: record.capabilitySnapshots.sessions.filter((capability) =>
+              retainedSessionIds.has(capability.sessionId)
+            )
+          }
+        }
+      : {})
+  };
+}
+
+function isSessionRetained(session: Session, cutoff: string): boolean {
+  if (!session.startedAt) {
+    return true;
+  }
+
+  const startedAtTime = Date.parse(session.startedAt);
+  const cutoffTime = Date.parse(cutoff);
+
+  if (Number.isNaN(startedAtTime) || Number.isNaN(cutoffTime)) {
+    return true;
+  }
+
+  return startedAtTime >= cutoffTime;
+}
+
 async function ingestNormalizedBatchesToEntityStore(args: {
   adapter: SessionSourceAdapter;
   entityStore: WorkbenchEntityStore & EntityWriter;
@@ -888,6 +1114,7 @@ async function ingestNormalizedBatchesToEntityStore(args: {
   githubSnapshotProvider: GitHubSnapshotProvider;
   ingestRunId: string;
   parseContext: RuntimeAdapterContext;
+  sessionStartedAtCutoff?: string | undefined;
   sourceId: string;
   streamingInput: AdapterBatchStreamingNormalizationInput;
 }): Promise<{
@@ -924,7 +1151,10 @@ async function ingestNormalizedBatchesToEntityStore(args: {
     args.streamingInput,
     args.parseContext
   )) {
-    const normalized = rebaseNormalizedResultSourceId(batch, args.sourceId);
+    const normalized = filterNormalizedResultBySessionStartedAt(
+      rebaseNormalizedResultSourceId(batch, args.sourceId),
+      args.sessionStartedAtCutoff
+    );
     const validation = validateNormalizedResult(normalized);
 
     if (!validation.ok) {

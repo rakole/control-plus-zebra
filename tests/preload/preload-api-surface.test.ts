@@ -31,14 +31,18 @@ describe("preload API surface", () => {
     expect(typesSource).toContain("getSession(request");
     expect(typesSource).toContain("getSessionTimeline(request");
     expect(typesSource).toContain("getEvents(request");
-    expect(typesSource).toContain("getToolCalls(request");
-    expect(typesSource).toContain("getShellCommands(request");
+    expect(typesSource).toContain("getToolCalls(request: GetToolCallsRequest)");
+    expect(typesSource).toContain("getShellCommands(request: GetShellCommandsRequest)");
     expect(typesSource).toContain("getOutputArtifactPreview(");
     expect(typesSource).toContain("loadOutputArtifact(request");
     expect(typesSource).toContain("getRunAudit(request");
     expect(typesSource).toContain("getGitSnapshot(request");
     expect(typesSource).toContain("getGitHubSnapshot(request");
     expect(typesSource).toContain("listDiagnostics(request?");
+    expect(typesSource).toContain("getSettings()");
+    expect(typesSource).toContain("updateSettings(request");
+    expect(typesSource).toContain("getRetentionJobStatus()");
+    expect(typesSource).toContain("onRetentionJobChanged(callback");
     expect(typesSource).toContain("onSourceDataChanged(callback");
     expect(extractBridgeMethodNames(typesSource)).toEqual([
       "getShellState",
@@ -71,6 +75,10 @@ describe("preload API surface", () => {
       "getGitSnapshot",
       "getGitHubSnapshot",
       "listDiagnostics",
+      "getSettings",
+      "updateSettings",
+      "getRetentionJobStatus",
+      "onRetentionJobChanged",
       "onSourceDataChanged"
     ]);
     expect(findForbiddenPublicNames(typesSource)).toEqual([]);
@@ -111,6 +119,10 @@ describe("preload API surface", () => {
       "getGitSnapshot",
       "getGitHubSnapshot",
       "listDiagnostics",
+      "getSettings",
+      "updateSettings",
+      "getRetentionJobStatus",
+      "onRetentionJobChanged",
       "onSourceDataChanged"
     ]);
     expect(preloadSource).not.toMatch(/\b(?:fs|child_process|shell)\b/u);

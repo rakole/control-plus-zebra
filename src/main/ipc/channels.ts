@@ -29,6 +29,10 @@ export const IPC_CHANNELS = {
   getGitSnapshot: "git:getSnapshot",
   getGitHubSnapshot: "github:getSnapshot",
   listDiagnostics: "diagnostics:list",
+  getSettings: "settings:get",
+  updateSettings: "settings:update",
+  getRetentionJobStatus: "retention:getJobStatus",
+  retentionJobChanged: "retention:jobChanged",
   sourceDataChanged: "sources:dataChanged",
   getThemeState: "theme:getState",
   setThemePreference: "theme:setPreference",
@@ -68,6 +72,9 @@ export const ALLOWED_IPC_CHANNELS = [
   IPC_CHANNELS.getGitSnapshot,
   IPC_CHANNELS.getGitHubSnapshot,
   IPC_CHANNELS.listDiagnostics,
+  IPC_CHANNELS.getSettings,
+  IPC_CHANNELS.updateSettings,
+  IPC_CHANNELS.getRetentionJobStatus,
   IPC_CHANNELS.getThemeState,
   IPC_CHANNELS.setThemePreference
 ] as const satisfies readonly IpcChannel[];

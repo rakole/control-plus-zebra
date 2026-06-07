@@ -188,6 +188,11 @@ function createScheduler(options: {
     }
   } as Scanner;
   const scanJobRunner: ScanJobRunner = {
+    async acquireSourceMaintenanceLease() {
+      return {
+        release() {}
+      };
+    },
     getActiveScanCount() {
       return 0;
     },

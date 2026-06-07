@@ -13,16 +13,21 @@ import type {
   GetSessionRequest,
   GetSessionTimelineRequest,
   GetSessionByIdRequest,
+  GetShellCommandsRequest,
+  GetToolCallsRequest,
   ListDiagnosticsRequest,
   ListProjectsRequest,
   ListSessionsRequest,
   OpenArchiveRequest,
   OutputArtifactRequest,
   RescanSourceRequest,
+  RetentionJobStatusViewModel,
   SourceDataChangedEvent,
+  UpdateSettingsRequest,
   UpdateSourceRequest,
   ValidateSourceRequest
 } from "../main/ipc/view-models.js";
+import { retentionJobStatusViewModelSchema, sourceDataChangedEventSchema } from "../main/ipc/view-models.js";
 import type { AgentWorkbenchBridge } from "./types.js";
 import { agentWorkbenchTheme } from "./theme-bridge.js";
 
@@ -93,10 +98,10 @@ const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
   getEvents(request: GetEventsRequest) {
     return ipcRenderer.invoke(IPC_CHANNELS.getEvents, request);
   },
-  getToolCalls(request: GetSessionTimelineRequest) {
+  getToolCalls(request: GetToolCallsRequest) {
     return ipcRenderer.invoke(IPC_CHANNELS.getToolCalls, request);
   },
-  getShellCommands(request: GetSessionTimelineRequest) {
+  getShellCommands(request: GetShellCommandsRequest) {
     return ipcRenderer.invoke(IPC_CHANNELS.getShellCommands, request);
   },
   getOutputArtifactPreview(request: OutputArtifactRequest) {
@@ -117,9 +122,37 @@ const agentWorkbench: AgentWorkbenchBridge = Object.freeze({
   listDiagnostics(request: ListDiagnosticsRequest = {}) {
     return ipcRenderer.invoke(IPC_CHANNELS.listDiagnostics, request);
   },
+  getSettings() {
+    return ipcRenderer.invoke(IPC_CHANNELS.getSettings);
+  },
+  updateSettings(request: UpdateSettingsRequest) {
+    return ipcRenderer.invoke(IPC_CHANNELS.updateSettings, request);
+  },
+  getRetentionJobStatus() {
+    return ipcRenderer.invoke(IPC_CHANNELS.getRetentionJobStatus);
+  },
+  onRetentionJobChanged(callback: (status: RetentionJobStatusViewModel) => void) {
+    const listener = (_event: Electron.IpcRendererEvent, status: RetentionJobStatusViewModel) => {
+      const parsed = retentionJobStatusViewModelSchema.safeParse(status);
+
+      if (parsed.success) {
+        callback(parsed.data);
+      }
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.retentionJobChanged, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.retentionJobChanged, listener);
+    };
+  },
   onSourceDataChanged(callback: (event: SourceDataChangedEvent) => void) {
     const listener = (_event: Electron.IpcRendererEvent, event: SourceDataChangedEvent) => {
-      callback(event);
+      const parsed = sourceDataChangedEventSchema.safeParse(event);
+
+      if (parsed.success) {
+        callback(parsed.data);
+      }
     };
 
     ipcRenderer.on(IPC_CHANNELS.sourceDataChanged, listener);

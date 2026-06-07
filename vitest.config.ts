@@ -1,6 +1,8 @@
 import { defineConfig } from "vitest/config";
+import { getBuildFeatureFlagDefines } from "./src/shared/feature-flags.js";
 
 export default defineConfig({
+  define: getBuildFeatureFlagDefines(process.env),
   test: {
     projects: [
       {

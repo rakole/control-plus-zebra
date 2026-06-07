@@ -78,6 +78,7 @@ export interface SourceRootValidation {
 export interface AdapterContext {
   appVersion?: string;
   adapterRegistryVersion?: string;
+  sessionStartedAtCutoff?: string;
   now?: string;
   allowedRoots?: string[];
   platform: NodeJS.Platform;

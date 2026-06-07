@@ -37,6 +37,7 @@ describe("renderer route registry contract", () => {
     expect(source).toMatch(routePathPattern("/projects"));
     expect(source).toMatch(routePathPattern("/data-sources"));
     expect(source).toMatch(routePathPattern("/sessions"));
+    expect(source).toMatch(routePathPattern("/settings"));
     expect(source).toMatch(routePathPattern("/sessions/:sessionId"));
     expect(source).toMatch(routePathPattern("/sessions/:sessionId/run-audit"));
     expect(source).toMatch(routePathPattern("/diagnostics"));
@@ -70,6 +71,15 @@ describe("renderer route registry contract", () => {
 
     expect(await screen.findByRole("heading", { name: "Run Audit" })).toBeInTheDocument();
     expect(screen.getByLabelText("Run audit route")).toBeInTheDocument();
+  });
+
+  it("renders the settings route from a deep link when App boots under HashRouter", async () => {
+    loadHashRoute("/settings");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Settings route")).toBeInTheDocument();
   });
 });
 

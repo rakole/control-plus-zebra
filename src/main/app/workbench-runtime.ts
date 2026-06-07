@@ -1,6 +1,8 @@
 import path from "node:path";
 
 import { FileBackedCacheStore } from "../core/cache/file-backed-cache-store.js";
+import { FileBackedAppSettingsStore } from "./app-settings-store.js";
+import type { AppSettingsStore } from "./app-settings-store.js";
 import type { AdapterRegistry } from "../core/registry/adapter-registry.js";
 import { createBundledAdapterRegistry } from "../core/registry/register-bundled-adapters.js";
 import { SourceRegistry } from "../core/registry/source-registry.js";
@@ -16,6 +18,7 @@ import {
   syncMissingCurrentRunsFromCacheToEntityStore
 } from "./workbench-entity-store-sync.js";
 import type { SourceDataChangedEvent } from "../ipc/view-models.js";
+import { calculateRetentionCutoffIso } from "./app-settings-store.js";
 
 export interface WorkbenchRuntimeOptions {
   appDataDir?: string;
@@ -25,6 +28,7 @@ export interface WorkbenchRuntimeOptions {
 
 export interface WorkbenchRuntime {
   appDataDir: string;
+  appSettingsStore: AppSettingsStore;
   adapterRegistry: AdapterRegistry;
   backgroundScanScheduler: BackgroundScanScheduler;
   cacheStore: FileBackedCacheStore;
@@ -60,6 +64,7 @@ export function createWorkbenchRuntime(
   const sourceRegistry = new SourceRegistry(
     new FileBackedSourceRegistryStore(path.join(appDataDir, "sources.json"))
   );
+  const appSettingsStore = new FileBackedAppSettingsStore(appDataDir);
   const rawArtifactIndex = new RawArtifactIndex(
     path.join(appDataDir, "raw-artifact-index.json")
   );
@@ -106,6 +111,11 @@ export function createWorkbenchRuntime(
     adapterRegistry,
     cacheStore,
     entityStore,
+    async getSessionStartedAtCutoff() {
+      const settings = await appSettingsStore.load();
+
+      return calculateRetentionCutoffIso(settings.retentionDays);
+    },
     projectDir,
     rawArtifactIndex,
     sourceRegistry,
@@ -114,6 +124,7 @@ export function createWorkbenchRuntime(
 
   const runtime = {
     appDataDir,
+    appSettingsStore,
     adapterRegistry,
     backgroundScanScheduler: undefined as unknown as BackgroundScanScheduler,
     cacheStore,

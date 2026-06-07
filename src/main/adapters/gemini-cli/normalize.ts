@@ -66,6 +66,9 @@ type SessionAccumulator = {
   }>;
 };
 
+type TranscriptSnapshot = SessionAccumulator["transcriptRecords"][number];
+type SessionSidecar = SessionAccumulator["sidecars"][number];
+
 type NormalizedMessage = {
   id: string;
   sessionId: string;
@@ -438,6 +441,17 @@ function accumulateGeminiCliEvent(
             sourceId: context.sourceId,
             nativeId: event.payload.diagnostic.nativeId ?? event.payload.diagnostic.code,
             ...(event.payload.diagnostic.sessionId
+              ? {
+                  relatedEntityIds: [
+                    createSessionId({
+                      adapterId: context.adapterId,
+                      sourceId: context.sourceId,
+                      nativeId: event.payload.diagnostic.sessionId
+                    })
+                  ]
+                }
+              : {}),
+            ...(event.payload.diagnostic.sessionId
               ? { metadata: { sessionId: event.payload.diagnostic.sessionId } }
               : {})
           }
@@ -547,7 +561,8 @@ function buildNormalizedGeminiCliResult(args: {
       sourceId,
       nativeId: sessionNativeId
     });
-    const timeline = buildTimeline(session);
+    const timeline = buildTimeline(session, rawArtifactsById);
+    const sidecars = coalesceSidecars(session.sidecars, rawArtifactsById);
     const toolCallCounts = countToolCallOccurrences(timeline);
     const lifecycle = deriveLifecycle(timeline);
     const sessionOutputArtifacts = new Map<string, NormalizedOutputArtifact>();
@@ -630,6 +645,8 @@ function buildNormalizedGeminiCliResult(args: {
     for (const record of timeline) {
       const recordText = extractTranscriptText(record.record);
       const role = toMessageRole(record.record.type);
+      const recordToolCallIds: string[] = [];
+      let message: NormalizedMessage | undefined;
 
       if (recordText) {
         const messageNativeId = `${record.record.id}:${record.locator.lineNumber ?? ordinal}`;
@@ -646,7 +663,7 @@ function buildNormalizedGeminiCliResult(args: {
         });
         const summary = `${role} message`;
 
-        const message: NormalizedMessage = {
+        message = {
           id: messageId,
           sessionId,
           adapterId,
@@ -702,7 +719,7 @@ function buildNormalizedGeminiCliResult(args: {
           sourceId,
           nativeId: eventNativeId
         });
-        const matchingSidecars = session.sidecars.filter(
+        const matchingSidecars = sidecars.filter(
           (sidecar) => sidecar.toolCallId === toolCallRecord.id
         );
         const duplicateToolCallCount = toolCallCounts.get(toolCallRecord.id) ?? 0;
@@ -733,46 +750,50 @@ function buildNormalizedGeminiCliResult(args: {
           warnedAmbiguousSidecars.add(toolCallRecord.id);
         }
 
-        const outputArtifactIds = linkedSidecars.flatMap((sidecar) => {
-          const matchingArtifact = rawArtifactsById.get(sidecar.artifactId);
-          const outputArtifactId = createOutputArtifactId({
-            adapterId,
-            sourceId,
-            nativeId: sidecar.relativePath
-          });
+        const outputArtifactIds = [
+          ...new Set(
+            linkedSidecars.flatMap((sidecar) => {
+              const matchingArtifact = rawArtifactsById.get(sidecar.artifactId);
+              const outputArtifactId = createOutputArtifactId({
+                adapterId,
+                sourceId,
+                nativeId: sidecar.relativePath
+              });
 
-          if (!sessionOutputArtifacts.has(outputArtifactId)) {
-            const shape = mapArtifactShape(sidecar);
-            sessionOutputArtifacts.set(outputArtifactId, {
-              id: outputArtifactId,
-              adapterId,
-              sourceId,
-              sessionId,
-              nativeId: sidecar.relativePath,
-              nativeRef: sidecar.relativePath,
-              path: sidecar.relativePath,
-              kind: shape.kind,
-              contentKind: shape.contentKind,
-              ...(sidecar.mediaType ? { mediaType: sidecar.mediaType } : {}),
-              ...(matchingArtifact?.sizeBytes !== undefined
-                ? { sizeBytes: matchingArtifact.sizeBytes }
-                : matchingArtifact?.byteLength !== undefined
-                  ? { sizeBytes: matchingArtifact.byteLength }
-                  : {}),
-              ...(matchingArtifact?.mtime ? { mtime: matchingArtifact.mtime } : {}),
-              ...(sidecar.textPreview ? { preview: sidecar.textPreview } : {}),
-              loaded: false,
-              ...(() => {
-                const binding = buildOutputArtifactBinding(sessionId, sidecar, matchingArtifact);
-                return binding ? { ref: binding } : {};
-              })(),
-              source: buildRawPointer(sidecar.locator, `artifact:${sidecar.relativePath}`),
-              diagnostics: []
-            });
-          }
+              if (!sessionOutputArtifacts.has(outputArtifactId)) {
+                const shape = mapArtifactShape(sidecar);
+                sessionOutputArtifacts.set(outputArtifactId, {
+                  id: outputArtifactId,
+                  adapterId,
+                  sourceId,
+                  sessionId,
+                  nativeId: sidecar.relativePath,
+                  nativeRef: sidecar.relativePath,
+                  path: sidecar.relativePath,
+                  kind: shape.kind,
+                  contentKind: shape.contentKind,
+                  ...(sidecar.mediaType ? { mediaType: sidecar.mediaType } : {}),
+                  ...(matchingArtifact?.sizeBytes !== undefined
+                    ? { sizeBytes: matchingArtifact.sizeBytes }
+                    : matchingArtifact?.byteLength !== undefined
+                      ? { sizeBytes: matchingArtifact.byteLength }
+                      : {}),
+                  ...(matchingArtifact?.mtime ? { mtime: matchingArtifact.mtime } : {}),
+                  ...(sidecar.textPreview ? { preview: sidecar.textPreview } : {}),
+                  loaded: false,
+                  ...(() => {
+                    const binding = buildOutputArtifactBinding(sessionId, sidecar, matchingArtifact);
+                    return binding ? { ref: binding } : {};
+                  })(),
+                  source: buildRawPointer(sidecar.locator, `artifact:${sidecar.relativePath}`),
+                  diagnostics: []
+                });
+              }
 
-          return [outputArtifactId];
-        });
+              return [outputArtifactId];
+            })
+          )
+        ];
         const fileMutationId = buildFileMutationForToolCall({
           adapterId,
           fileMutationMap: sessionFileMutations,
@@ -828,6 +849,7 @@ function buildNormalizedGeminiCliResult(args: {
           confidence: CONFIRMED,
           diagnostics: []
         });
+        recordToolCallIds.push(toolCallId);
 
         const toolSummary = `${toolCallRecord.name} ${toolCallRecord.status ?? "unknown"}`;
         sessionEvents.push({
@@ -890,6 +912,10 @@ function buildNormalizedGeminiCliResult(args: {
           );
         }
       }
+
+      if (message && recordToolCallIds.length > 0) {
+        message.toolCallIds = recordToolCallIds;
+      }
     }
 
     if (timeline.length === 0 && session.logEntries.length > 0) {
@@ -938,7 +964,7 @@ function buildNormalizedGeminiCliResult(args: {
       }
     }
 
-    for (const sidecar of session.sidecars) {
+    for (const sidecar of sidecars) {
       const outputArtifactId = createOutputArtifactId({
         adapterId,
         sourceId,
@@ -1025,7 +1051,7 @@ function buildNormalizedGeminiCliResult(args: {
         ...session.logEntries.flatMap((entry) =>
           entry.locator.artifactId ? [entry.locator.artifactId] : []
         ),
-        ...session.sidecars.map((sidecar) => sidecar.artifactId)
+        ...sidecars.map((sidecar) => sidecar.artifactId)
       ]
         .map((artifactId) => rawArtifactsById.get(artifactId))
         .filter((artifact): artifact is RawArtifactRef => Boolean(artifact))
@@ -1156,14 +1182,208 @@ function toEventLocator(event: GeminiRawEvent): EventLocator {
   };
 }
 
-function buildTimeline(session: SessionAccumulator) {
-  return [...session.transcriptRecords].sort((left, right) => {
-    if (left.record.timestamp !== right.record.timestamp) {
-      return left.record.timestamp.localeCompare(right.record.timestamp);
-    }
+function getLocatorSequence(locator: EventLocator | undefined): number {
+  if (locator?.lineNumber !== undefined) {
+    return locator.lineNumber;
+  }
 
-    return (left.locator.lineNumber ?? 0) - (right.locator.lineNumber ?? 0);
-  });
+  if (locator?.recordIndex !== undefined) {
+    return locator.recordIndex + 1;
+  }
+
+  return Number.NEGATIVE_INFINITY;
+}
+
+function compareEventLocators(left: EventLocator | undefined, right: EventLocator | undefined) {
+  const leftSequence = getLocatorSequence(left);
+  const rightSequence = getLocatorSequence(right);
+
+  if (leftSequence !== rightSequence) {
+    return leftSequence - rightSequence;
+  }
+
+  if ((left?.lineNumber ?? -1) !== (right?.lineNumber ?? -1)) {
+    return (left?.lineNumber ?? -1) - (right?.lineNumber ?? -1);
+  }
+
+  if ((left?.recordIndex ?? -1) !== (right?.recordIndex ?? -1)) {
+    return (left?.recordIndex ?? -1) - (right?.recordIndex ?? -1);
+  }
+
+  if ((left?.path ?? "") !== (right?.path ?? "")) {
+    return (left?.path ?? "").localeCompare(right?.path ?? "");
+  }
+
+  return (left?.nativeId ?? "").localeCompare(right?.nativeId ?? "");
+}
+
+function getArtifactRecencyTimestamp(artifact: RawArtifactRef | undefined): number | undefined {
+  if (typeof artifact?.mtimeMs === "number" && Number.isFinite(artifact.mtimeMs)) {
+    return artifact.mtimeMs;
+  }
+
+  if (typeof artifact?.mtime === "string") {
+    const parsed = Date.parse(artifact.mtime);
+
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function compareArtifactRecency(
+  leftArtifactId: string | undefined,
+  rightArtifactId: string | undefined,
+  rawArtifactsById: Map<string, RawArtifactRef>
+) {
+  const leftRecency = getArtifactRecencyTimestamp(
+    leftArtifactId ? rawArtifactsById.get(leftArtifactId) : undefined
+  );
+  const rightRecency = getArtifactRecencyTimestamp(
+    rightArtifactId ? rawArtifactsById.get(rightArtifactId) : undefined
+  );
+
+  if (leftRecency === undefined && rightRecency === undefined) {
+    return 0;
+  }
+
+  if (leftRecency === undefined) {
+    return -1;
+  }
+
+  if (rightRecency === undefined) {
+    return 1;
+  }
+
+  return leftRecency - rightRecency;
+}
+
+function compareTranscriptSnapshots(left: TranscriptSnapshot, right: TranscriptSnapshot) {
+  if (left.record.timestamp !== right.record.timestamp) {
+    return left.record.timestamp.localeCompare(right.record.timestamp);
+  }
+
+  const locatorCompare = compareEventLocators(left.locator, right.locator);
+
+  if (locatorCompare !== 0) {
+    return locatorCompare;
+  }
+
+  return left.record.id.localeCompare(right.record.id);
+}
+
+function compareTranscriptSnapshotFreshness(
+  left: TranscriptSnapshot,
+  right: TranscriptSnapshot,
+  rawArtifactsById: Map<string, RawArtifactRef>
+) {
+  const artifactCompare = compareArtifactRecency(
+    left.locator.artifactId,
+    right.locator.artifactId,
+    rawArtifactsById
+  );
+
+  if (artifactCompare !== 0) {
+    return artifactCompare;
+  }
+
+  return compareTranscriptSnapshots(left, right);
+}
+
+function compareSidecars(left: SessionSidecar, right: SessionSidecar) {
+  const locatorCompare = compareEventLocators(left.locator, right.locator);
+
+  if (locatorCompare !== 0) {
+    return locatorCompare;
+  }
+
+  return left.relativePath.localeCompare(right.relativePath);
+}
+
+function compareSidecarFreshness(
+  left: SessionSidecar,
+  right: SessionSidecar,
+  rawArtifactsById: Map<string, RawArtifactRef>
+) {
+  const artifactCompare = compareArtifactRecency(left.artifactId, right.artifactId, rawArtifactsById);
+
+  if (artifactCompare !== 0) {
+    return artifactCompare;
+  }
+
+  return compareSidecars(left, right);
+}
+
+function mergeSidecarEntries(
+  left: SessionSidecar,
+  right: SessionSidecar,
+  rawArtifactsById: Map<string, RawArtifactRef>
+): SessionSidecar {
+  const preferred = compareSidecarFreshness(left, right, rawArtifactsById) <= 0 ? right : left;
+  const fallback = preferred === right ? left : right;
+
+  return {
+    artifactId: preferred.artifactId,
+    format: preferred.format,
+    locator: preferred.locator,
+    relativePath: preferred.relativePath,
+    sessionId: preferred.sessionId,
+    ...((preferred.exitCode ?? fallback.exitCode) !== undefined
+      ? { exitCode: preferred.exitCode ?? fallback.exitCode }
+      : {}),
+    ...((preferred.mediaType ?? fallback.mediaType)
+      ? { mediaType: preferred.mediaType ?? fallback.mediaType }
+      : {}),
+    ...((preferred.textPreview ?? fallback.textPreview)
+      ? { textPreview: preferred.textPreview ?? fallback.textPreview }
+      : {}),
+    ...((preferred.toolCallId ?? fallback.toolCallId)
+      ? { toolCallId: preferred.toolCallId ?? fallback.toolCallId }
+      : {}),
+    ...((preferred.toolName ?? fallback.toolName)
+      ? { toolName: preferred.toolName ?? fallback.toolName }
+      : {})
+  };
+}
+
+function coalesceSidecars(
+  sidecars: SessionAccumulator["sidecars"],
+  rawArtifactsById: Map<string, RawArtifactRef>
+): SessionSidecar[] {
+  const latestByRelativePath = new Map<string, SessionSidecar>();
+
+  for (const sidecar of sidecars) {
+    const existing = latestByRelativePath.get(sidecar.relativePath);
+
+    latestByRelativePath.set(
+      sidecar.relativePath,
+      existing ? mergeSidecarEntries(existing, sidecar, rawArtifactsById) : sidecar
+    );
+  }
+
+  return [...latestByRelativePath.values()].sort(compareSidecars);
+}
+
+function buildTimeline(
+  session: SessionAccumulator,
+  rawArtifactsById: Map<string, RawArtifactRef>
+) {
+  const latestSnapshotByRecordId = new Map<string, TranscriptSnapshot>();
+
+  for (const snapshot of session.transcriptRecords) {
+    const existing = latestSnapshotByRecordId.get(snapshot.record.id);
+
+    latestSnapshotByRecordId.set(
+      snapshot.record.id,
+      existing && compareTranscriptSnapshotFreshness(existing, snapshot, rawArtifactsById) > 0
+        ? existing
+        : snapshot
+    );
+  }
+
+  return [...latestSnapshotByRecordId.values()].sort(compareTranscriptSnapshots);
 }
 
 function countToolCallOccurrences(timeline: ReturnType<typeof buildTimeline>): Map<string, number> {

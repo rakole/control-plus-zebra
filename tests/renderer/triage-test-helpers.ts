@@ -735,6 +735,30 @@ export function installBridgeMocks(options: Partial<BridgeOptions> = {}) {
     }),
     getGitSnapshot: vi.fn(),
     getGitHubSnapshot: vi.fn(),
+    getSettings: vi.fn().mockResolvedValue({
+      ok: true,
+      settings: {
+        retentionDays: 7
+      }
+    }),
+    updateSettings: vi.fn().mockResolvedValue({
+      ok: true,
+      result: {
+        status: "applied",
+        settings: {
+          retentionDays: 7
+        }
+      }
+    }),
+    getRetentionJobStatus: vi.fn().mockResolvedValue({
+      ok: true,
+      job: {
+        state: "idle"
+      }
+    }),
+    onRetentionJobChanged: vi.fn<
+      (callback: Parameters<Window["agentWorkbench"]["onRetentionJobChanged"]>[0]) => () => void
+    >(() => vi.fn()),
     onSourceDataChanged: vi.fn<
       (callback: Parameters<Window["agentWorkbench"]["onSourceDataChanged"]>[0]) => () => void
     >(() => vi.fn())

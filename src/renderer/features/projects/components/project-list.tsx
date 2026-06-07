@@ -5,6 +5,7 @@ import {
   getTruthTooltip
 } from "../../../components/app/status-chip-tooltips.js";
 import { TruthStateBadge } from "../../../components/app/truth-state-badge.js";
+import { isGithubUiEnabled } from "../../../../shared/feature-flags.js";
 import { TooltipProvider } from "../../../components/ui/tooltip.js";
 import { cn } from "../../../lib/utils.js";
 
@@ -38,6 +39,8 @@ function getDirtyFieldValue(state: ProjectTruthState): ProjectFieldValue {
   };
 }
 
+const githubUiEnabled = isGithubUiEnabled();
+
 export function ProjectList({
   projects,
   selectedProjectId,
@@ -64,7 +67,9 @@ export function ProjectList({
                   state: project.latestVerification
                 },
                 { key: "git", label: "Git status", state: project.gitStatus },
-                { key: "github", label: "GitHub status", state: project.githubStatus }
+                ...(githubUiEnabled
+                  ? [{ key: "github", label: "GitHub status", state: project.githubStatus }]
+                  : [])
               ].filter(({ state }) => shouldShowTruthState(state));
               const metadataBadges = [
                 {
@@ -79,12 +84,16 @@ export function ProjectList({
                   field: getDirtyFieldValue(project.dirtyState),
                   content: `Dirty ${project.dirtyState.label}`
                 },
-                {
-                  key: "pull-request",
-                  label: "Pull request",
-                  field: project.pullRequest,
-                  content: `PR ${project.pullRequest.displayValue}`
-                }
+                ...(githubUiEnabled
+                  ? [
+                      {
+                        key: "pull-request",
+                        label: "Pull request",
+                        field: project.pullRequest,
+                        content: `PR ${project.pullRequest.displayValue}`
+                      }
+                    ]
+                  : [])
               ].filter(({ field }) => shouldShowFieldValue(field));
 
               return (
