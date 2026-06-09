@@ -82,7 +82,7 @@ export const transcriptRecordSchema = z.object({
       tool: z.number().int().nonnegative().optional(),
       total: z.number().int().nonnegative().optional()
     })
-    .optional(),
+    .nullish(),
   model: z.string().optional(),
   toolCalls: z.array(toolCallSchema).optional()
 });
